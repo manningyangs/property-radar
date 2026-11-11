@@ -43,44 +43,43 @@ const metrics = demo ? demo.admin.metrics : [];
 ---
 
 <AppShell title="管理后台" demo={demoEnabled} showNav={false} variant="admin">
+  {/* 左侧深色导航必须是 AppShell 的直接子节点并带 slot 属性：
+      Astro 仅静态收集直接子级上的 slot，嵌入三元表达式/Fragment 会被静默丢弃 */}
+  <div slot="sidebar" class="side">
+    <div class="side-brand">
+      <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="7" fill="#ffffff" fill-opacity="0.12" />
+        <path
+          d="M6 22 L13 14 L18 18 L26 9"
+          stroke="#7FB0FF"
+          stroke-width="3"
+          fill="none"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+      <span>房价雷达 · 管理</span>
+    </div>
+    <nav class="side-nav" aria-label="后台导航">
+      {navItems.map((item) =>
+        item.active ? (
+          <a class="side-link is-active" href="/admin" aria-current="page">
+            {item.label}
+          </a>
+        ) : (
+          <button type="button" class="side-link" data-soon={item.label}>
+            <span class="side-link-label">{item.label}</span>
+            <span class="badge badge--neutral">暂未开放</span>
+          </button>
+        ),
+      )}
+    </nav>
+    <p class="side-foot">{demo ? "演示构建 · 演示数据" : "未接入数据源 · 暂未覆盖"}</p>
+  </div>
+
   {
     demo ? (
-      <>
-        {/* ===== 左侧深色导航（slot） ===== */}
-        <div slot="sidebar" class="side">
-          <div class="side-brand">
-            <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true">
-              <rect width="32" height="32" rx="7" fill="#ffffff" fill-opacity="0.12" />
-              <path
-                d="M6 22 L13 14 L18 18 L26 9"
-                stroke="#7FB0FF"
-                stroke-width="3"
-                fill="none"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
-            <span>房价雷达 · 管理</span>
-          </div>
-          <nav class="side-nav" aria-label="后台导航">
-            {navItems.map((item) =>
-              item.active ? (
-                <a class="side-link is-active" href="/admin" aria-current="page">
-                  {item.label}
-                </a>
-              ) : (
-                <button type="button" class="side-link" data-soon={item.label}>
-                  <span class="side-link-label">{item.label}</span>
-                  <span class="badge badge--neutral">暂未开放</span>
-                </button>
-              ),
-            )}
-          </nav>
-          <p class="side-foot">演示构建 · 演示数据</p>
-        </div>
-
-        {/* ===== 主内容 ===== */}
-        <div class="page admin-page">
+      <div class="page admin-page">
           {/* 顶部状态条 */}
           <div class="statusbar" role="status">
             <button
@@ -201,7 +200,6 @@ const metrics = demo ? demo.admin.metrics : [];
             danger
           />
         </div>
-      </>
     ) : (
       <div class="page admin-page">
         <EmptyState
