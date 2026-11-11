@@ -18,6 +18,7 @@ dist/
 npm-debug.log*
 .tmp/
 .cache/
+.screenshots/.tmp/
 
 # 编辑器与系统文件
 .vscode/

@@ -1,0 +1,56 @@
+---
+// 首页骨架占位——完整移动端 UI 按 PRD §2.2A 视觉规范在 TASK-01B 实施
+const title = "房价雷达 Property Radar";
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="房价雷达：个人购房价格监控与目标价提醒" />
+    <meta name="robots" content="noindex" />
+    <title>{title}</title>
+    <style>
+      :root {
+        --brand-deep: #14253d;
+        --brand: #3277e6;
+        --bg: #f5f7fa;
+        --text-muted: #7b8798;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+        background: var(--bg);
+        color: var(--brand-deep);
+      }
+      main {
+        max-width: 430px;
+        margin: 0 auto;
+        padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
+      }
+      h1 { font-size: 22px; margin: 0 0 8px; }
+      p { color: var(--text-muted); line-height: 1.7; font-size: 14px; }
+      .badge {
+        display: inline-block;
+        border: 1px solid var(--brand);
+        color: var(--brand);
+        border-radius: 6px;
+        padding: 2px 8px;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>房价雷达</h1>
+      <span class="badge">骨架占位 · TASK-01B 实施完整 UI</span>
+      <p>
+        个人购房价格监控与目标价提醒。当前为工程骨架阶段：页面结构、设计令牌与交互原型将按
+        PRD §2.2A 视觉规范实施。
+      </p>
+      <p>城市由你自主选择；数据覆盖状态按城市逐个标注，未覆盖城市不会显示虚构价格。</p>
+    </main>
+  </body>
+</html>
