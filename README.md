@@ -21,6 +21,7 @@ config/sources/           # 数据源登记册（PRD §5.2 状态机）
 db/migrations/public/     # Public D1 迁移
 db/migrations/private/    # Private D1 迁移
 packages/shared/          # 共享枚举/类型/校验
+packages/migrations/      # D1 迁移加载器与本地迁移验收测试
 docs/                     # PRD、审计与核验报告
 .github/workflows/        # CI（最小 permissions，Action 固定 commit SHA）
 ```

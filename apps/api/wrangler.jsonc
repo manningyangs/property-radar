@@ -3,10 +3,10 @@
   "name": "property-radar-api",
   "main": "src/index.ts",
   "compatibility_date": "2026-11-01",
-  // D1 绑定在 TASK-02A 迁移时加入：
-  // "d1_databases": [
-  //   { "binding": "DB_PUBLIC", "database_name": "property_radar_public", "database_id": "<创建后填入>" },
-  //   { "binding": "DB_PRIVATE", "database_name": "property_radar_private", "database_id": "<创建后填入>" }
-  // ],
+  // D1 分库绑定（TASK-02A 已创建，schema 见 db/migrations/{public,private}/）
+  "d1_databases": [
+    { "binding": "DB_PUBLIC", "database_name": "radar_public", "database_id": "ae8a0143-f3ca-4141-ba15-754ccdb15fff" },
+    { "binding": "DB_PRIVATE", "database_name": "radar_private", "database_id": "c94227fc-b557-4bf1-ad3e-e929bf1820ab" }
+  ],
   "observability": { "enabled": true }
 }

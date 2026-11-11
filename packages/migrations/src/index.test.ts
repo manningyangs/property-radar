@@ -1,0 +1,363 @@
+// TASK-02A：迁移本地验收测试——up/down 可重复运行、索引覆盖核心查询、
+// 外键与唯一约束生效、Public DB 无个人信息（PRD §9.4）。
+// 全部在内存库执行；「测试数据」为虚构数据（example.com / TEST-* 代码），仅存在于内存库。
+import { describe, expect, it } from "vitest";
+import { DatabaseSync } from "node:sqlite";
+import { applyMigrations, loadMigrations } from "./index";
+
+const PUBLIC_TABLES = [
+  "cities",
+  "communities",
+  "data_sources_public",
+  "listing_price_events_public",
+  "price_observations",
+  "price_snapshots",
+  "regions",
+  "source_city_coverage",
+];
+
+const PRIVATE_TABLES = [
+  "admin_roles",
+  "alert_events",
+  "audit_logs",
+  "city_coverage_requests",
+  "email_otps",
+  "notification_deliveries",
+  "notification_preferences",
+  "sessions",
+  "user_cities",
+  "user_consents",
+  "users",
+  "watch_items",
+  "watch_rules",
+];
+
+/** Public 库禁止出现的个人/账户字段名（§9.4：Public DB 不含用户数据） */
+const FORBIDDEN_PUBLIC_COLUMN =
+  /(^|_)(email|user|phone|mobile|token|otp|session|consent|password|passwd|id_card|real_name|ip_address|ip_hash)(_|$)/i;
+
+function createDb(): DatabaseSync {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON;");
+  return db;
+}
+
+function tablesOf(db: DatabaseSync): string[] {
+  const rows = db
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+    )
+    .all() as { name: string }[];
+  return rows.map((r) => r.name);
+}
+
+function indexesOf(db: DatabaseSync): string[] {
+  const rows = db
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'",
+    )
+    .all() as { name: string }[];
+  return rows.map((r) => r.name);
+}
+
+function columnsOf(db: DatabaseSync, table: string): string[] {
+  const rows = db.prepare(`PRAGMA table_info("${table}")`).all() as {
+    name: string;
+  }[];
+  return rows.map((r) => r.name);
+}
+
+describe("迁移文件加载", () => {
+  it("public/private 的 up 与 down 迁移成对且同名", () => {
+    for (const db of ["public", "private"] as const) {
+      const up = loadMigrations(db, "up");
+      const down = loadMigrations(db, "down");
+      expect(up.length).toBeGreaterThan(0);
+      expect(up.map((m) => m.name)).toEqual(down.map((m) => m.name));
+    }
+  });
+
+  it("所有 up/down 语句均为幂等写法（IF NOT EXISTS / IF EXISTS）", () => {
+    for (const db of ["public", "private"] as const) {
+      for (const dir of ["up", "down"] as const) {
+        for (const m of loadMigrations(db, dir)) {
+          // 剥离 -- 行注释，避免注释中的示例词误报
+          const sql = m.sql
+            .split("\n")
+            .filter((line) => !line.trimStart().startsWith("--"))
+            .join("\n");
+          const bareCreate = sql.match(/CREATE\s+TABLE\s+(?!IF NOT EXISTS)/i);
+          const bareDrop = sql.match(/DROP\s+TABLE\s+(?!IF EXISTS)/i);
+          const bareIndex = sql.match(
+            /CREATE\s+(UNIQUE\s+)?INDEX\s+(?!IF NOT EXISTS)/i,
+          );
+          expect(bareCreate, `${m.name} 存在非幂等 CREATE TABLE`).toBeNull();
+          expect(bareDrop, `${m.name} 存在非幂等 DROP TABLE`).toBeNull();
+          expect(bareIndex, `${m.name} 存在非幂等 CREATE INDEX`).toBeNull();
+        }
+      }
+    }
+  });
+});
+
+describe("Public D1（radar_public）", () => {
+  it("up 建出全部 8 张表，且重复执行（幂等）不报错", () => {
+    const db = createDb();
+    applyMigrations(db, "public", "up");
+    expect(tablesOf(db).sort()).toEqual(PUBLIC_TABLES);
+    expect(() => applyMigrations(db, "public", "up")).not.toThrow();
+    expect(tablesOf(db).sort()).toEqual(PUBLIC_TABLES);
+  });
+
+  it("down 可回滚全部表，重复执行安全；down→up 可重建", () => {
+    const db = createDb();
+    applyMigrations(db, "public", "up");
+    applyMigrations(db, "public", "down");
+    expect(tablesOf(db)).toEqual([]);
+    expect(() => applyMigrations(db, "public", "down")).not.toThrow();
+    applyMigrations(db, "public", "up");
+    expect(tablesOf(db).sort()).toEqual(PUBLIC_TABLES);
+  });
+
+  it("索引覆盖 §9.3 公共侧核心查询", () => {
+    const db = createDb();
+    applyMigrations(db, "public", "up");
+    const idx = indexesOf(db);
+    expect(idx).toContain("ix_price_snapshots_core"); // price_snapshots(object_type, object_id, metric_code, stat_date DESC)
+    expect(idx).toContain("ix_price_obs_source_stat_obj"); // price_observations(source_id, stat_date, object_id)
+    expect(idx).toContain("ix_communities_region_name"); // communities(region_id, name)
+    expect(idx).toContain("ux_regions_city_parent_name_level");
+    expect(idx).toContain("ux_price_snapshots_key");
+  });
+
+  it("外键与唯一约束生效（source_city_coverage 主键、快照唯一键）", () => {
+    const db = createDb();
+    applyMigrations(db, "public", "up");
+    // 不存在的 source/city 引用被外键拒绝
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO source_city_coverage (source_id, city_code, object_level, authorization_status) VALUES ('src_x', 'CITY_X', 'city', 'approved_open')",
+        )
+        .run(),
+    ).toThrow();
+    // 虚构测试数据写入成功（仅内存库）
+    db.prepare(
+      "INSERT INTO cities (city_code, name, province_code) VALUES ('TEST-0000', '本地测试城市（虚构）', 'TEST-PR')",
+    ).run();
+    db.prepare(
+      "INSERT INTO data_sources_public (source_id, name, source_type) VALUES ('src_test_local', '本地测试来源（虚构）', 'manual')",
+    ).run();
+    db.prepare(
+      "INSERT INTO source_city_coverage (source_id, city_code, object_level, authorization_status) VALUES ('src_test_local', 'TEST-0000', 'city', 'manual_only')",
+    ).run();
+    // 同一 (source_id, city_code, object_level) 重复插入被拒
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO source_city_coverage (source_id, city_code, object_level, authorization_status) VALUES ('src_test_local', 'TEST-0000', 'city', 'approved_open')",
+        )
+        .run(),
+    ).toThrow();
+    // 同一（对象, 价格类型, 指标, 日期）快照唯一
+    const snap =
+      "INSERT INTO price_snapshots (snapshot_id, object_type, object_id, price_type, metric_code, median, stat_date) VALUES (?, 'region', 'TEST-0000', 'listing_ask', 'median_unit_price', 12345, '2026-11-01')";
+    db.prepare(snap).run("snap_test_1");
+    expect(() => db.prepare(snap).run("snap_test_2")).toThrow();
+  });
+
+  it("Public 库任何表都不含个人信息字段（§9.4 验收）", () => {
+    const db = createDb();
+    applyMigrations(db, "public", "up");
+    for (const table of tablesOf(db)) {
+      for (const col of columnsOf(db, table)) {
+        expect(
+          FORBIDDEN_PUBLIC_COLUMN.test(col),
+          `Public 表 ${table} 出现敏感字段 ${col}`,
+        ).toBe(false);
+      }
+    }
+    // 私有库应包含用户表，证明两库确实分离
+    const priv = createDb();
+    applyMigrations(priv, "private", "up");
+    expect(tablesOf(priv)).toContain("users");
+    expect(tablesOf(db)).not.toContain("users");
+  });
+
+  it("虚构测试数据可完成「城市→区域→小区→观测→快照」链路", () => {
+    const db = createDb();
+    applyMigrations(db, "public", "up");
+    db.prepare(
+      "INSERT INTO cities (city_code, name, province_code) VALUES ('TEST-0000', '本地测试城市（虚构）', 'TEST-PR')",
+    ).run();
+    db.prepare(
+      "INSERT INTO regions (region_id, city_code, name, level) VALUES ('rgn_test', 'TEST-0000', '测试区（虚构）', 'district')",
+    ).run();
+    db.prepare(
+      "INSERT INTO communities (community_id, city_code, region_id, name) VALUES ('com_test', 'TEST-0000', 'rgn_test', '测试小区（虚构）')",
+    ).run();
+    db.prepare(
+      "INSERT INTO data_sources_public (source_id, name, source_type) VALUES ('src_test_local', '本地测试来源（虚构）', 'manual')",
+    ).run();
+    db.prepare(
+      `INSERT INTO price_observations
+       (observation_id, source_id, object_type, object_id, price_type, metric_code,
+        unit_price_yuan_sqm, stat_date, payload_hash)
+       VALUES ('obs_test', 'src_test_local', 'community', 'com_test', 'listing_ask',
+               'median_unit_price', 20000, '2026-11-01', 'deadbeef')`,
+    ).run();
+    const joined = db
+      .prepare(
+        `SELECT o.observation_id FROM price_observations o
+         JOIN communities c ON c.community_id = o.object_id
+         JOIN regions r ON r.region_id = c.region_id
+         WHERE r.region_id = 'rgn_test'`,
+      )
+      .all();
+    expect(joined).toHaveLength(1);
+  });
+});
+
+describe("Private D1（radar_private）", () => {
+  it("up 建出全部 13 张表，且重复执行（幂等）不报错", () => {
+    const db = createDb();
+    applyMigrations(db, "private", "up");
+    expect(tablesOf(db).sort()).toEqual(PRIVATE_TABLES);
+    expect(() => applyMigrations(db, "private", "up")).not.toThrow();
+  });
+
+  it("down 可回滚全部表，重复执行安全；down→up 可重建", () => {
+    const db = createDb();
+    applyMigrations(db, "private", "up");
+    applyMigrations(db, "private", "down");
+    expect(tablesOf(db)).toEqual([]);
+    expect(() => applyMigrations(db, "private", "down")).not.toThrow();
+    applyMigrations(db, "private", "up");
+    expect(tablesOf(db).sort()).toEqual(PRIVATE_TABLES);
+  });
+
+  it("索引覆盖 §9.3 私有侧核心查询", () => {
+    const db = createDb();
+    applyMigrations(db, "private", "up");
+    const idx = indexesOf(db);
+    expect(idx).toContain("ix_watch_items_user_status_created"); // watch_items(user_id, status, created_at DESC)
+    expect(idx).toContain("ix_watch_rules_user_enabled_type"); // watch_rules(user_id, is_enabled, rule_type)
+    expect(idx).toContain("ix_alert_events_user_created"); // alert_events(user_id, created_at DESC)
+    expect(idx).toContain("ix_deliveries_status_created"); // notification_deliveries(status, created_at)
+    expect(idx).toContain("ix_sessions_token_expires"); // sessions(token_hash, expires_at)
+    expect(idx).toContain("ix_email_otps_email_purpose_expires"); // email_otps(email_normalized, purpose, expires_at)
+  });
+
+  it("users / user_cities / watch_items / alert_events 唯一约束生效", () => {
+    const db = createDb();
+    applyMigrations(db, "private", "up");
+    const insUser =
+      "INSERT INTO users (user_id, email_normalized) VALUES ('usr_a', 'demo.a@example.com')";
+    db.prepare(insUser).run();
+    expect(() => db.prepare(insUser).run()).toThrow(); // email_normalized UNIQUE
+    db.prepare(
+      "INSERT INTO user_cities (user_id, city_code) VALUES ('usr_a', 'TEST-0000')",
+    ).run();
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO user_cities (user_id, city_code) VALUES ('usr_a', 'TEST-0000')",
+        )
+        .run(),
+    ).toThrow(); // (user_id, city_code) UNIQUE
+    const insWatch =
+      "INSERT INTO watch_items (watch_id, user_id, object_type, object_id, display_name_snapshot) VALUES ('w_a', 'usr_a', 'region', 'rgn_x', '测试区域（虚构）')";
+    db.prepare(insWatch).run();
+    expect(() => db.prepare(insWatch).run()).toThrow(); // (user_id, object_type, object_id) UNIQUE
+    db.prepare(
+      "INSERT INTO alert_events (event_id, user_id, event_key, event_type) VALUES ('e_a', 'usr_a', 'evt-key-1', 'price_crossed')",
+    ).run();
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO alert_events (event_id, user_id, event_key, event_type) VALUES ('e_b', 'usr_a', 'evt-key-1', 'price_crossed')",
+        )
+        .run(),
+    ).toThrow(); // event_key UNIQUE
+  });
+
+  it("外键生效：孤儿行被拒，且整库无外键违规", () => {
+    const db = createDb();
+    applyMigrations(db, "private", "up");
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO watch_items (watch_id, user_id, object_type, object_id, display_name_snapshot) VALUES ('w_orphan', 'usr_missing', 'region', 'rgn_x', 'x')",
+        )
+        .run(),
+    ).toThrow();
+    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+  });
+
+  it("所有 user-owned 表都带 user_id（email_otps/audit_logs 为设计例外）", () => {
+    const db = createDb();
+    applyMigrations(db, "private", "up");
+    const exceptions = new Set(["email_otps", "audit_logs", "users"]);
+    for (const table of tablesOf(db)) {
+      if (exceptions.has(table)) continue;
+      expect(columnsOf(db, table), `${table} 缺少 user_id`).toContain(
+        "user_id",
+      );
+    }
+  });
+
+  it("虚构测试数据可完成「用户→城市→监控→规则→告警→投递」链路", () => {
+    const db = createDb();
+    applyMigrations(db, "private", "up");
+    db.prepare(
+      "INSERT INTO users (user_id, email_normalized, email_verified_at) VALUES ('usr_demo', 'demo.user@example.com', datetime('now'))",
+    ).run();
+    db.prepare(
+      "INSERT INTO user_cities (user_id, city_code, is_default) VALUES ('usr_demo', 'TEST-0000', 1)",
+    ).run();
+    db.prepare(
+      "INSERT INTO watch_items (watch_id, user_id, object_type, object_id, display_name_snapshot) VALUES ('w_demo', 'usr_demo', 'region', 'rgn_x', '测试区域（虚构）')",
+    ).run();
+    db.prepare(
+      `INSERT INTO watch_rules (rule_id, watch_id, user_id, rule_type, metric_code, target_value, unit)
+       VALUES ('r_demo', 'w_demo', 'usr_demo', 'price_below', 'median_unit_price', 20000, 'yuan_sqm')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO alert_events (event_id, user_id, rule_id, watch_id, event_key, event_type, old_value, new_value, target_value)
+       VALUES ('e_demo', 'usr_demo', 'r_demo', 'w_demo', 'price_crossed', 'r_demo|2026-11-01|below', 21000, 19500, 20000)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO notification_deliveries (delivery_id, event_id, user_id, channel, provider, status)
+       VALUES ('d_demo', 'e_demo', 'usr_demo', 'email', 'apps_script', 'pending')`,
+    ).run();
+    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    const rows = db
+      .prepare(
+        `SELECT d.delivery_id FROM notification_deliveries d
+         JOIN alert_events e ON e.event_id = d.event_id
+         JOIN watch_rules r ON r.rule_id = e.rule_id
+         JOIN watch_items w ON w.watch_id = r.watch_id
+         WHERE w.user_id = 'usr_demo'`,
+      )
+      .all();
+    expect(rows).toHaveLength(1);
+  });
+
+  it("OTP 只存哈希列且可按（邮箱, 目的, 到期）索引查询", () => {
+    const db = createDb();
+    applyMigrations(db, "private", "up");
+    const cols = columnsOf(db, "email_otps");
+    expect(cols).toContain("code_hash");
+    expect(cols).not.toContain("code");
+    db.prepare(
+      `INSERT INTO email_otps (otp_id, email_normalized, code_hash, expires_at)
+       VALUES ('otp_demo', 'demo.user@example.com', 'sha256:fakehash', datetime('now', '+10 minutes'))`,
+    ).run();
+    const plan = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name = 'ix_email_otps_email_purpose_expires'",
+      )
+      .all();
+    expect(plan).toHaveLength(1);
+  });
+});

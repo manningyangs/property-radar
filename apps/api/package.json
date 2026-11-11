@@ -8,7 +8,13 @@
     "deploy": "wrangler deploy",
     "build": "wrangler deploy --dry-run --outdir dist",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "db:up:public": "wrangler d1 execute radar_public --local --file ../../db/migrations/public/0001_init.up.sql",
+    "db:up:private": "wrangler d1 execute radar_private --local --file ../../db/migrations/private/0001_init.up.sql",
+    "db:down:public": "wrangler d1 execute radar_public --local --file ../../db/migrations/public/0001_init.down.sql",
+    "db:down:private": "wrangler d1 execute radar_private --local --file ../../db/migrations/private/0001_init.down.sql",
+    "db:apply:public": "wrangler d1 execute radar_public --remote --file ../../db/migrations/public/0001_init.up.sql",
+    "db:apply:private": "wrangler d1 execute radar_private --remote --file ../../db/migrations/private/0001_init.up.sql"
   },
   "dependencies": {
     "hono": "^4.7.0"
