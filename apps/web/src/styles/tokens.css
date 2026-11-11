@@ -1,0 +1,159 @@
+/**
+ * 房价雷达 Design Tokens（TASK-01B 设计交付物 1）
+ * 依据：PRD §2.2A 视觉设计系统与页面布局规范（V1.2 第 162–235 行）。
+ * 约束：
+ *  - 品牌色/语义色色值必须与 PRD 表格完全一致，不得擅自调整；
+ *  - 颜色不得作为唯一信息编码，涨跌必须同时呈现箭头 + 文字 + 数值；
+ *  - 8px spacing grid；390px 基准视口；交互区 ≥44px；输入 48px；
+ *  - 移动端底部导航预留 iOS safe-area inset。
+ */
+:root {
+  /* ===== 品牌色与语义色（PRD §2.2A 色值表，原样） ===== */
+  --color-brand-900: #14253d; /* 品牌深海军蓝、主标题、顶部重点区 */
+  --color-brand-700: #1e3a5f; /* 深色导航、重点文字 */
+  --color-primary: #3277e6; /* 主按钮、当前选中、交互链接 */
+  --color-primary-soft: #eaf2ff; /* 选中背景、信息卡片 */
+  --color-bg: #f5f7fa; /* 页面背景 */
+  --color-surface: #ffffff; /* 卡片/弹层背景 */
+  --color-border: #e5eaf1; /* 分割线、卡片边框 */
+  --color-text: #172b4d; /* 主文字 */
+  --color-muted: #6b778c; /* 次级信息、数据说明 */
+  --color-down: #15966a; /* 房价下降/低于目标的有利信号（必须配文字+箭头） */
+  --color-up: #d84a4a; /* 房价上涨/高于目标的信号（必须配文字+箭头） */
+  --color-warning: #d98b20; /* 数据延迟、样本不足、待核验 */
+  --color-danger: #c83d4d; /* 严重错误、权限/采集失败 */
+  --color-neutral: #7b8798; /* 暂无数据、未覆盖、停用 */
+
+  /* 语义色的浅底背景（徽标用，由主语义色以低透明度叠加生成） */
+  --color-up-soft: rgb(216 74 74 / 12%);
+  --color-down-soft: rgb(21 150 106 / 12%);
+  --color-warning-soft: rgb(217 139 32 / 14%);
+  --color-danger-soft: rgb(200 61 77 / 12%);
+  --color-neutral-soft: rgb(123 135 152 / 14%);
+
+  /* ===== 字体 ===== */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --font-mono: "SF Mono", "Cascadia Mono", Consolas, "Courier New", monospace;
+  /* 价格数字必须等宽数字：配合 class="num" 或直接引用本变量 */
+  --font-numeric:
+    var(--font-sans), ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --text-xs: 12px; /* 数据说明、来源注记 */
+  --text-sm: 13px; /* 次级正文 */
+  --text-base: 15px; /* 正文 */
+  --text-md: 17px; /* 卡片标题 */
+  --text-lg: 20px; /* 页面标题 */
+  --text-xl: 24px; /* 主指标 */
+  --text-2xl: 32px; /* 首要价格数字 */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --line-tight: 1.25;
+  --line-normal: 1.5;
+
+  /* ===== 间距（8px grid：常用 8/12/16/24/32） ===== */
+  --space-1: 8px;
+  --space-1-5: 12px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  /* 4px 仅用于图标与文字的微对齐 */
+  --space-0-5: 4px;
+
+  /* ===== 圆角 ===== */
+  --radius-card: 16px; /* 卡片圆角 14–16px，取上限 */
+  --radius-card-sm: 14px;
+  --radius-input: 10px;
+  --radius-pill: 999px;
+
+  /* ===== 阴影（克制：仅弹层与悬浮导航） ===== */
+  --shadow-card: 0 1px 2px rgb(23 43 77 / 4%);
+  --shadow-raised: 0 4px 16px rgb(23 43 77 / 8%);
+  --shadow-dialog: 0 12px 40px rgb(23 43 77 / 18%);
+
+  /* ===== 尺寸与交互约束 ===== */
+  --viewport-base: 390px; /* 主设计基准视口 */
+  --page-gutter: 16px; /* 手机页面左右边距 */
+  --card-padding: 16px; /* 卡片内部 padding */
+  --hit-target: 44px; /* 主要可点击区域最小高度 */
+  --input-height: 48px; /* 表单输入建议高度 */
+  --header-height: 56px;
+  --bottom-nav-height: 56px; /* 底部导航高度（不含 safe-area） */
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --content-max: 1200px; /* 桌面端内容最大宽度 */
+  --content-max-admin: 1440px; /* 管理后台基准宽度 */
+
+  /* ===== 断点（媒体查询中以字面量使用，此处仅登记取值） =====
+     --bp-xs: 360px   最窄手机
+     --bp-sm: 375px   iPhone 常规
+     --bp-md: 390px   设计基准
+     --bp-lg: 430px   大号手机
+     --bp-xl: 768px   平板/桌面（切换为顶部导航与多栏布局）
+     --bp-2xl: 1440px 管理后台桌面基准 */
+  --bp-xs: 360px;
+  --bp-sm: 375px;
+  --bp-md: 390px;
+  --bp-lg: 430px;
+  --bp-xl: 768px;
+  --bp-2xl: 1440px;
+}
+
+/* ===== 基础重置与全局工具类 ===== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  /* 禁止整页横向溢出；各横向滚动区自行容器级 overflow-x */
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--line-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* 价格/数字统一等宽数字 */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* 仅读屏可见的辅助文本 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
