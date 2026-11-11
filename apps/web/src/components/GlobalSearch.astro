@@ -1,0 +1,107 @@
+---
+/**
+ * GlobalSearch：全局搜索框（区县 / 板块 / 小区名），GET 提交到 /communities，
+ * 附带城市切换与添加城市入口（打开 CityScopeBadge 的选择器弹层）。
+ */
+interface Props {
+  placeholder?: string;
+  /** 输入联想候选（仅演示构建传入虚构名称；生产构建为空） */
+  suggestions?: string[];
+  cityId?: string;
+}
+
+const {
+  placeholder = "搜索区县 / 板块 / 小区…",
+  suggestions = [],
+  cityId = "header",
+} = Astro.props;
+
+const listId = `search-suggest-${cityId}`;
+---
+
+<form class="search" action="/communities" method="get" role="search">
+  <label class="search-box" for={listId}>
+    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" class="search-icon">
+      <circle cx="8" cy="8" r="5.4" stroke="currentColor" stroke-width="1.7" fill="none" />
+      <path d="M12.2 12.2 16 16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+    </svg>
+    <input
+      type="search"
+      id={listId}
+      name="q"
+      class="search-input"
+      placeholder={placeholder}
+      list={listId + "-list"}
+      autocomplete="off"
+    />
+    {
+      suggestions.length > 0 && (
+        <datalist id={listId + "-list"}>
+          {suggestions.map((item) => (
+            <option value={item} />
+          ))}
+        </datalist>
+      )
+    }
+    <button type="submit" class="btn btn--primary search-btn">搜索</button>
+  </label>
+</form>
+
+<div class="search-actions btn-row">
+  <button type="button" class="chip" data-city-open={cityId}>
+    切换城市
+  </button>
+  <button type="button" class="chip" data-city-open={cityId}>
+    + 添加城市
+  </button>
+</div>
+
+<style>
+  .search {
+    display: block;
+  }
+
+  .search-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: var(--input-height);
+    padding: 0 6px 0 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-card);
+  }
+
+  .search-box:focus-within {
+    border-color: var(--color-primary);
+    outline: 2px solid var(--color-primary-soft);
+  }
+
+  .search-icon {
+    color: var(--color-muted);
+    flex-shrink: 0;
+  }
+
+  .search-input {
+    flex: 1;
+    min-width: 0;
+    height: 40px;
+    border: none;
+    background: transparent;
+    color: var(--color-text);
+    font-size: var(--text-base);
+    font-family: inherit;
+    outline: none;
+  }
+
+  .search-btn {
+    min-height: 40px;
+    padding: 0 16px;
+    flex-shrink: 0;
+  }
+
+  .search-actions {
+    margin-top: var(--space-1);
+  }
+</style>

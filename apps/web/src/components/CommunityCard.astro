@@ -1,0 +1,154 @@
+---
+/**
+ * CommunityCard：小区结果/列表卡片（整卡可点击进入小区详情）。
+ * 价格缺失时显示“数据不足”，绝不用其他对象数字填充。
+ */
+import PriceChangeBadge from "./PriceChangeBadge.astro";
+import SampleCountLabel from "./SampleCountLabel.astro";
+
+interface Props {
+  id: string;
+  name: string;
+  regionName: string;
+  plate: string;
+  median: number | null;
+  change30?: number;
+  direction?: "up" | "down" | "flat";
+  sample: number;
+  statDate: string;
+  source: string;
+  status?: "ok" | "stale" | "low" | "none";
+}
+
+const {
+  id,
+  name,
+  regionName,
+  plate,
+  median,
+  change30,
+  direction = "flat",
+  sample,
+  statDate,
+  source,
+  status = "ok",
+} = Astro.props;
+
+const statusBadge =
+  status === "stale"
+    ? { text: "数据延迟", cls: "badge--warning" }
+    : status === "low"
+      ? { text: "样本有限", cls: "badge--warning" }
+      : status === "none"
+        ? { text: "数据不足", cls: "badge--neutral" }
+        : { text: "数据正常", cls: "badge--down" };
+---
+
+<a class="ccard card" href={`/community?id=${encodeURIComponent(id)}`}>
+  <div class="ccard-top">
+    <span class="ccard-name">{name}</span>
+    <span class:list={["badge", statusBadge.cls]}>{statusBadge.text}</span>
+  </div>
+  <p class="ccard-loc meta">{regionName} · {plate}</p>
+
+  <div class="ccard-price-row">
+    {
+      median !== null ? (
+        <>
+          <span class="ccard-price num">{median.toLocaleString("zh-CN")}</span>
+          <span class="ccard-unit">元/㎡</span>
+          {change30 !== undefined && (
+            <PriceChangeBadge direction={direction} percent={change30} size="sm" />
+          )}
+        </>
+      ) : (
+        <span class="ccard-empty">数据不足 · 不发布代表性价格</span>
+      )
+    }
+  </div>
+
+  <div class="ccard-badges">
+    <SampleCountLabel sample={sample} explain={false} />
+  </div>
+
+  <p class="meta ccard-meta">
+    数据日期 <span class="num">{statDate}</span> · 来源 {source} ·
+    <span class="ccard-more">查看详情 ›</span>
+  </p>
+</a>
+
+<style>
+  .ccard {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    color: inherit;
+    text-decoration: none;
+    transition: border-color 0.15s ease;
+  }
+
+  .ccard:hover {
+    border-color: var(--color-primary);
+  }
+
+  .ccard-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  .ccard-name {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ccard-loc {
+    margin: 0;
+  }
+
+  .ccard-price-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 2px;
+  }
+
+  .ccard-price {
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
+    color: var(--color-brand-900);
+  }
+
+  .ccard-unit {
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+  }
+
+  .ccard-empty {
+    font-size: var(--text-sm);
+    color: var(--color-neutral);
+  }
+
+  .ccard-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .ccard-meta {
+    margin: 0;
+    border-top: 1px dashed var(--color-border);
+    padding-top: 6px;
+  }
+
+  .ccard-more {
+    color: var(--color-primary);
+  }
+</style>

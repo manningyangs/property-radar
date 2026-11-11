@@ -1,0 +1,555 @@
+---
+/**
+ * 账户与隐私 `/account`（PRD 2.9）：
+ * 邮箱与演示会话、通知渠道（浏览器推送使用真实 Notification 权限状态，拒绝即降级说明）、
+ * 覆盖申请入口（本地演示 + 诚实确认文案）、隐私与数据说明 `#privacy`、
+ * 数据导出/删除本地收藏/注销（ConfirmDialog 二次确认或“暂未开放”标注）。
+ * 本页不含行情数字，因此演示与默认构建共用同一框架（仅数据说明区块分支）。
+ */
+import AppShell from "../layouts/AppShell.astro";
+import SourceAttribution from "../components/SourceAttribution.astro";
+import EmptyState from "../components/EmptyState.astro";
+import ConfirmDialog from "../components/ConfirmDialog.astro";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+const demo = demoEnabled ? (await import("../data/demo")).demoData : null;
+
+const channels = [
+  { key: "digest", label: "每日摘要邮件", hint: "每日一封，汇总全部监控对象变化" },
+  { key: "alert", label: "目标价触发邮件", hint: "达到目标价时立即发送；失败仍保留站内事件" },
+  { key: "site", label: "站内事件", hint: "事件中心始终留存，不依赖邮件送达" },
+];
+---
+
+<AppShell title="账户与隐私" activeTab="watch" demo={demoEnabled} backHref="/">
+  <div class="page account-page">
+    {/* ===== 账户与会话 ===== */}
+    <section class="card acc-card" aria-labelledby="acc-session">
+      <div class="acc-head">
+        <h2 class="section-title" id="acc-session">账户</h2>
+        <span class="badge badge--neutral" data-session-badge>游客模式</span>
+      </div>
+      <dl class="acc-dl">
+        <div class="acc-row">
+          <dt>邮箱</dt>
+          <dd data-account-email>未登录</dd>
+        </div>
+        <div class="acc-row">
+          <dt>会话</dt>
+          <dd>演示会话仅保存在当前设备，不向任何服务器发送邮箱</dd>
+        </div>
+      </dl>
+      <div class="btn-row">
+        <button type="button" class="btn btn--secondary" data-signout>退出登录</button>
+        <a class="btn btn--secondary" href="/login">邮箱验证码登录</a>
+      </div>
+    </section>
+
+    {/* ===== 通知渠道 ===== */}
+    <section class="card acc-card" aria-labelledby="acc-channels">
+      <h2 class="section-title" id="acc-channels">通知渠道</h2>
+      <p class="meta">开关立即保存在本设备；浏览器推送需要系统权限，被拒绝不影响其它渠道。</p>
+      <div class="channel-list">
+        {
+          channels.map((channel) => (
+            <label class="channel-row">
+              <input type="checkbox" data-channel={channel.key} checked />
+              <span class="channel-text">
+                <span class="channel-label">{channel.label}</span>
+                <span class="meta">{channel.hint}</span>
+              </span>
+            </label>
+          ))
+        }
+        {/* 浏览器推送：读取真实 Notification 权限状态 */}
+        <div class="channel-row">
+          <span class="channel-text">
+            <span class="channel-label">浏览器推送</span>
+            <span class="meta" data-push-hint>读取权限状态…</span>
+          </span>
+          <span class="badge badge--neutral" data-push-status>检测中</span>
+          <button type="button" class="btn btn--sm btn--secondary" data-push-request>
+            开启
+          </button>
+        </div>
+      </div>
+      <p class="push-note is-hidden" data-push-denied>
+        浏览器通知已被拒绝：已自动降级为邮件 + 站内事件，其它渠道不受影响；如需开启请在浏览器地址栏的站点设置中允许通知。
+      </p>
+    </section>
+
+    {/* ===== 覆盖申请 ===== */}
+    <section class="card acc-card" aria-labelledby="acc-apply">
+      <h2 class="section-title" id="acc-apply">提交覆盖申请</h2>
+      <p class="meta">未开通的城市或小区可提交申请，审核通过后进入覆盖计划。</p>
+      <form class="stack-sm apply-form" data-apply-form novalidate>
+        <div class="field">
+          <label class="field-label" for="apply-city">城市（必填）</label>
+          <input
+            type="text"
+            id="apply-city"
+            class="input"
+            placeholder="如：你所在的城市"
+            autocomplete="address-level2"
+            data-apply-city
+          />
+          <p class="field-error" data-apply-error>请填写城市名称</p>
+        </div>
+        <div class="field">
+          <label class="field-label" for="apply-object">小区 / 板块（选填）</label>
+          <input
+            type="text"
+            id="apply-object"
+            class="input"
+            placeholder="留空则申请城市级覆盖"
+            autocomplete="off"
+            data-apply-object
+          />
+        </div>
+        <div class="field">
+          <label class="field-label" for="apply-note">补充说明（选填）</label>
+          <textarea
+            class="input apply-textarea"
+            id="apply-note"
+            placeholder="数据源线索、期望更新频率…"
+            data-apply-note></textarea>
+        </div>
+        <button type="submit" class="btn btn--primary btn--block">提交申请</button>
+        <p class="meta">演示环境：申请仅记录在本页面，不会真实提交到服务器。</p>
+      </form>
+      <div class="stack-sm apply-done is-hidden" data-apply-done role="status">
+        <span class="badge badge--down">申请已记录（演示）</span>
+        <p class="meta">
+          已收到「<span data-apply-summary class="apply-summary"></span>」的覆盖申请。
+          当前为演示构建，不会进入真实审核队列；正式环境将由管理员在后台审核并写入审计日志。
+        </p>
+        <button type="button" class="btn btn--secondary" data-apply-again>再提交一条</button>
+      </div>
+    </section>
+
+    {/* ===== 隐私与数据说明 ===== */}
+    <section class="card acc-card" id="privacy" aria-labelledby="acc-privacy">
+      <h2 class="section-title" id="acc-privacy">隐私与数据说明</h2>
+      <ul class="privacy-list">
+        <li>监控清单与规则登录后保存在云端并跨设备同步；未登录时的收藏仅保存在当前设备。</li>
+        <li>邮箱默认脱敏，仅用于登录验证与你订阅的事件通知，不会用于营销。</li>
+        <li>
+          价格数据均标注口径、来源、统计日期与样本量；样本不足时明确显示“数据不足”，不以其它对象数字填充。
+        </li>
+      </ul>
+      {
+        demo ? (
+          <SourceAttribution
+            metric="挂牌参考中位价（与实际成交口径分别呈现）"
+            source="演示数据源A/B（虚构）"
+            statDate="2026-11-10"
+            collectedAt="2026-11-10 06:10"
+            quality="B"
+          />
+        ) : (
+          <EmptyState
+            title="暂未覆盖，可提交覆盖申请"
+            description="当前构建未接入数据源，没有可展示的行情数据说明。接入后此处将显示口径、来源与质量等级。"
+            actionText="登录后提交覆盖申请"
+            actionHref="/login"
+          />
+        )
+      }
+    </section>
+
+    {/* ===== 数据与账户操作 ===== */}
+    <section class="card acc-card" aria-labelledby="acc-ops">
+      <h2 class="section-title" id="acc-ops">数据与账户操作</h2>
+      <div class="op-list">
+        <div class="op-row">
+          <span class="op-text">
+            导出我的监控与规则数据
+            <span class="meta">CSV / JSON，包含对象、目标价与通知渠道</span>
+          </span>
+          <button type="button" class="btn btn--sm btn--secondary" data-soon="数据导出">
+            导出<span class="badge badge--neutral">暂未开放</span>
+          </button>
+        </div>
+        <div class="op-row">
+          <span class="op-text">
+            删除本设备的本地收藏
+            <span class="meta">仅当前设备；云端监控清单不受影响</span>
+          </span>
+          <button type="button" class="btn btn--sm btn--secondary" data-dialog-open="account-clear">
+            删除
+          </button>
+        </div>
+        <div class="op-row">
+          <span class="op-text">
+            隐私政策与用户协议
+            <span class="meta">完整条款随合规任务提供</span>
+          </span>
+          <button type="button" class="btn btn--sm btn--secondary" data-soon="隐私政策全文">
+            查看<span class="badge badge--neutral">暂未开放</span>
+          </button>
+        </div>
+        <div class="op-row op-row--danger">
+          <span class="op-text">
+            注销账号
+            <span class="meta">演示会话立即失效；云端数据按留存政策删除或匿名化</span>
+          </span>
+          <button type="button" class="btn btn--sm btn--danger" data-dialog-open="account-delete">
+            注销
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <ConfirmDialog
+      id="account-clear"
+      title="删除本地收藏"
+      message="将清除保存在当前设备的全部本地收藏与浏览偏好。此操作不影响云端监控清单与规则。"
+      confirmText="确认删除"
+      danger
+    />
+    <ConfirmDialog
+      id="account-delete"
+      title="注销账号"
+      message="注销后演示会话立即失效，本设备上的登录状态与通知偏好将被清除；云端数据按留存政策删除或匿名化。此操作不可撤销。"
+      confirmText="确认注销"
+      danger
+    />
+  </div>
+</AppShell>
+
+<script>
+  // 会话 / 通知渠道 / 浏览器推送权限 / 覆盖申请（全部本地真实交互 + 诚实演示声明）
+  const EMAIL_KEY = "pr:session:email";
+  const CHANNEL_KEY = "pr:channels";
+
+  const toast = (message: string) => {
+    window.dispatchEvent(new CustomEvent("app:toast", { detail: { message } }));
+  };
+
+  // ===== 会话 =====
+  const renderSession = () => {
+    const email = window.localStorage.getItem(EMAIL_KEY);
+    const emailEl = document.querySelector<HTMLElement>("[data-account-email]");
+    const badge = document.querySelector<HTMLElement>("[data-session-badge]");
+    if (emailEl) emailEl.textContent = email ?? "未登录";
+    if (badge) {
+      badge.textContent = email ? "已登录（演示）" : "游客模式";
+      badge.className = `badge ${email ? "badge--primary" : "badge--neutral"}`;
+    }
+  };
+  renderSession();
+
+  document.querySelector<HTMLButtonElement>("[data-signout]")?.addEventListener("click", () => {
+    if (!window.localStorage.getItem(EMAIL_KEY)) {
+      toast("当前未登录");
+      return;
+    }
+    window.localStorage.removeItem(EMAIL_KEY);
+    renderSession();
+    toast("已退出登录（本设备会话已清除）");
+  });
+
+  // ===== 通知渠道（保存到本设备） =====
+  const channelBoxes = Array.from(
+    document.querySelectorAll<HTMLInputElement>("[data-channel]"),
+  );
+
+  const saveChannels = () => {
+    const value: Record<string, boolean> = {};
+    channelBoxes.forEach((box) => {
+      value[box.dataset.channel ?? ""] = box.checked;
+    });
+    window.localStorage.setItem(CHANNEL_KEY, JSON.stringify(value));
+    toast("通知渠道已保存到本设备");
+  };
+
+  try {
+    const raw = window.localStorage.getItem(CHANNEL_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw) as Record<string, boolean>;
+      channelBoxes.forEach((box) => {
+        const key = box.dataset.channel ?? "";
+        if (key in saved) box.checked = saved[key] === true;
+      });
+    }
+  } catch {
+    // 本机存储内容损坏时回退为默认勾选，不阻塞页面
+  }
+  channelBoxes.forEach((box) => box.addEventListener("change", saveChannels));
+
+  // ===== 浏览器推送：真实 Notification 权限状态（读取不触发弹窗） =====
+  const pushHint = document.querySelector<HTMLElement>("[data-push-hint]");
+  const pushBadge = document.querySelector<HTMLElement>("[data-push-status]");
+  const pushDenied = document.querySelector<HTMLElement>("[data-push-denied]");
+  const pushBtn = document.querySelector<HTMLButtonElement>("[data-push-request]");
+
+  const renderPush = () => {
+    if (typeof window.Notification === "undefined") {
+      if (pushBadge) {
+        pushBadge.textContent = "环境不支持";
+        pushBadge.className = "badge badge--neutral";
+      }
+      if (pushHint) pushHint.textContent = "当前环境不支持浏览器推送，可改用邮件与站内事件。";
+      if (pushBtn) pushBtn.disabled = true;
+      return;
+    }
+    const permission = window.Notification.permission;
+    if (permission === "granted") {
+      if (pushBadge) {
+        pushBadge.textContent = "已授权";
+        pushBadge.className = "badge badge--down";
+      }
+      if (pushHint) pushHint.textContent = "达到目标价时可直接推送到系统通知。";
+      if (pushDenied) pushDenied.classList.add("is-hidden");
+      if (pushBtn) pushBtn.disabled = true;
+    } else if (permission === "denied") {
+      if (pushBadge) {
+        pushBadge.textContent = "已拒绝";
+        pushBadge.className = "badge badge--danger";
+      }
+      if (pushHint) pushHint.textContent = "权限已被拒绝，无法再次弹出授权。";
+      if (pushDenied) pushDenied.classList.remove("is-hidden");
+      if (pushBtn) pushBtn.disabled = true;
+    } else {
+      if (pushBadge) {
+        pushBadge.textContent = "未授权";
+        pushBadge.className = "badge badge--warning";
+      }
+      if (pushHint) pushHint.textContent = "点击“开启”向浏览器申请通知权限。";
+      if (pushDenied) pushDenied.classList.add("is-hidden");
+      if (pushBtn) pushBtn.disabled = false;
+    }
+  };
+  renderPush();
+
+  pushBtn?.addEventListener("click", () => {
+    if (typeof window.Notification === "undefined") return;
+    void window.Notification.requestPermission().then((result) => {
+      renderPush();
+      if (result === "granted") toast("浏览器推送已开启");
+      else if (result === "denied") toast("已拒绝：自动降级为邮件 + 站内事件");
+      else toast("未选择权限，可随时再试");
+    });
+  });
+
+  // ===== 覆盖申请（本地演示，诚实确认） =====
+  const applyForm = document.querySelector<HTMLFormElement>("[data-apply-form]");
+  const applyDone = document.querySelector<HTMLElement>("[data-apply-done]");
+
+  applyForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const cityInput = document.querySelector<HTMLInputElement>("[data-apply-city]");
+    const city = cityInput?.value.trim() ?? "";
+    const error = document.querySelector<HTMLElement>("[data-apply-error]");
+    if (!city) {
+      error?.classList.add("is-shown");
+      cityInput?.focus();
+      return;
+    }
+    error?.classList.remove("is-shown");
+    const object = document.querySelector<HTMLInputElement>("[data-apply-object]")?.value.trim() ?? "";
+    const summary = document.querySelector<HTMLElement>("[data-apply-summary]");
+    if (summary) summary.textContent = object ? `${city} · ${object}` : city;
+    applyForm.classList.add("is-hidden");
+    applyDone?.classList.remove("is-hidden");
+    toast("覆盖申请已记录（演示，未真实提交）");
+  });
+
+  document.querySelector<HTMLButtonElement>("[data-apply-again]")?.addEventListener("click", () => {
+    applyForm?.reset();
+    applyForm?.classList.remove("is-hidden");
+    applyDone?.classList.add("is-hidden");
+  });
+
+  // ===== 二次确认 / 暂未开放 =====
+  window.addEventListener("app:confirm", (event) => {
+    const detail = (event as CustomEvent<{ id: string }>).detail;
+    if (detail.id === "account-clear") {
+      window.localStorage.removeItem("pr:favorites");
+      toast("已删除本设备的本地收藏");
+    }
+    if (detail.id === "account-delete") {
+      window.localStorage.removeItem(EMAIL_KEY);
+      renderSession();
+      toast("演示账号已注销：本设备登录状态与偏好已清除");
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    const soon = (event.target as HTMLElement).closest<HTMLElement>("[data-soon]");
+    if (soon) {
+      toast(`「${soon.dataset.soon ?? ""}」暂未开放，将在后续任务实现`);
+    }
+  });
+</script>
+
+<style>
+  .account-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .acc-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1-5);
+    border-radius: var(--radius-card);
+    scroll-margin-top: calc(var(--header-height, 56px) + 8px);
+  }
+
+  .acc-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  .acc-dl {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .acc-row {
+    display: flex;
+    gap: 10px;
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+
+  .acc-row dt {
+    flex-shrink: 0;
+    width: 44px;
+    color: var(--color-muted);
+  }
+
+  .acc-row dd {
+    margin: 0;
+    color: var(--color-text);
+    word-break: break-all;
+  }
+
+  /* ===== 通知渠道 ===== */
+  .channel-list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .channel-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: var(--hit-target);
+    padding: 8px 0;
+    border-bottom: 1px solid var(--color-border);
+    cursor: pointer;
+  }
+
+  .channel-row:last-child {
+    border-bottom: none;
+  }
+
+  .channel-row input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+  }
+
+  .channel-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .channel-label {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--color-text);
+  }
+
+  .push-note {
+    padding: 8px 10px;
+    border-radius: var(--radius-input);
+    background: var(--color-warning-soft);
+    color: #6b4510;
+    font-size: var(--text-sm);
+    line-height: 1.7;
+  }
+
+  /* ===== 覆盖申请 ===== */
+  .apply-textarea {
+    min-height: 88px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    resize: vertical;
+  }
+
+  .apply-done {
+    align-items: flex-start;
+    padding: var(--space-1-5);
+    border: 1px dashed var(--color-down);
+    border-radius: var(--radius-card-sm);
+    background: var(--color-down-soft);
+  }
+
+  .apply-summary {
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    word-break: break-all;
+  }
+
+  /* ===== 隐私说明 ===== */
+  .privacy-list {
+    margin: 0;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: var(--text-sm);
+    color: var(--color-text);
+    line-height: 1.7;
+  }
+
+  /* ===== 操作行 ===== */
+  .op-list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .op-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+    padding: 10px 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .op-row:last-child {
+    border-bottom: none;
+  }
+
+  .op-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--color-text);
+    min-width: 0;
+  }
+
+  .op-row--danger .op-text {
+    color: var(--color-danger);
+  }
+
+  .op-row--danger .meta {
+    color: var(--color-muted);
+  }
+</style>

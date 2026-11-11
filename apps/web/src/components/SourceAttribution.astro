@@ -1,0 +1,94 @@
+---
+/**
+ * SourceAttribution：数据来源归属说明（价格图表/指标必须注明口径、来源与统计日期）。
+ */
+interface Props {
+  metric: string;
+  source: string;
+  statDate: string;
+  collectedAt?: string;
+  quality?: "A" | "B" | "C";
+  note?: string;
+}
+
+const { metric, source, statDate, collectedAt, quality, note } = Astro.props;
+
+const qualityText =
+  quality === "A" ? "A（优质）" : quality === "B" ? "B（可用）" : quality ? "C（受限）" : undefined;
+---
+
+<div class="source card card--flat">
+  <div class="source-title">数据说明</div>
+  <dl class="source-list">
+    <div class="source-item">
+      <dt>指标口径</dt>
+      <dd>{metric}</dd>
+    </div>
+    <div class="source-item">
+      <dt>数据来源</dt>
+      <dd>{source}</dd>
+    </div>
+    <div class="source-item">
+      <dt>统计日期</dt>
+      <dd class="num">{statDate}</dd>
+    </div>
+    {
+      collectedAt && (
+        <div class="source-item">
+          <dt>采集时间</dt>
+          <dd class="num">{collectedAt}</dd>
+        </div>
+      )
+    }
+    {
+      qualityText && (
+        <div class="source-item">
+          <dt>质量等级</dt>
+          <dd>{qualityText}</dd>
+        </div>
+      )
+    }
+  </dl>
+  <p class="meta">
+    {note ?? "同一比较必须使用相同口径与统计周期；样本不足时不以其他对象数字填充。"}
+  </p>
+</div>
+
+<style>
+  .source {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .source-title {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .source-list {
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 6px var(--space-1);
+  }
+
+  .source-item {
+    display: flex;
+    gap: 8px;
+    font-size: var(--text-sm);
+  }
+
+  .source-item dt {
+    color: var(--color-muted);
+    flex-shrink: 0;
+  }
+
+  .source-item dd {
+    margin: 0;
+    color: var(--color-text);
+    font-weight: var(--weight-medium);
+    word-break: break-all;
+  }
+</style>

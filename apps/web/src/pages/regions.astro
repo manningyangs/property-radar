@@ -1,0 +1,447 @@
+---
+/**
+ * 区域页 `/regions`（PRD 2.4 / 任务清单“区县板块”）：
+ * 城市切换与添加入口 → 区县横向筛选 → 价格口径切换 → 区域价格卡 → 趋势图 → 区县列表。
+ * 筛选/口径/周期由页面脚本切换并同步到 query 参数（静态构建可用）。
+ */
+import AppShell from "../layouts/AppShell.astro";
+import EmptyState from "../components/EmptyState.astro";
+import PriceMetricCard from "../components/PriceMetricCard.astro";
+import ConfirmDialog from "../components/ConfirmDialog.astro";
+import PriceChangeBadge from "../components/PriceChangeBadge.astro";
+import { PERIOD_LABELS } from "../scripts/chart";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+const demo = demoEnabled ? (await import("../data/demo")).demoData : null;
+
+const periodKeys = ["7", "30", "90", "180", "360"];
+
+type BlockKey = "all" | string;
+const blocks: {
+  key: BlockKey;
+  name: string;
+  status: "ok" | "stale" | "low" | "none";
+  list: { value: string; change: number; sample: number; direction: "up" | "down" | "flat" };
+  deal: { value: string; change: number; sample: number; direction: "up" | "down" | "flat" };
+  detailHref?: string;
+}[] = [];
+
+const chartMap: Record<string, Record<string, Record<string, number[]>>> = {};
+
+if (demo) {
+  blocks.push({
+    key: "all",
+    name: `${demo.city.name}（全市）`,
+    status: "ok",
+    list: {
+      value: demo.cityMarket.listMedian.toLocaleString("zh-CN"),
+      change: demo.cityMarket.listChange,
+      sample: demo.cityMarket.listSample,
+      direction:
+        demo.cityMarket.listChange > 0 ? "up" : demo.cityMarket.listChange < 0 ? "down" : "flat",
+    },
+    deal: {
+      value: demo.cityMarket.dealMedian.toLocaleString("zh-CN"),
+      change: demo.cityMarket.dealChange,
+      sample: demo.cityMarket.dealSample,
+      direction:
+        demo.cityMarket.dealChange > 0 ? "up" : demo.cityMarket.dealChange < 0 ? "down" : "flat",
+    },
+  });
+  chartMap["all"] = {
+    list: demo.cityMarket.series,
+    deal: demo.cityMarket.dealSeries,
+  };
+
+  for (const region of demo.regions) {
+    blocks.push({
+      key: region.id,
+      name: region.name,
+      status: region.status,
+      list: {
+        value: region.listMedian.toLocaleString("zh-CN"),
+        change: region.listChange,
+        sample: region.listSample,
+        direction: region.direction,
+      },
+      deal: {
+        value: region.dealMedian.toLocaleString("zh-CN"),
+        change: region.dealChange,
+        sample: region.dealSample,
+        direction:
+          region.dealChange > 0 ? "up" : region.dealChange < 0 ? "down" : "flat",
+      },
+      detailHref: `/region?id=${encodeURIComponent(region.id)}`,
+    });
+    chartMap[region.id] = { list: region.series, deal: region.dealSeries };
+  }
+}
+
+const chartJson = JSON.stringify(chartMap);
+
+const statusBadge = (status: string) =>
+  status === "stale"
+    ? { text: "数据延迟", cls: "badge--warning" }
+    : status === "low"
+      ? { text: "样本有限", cls: "badge--warning" }
+      : status === "none"
+        ? { text: "未覆盖", cls: "badge--neutral" }
+        : { text: "数据正常", cls: "badge--down" };
+---
+
+<AppShell title="区域" activeTab="regions" demo={demoEnabled} showCity backHref="/">
+  {
+    demo ? (
+      <div class="page" data-chart-json={chartJson}>
+        <div class="btn-row regions-actions">
+          <button type="button" class="chip" data-city-open="regions">
+            切换城市
+          </button>
+          <button type="button" class="chip" data-city-open="regions">
+            + 添加城市
+          </button>
+          <a class="chip" href="/watch/add">
+            加入监控
+          </a>
+        </div>
+
+        {/* 区县横向筛选 */}
+        <div class="chip-row" role="group" aria-label="区县筛选">
+          {blocks.map((block) => (
+            <button
+              type="button"
+              class:list={["chip", block.key === "all" && "is-active"]}
+              data-district={block.key}
+              aria-pressed={block.key === "all" ? "true" : "false"}
+            >
+              {block.key === "all" ? "全部" : block.name}
+            </button>
+          ))}
+        </div>
+
+        {/* 价格口径切换 */}
+        <div class="chip-row" role="group" aria-label="价格口径切换">
+          <button type="button" class="chip is-active" data-metric="list" aria-pressed="true">
+            挂牌参考
+          </button>
+          <button type="button" class="chip" data-metric="deal" aria-pressed="false">
+            实际成交
+          </button>
+        </div>
+
+        {/* 周期切换 */}
+        <div class="chip-row" role="group" aria-label="趋势周期切换">
+          {periodKeys.map((period) => (
+            <button
+              type="button"
+              class:list={["chip", period === "30" && "is-active"]}
+              data-period={period}
+              aria-pressed={period === "30" ? "true" : "false"}
+            >
+              {PERIOD_LABELS[period]}
+            </button>
+          ))}
+        </div>
+
+        {/* 区域价格卡（每个区县一个块，按筛选显示） */}
+        <div class="stack region-blocks">
+          {blocks.map((block) => {
+            const badge = statusBadge(block.status);
+            return (
+              <section
+                class="card region-block"
+                data-region-block={block.key}
+                aria-label={block.name}
+              >
+                <div class="region-head">
+                  <h2 class="region-name">{block.name}</h2>
+                  <span class:list={["badge", badge.cls]}>{badge.text}</span>
+                </div>
+
+                <div data-metric-panel="list">
+                  <PriceMetricCard
+                    metric="挂牌参考 · 挂牌中位价"
+                    value={block.list.value}
+                    direction={block.list.direction}
+                    percent={block.list.change}
+                    statDate="2026-11-10"
+                    sample={block.list.sample}
+                    status={
+                      block.status === "stale"
+                        ? { text: "数据延迟", tone: "warning" }
+                        : { text: "数据正常", tone: "ok" }
+                    }
+                  />
+                </div>
+
+                <div data-metric-panel="deal" class="is-hidden">
+                  <PriceMetricCard
+                    metric="实际成交 · 成交中位价"
+                    value={block.deal.value}
+                    direction={block.deal.direction}
+                    percent={block.deal.change}
+                    statDate="2026-11-10"
+                    sample={block.deal.sample}
+                    status={{ text: "口径独立呈现", tone: "neutral" }}
+                    footer="成交口径与挂牌口径不可混用比较。"
+                  />
+                </div>
+
+                <figure class="region-chart-wrap">
+                  <svg
+                    class="region-chart"
+                    viewBox="0 0 100 72"
+                    preserveAspectRatio="none"
+                    data-chart
+                    role="img"
+                    aria-label="区域价格趋势图"
+                  >
+                    <line
+                      x1="0"
+                      y1="71"
+                      x2="100"
+                      y2="71"
+                      stroke="var(--color-border)"
+                      stroke-width="1"
+                      vector-effect="non-scaling-stroke"
+                    />
+                    <path
+                      data-chart-path
+                      d=""
+                      fill="none"
+                      stroke="var(--color-primary)"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      vector-effect="non-scaling-stroke"
+                    />
+                    <circle data-chart-dot cx="0" cy="0" r="0" fill="var(--color-primary)" />
+                  </svg>
+                  <figcaption class="meta" data-chart-caption />
+                </figure>
+
+                <div class="btn-row">
+                  <button type="button" class="btn btn--secondary btn--sm" data-dialog-open="perm-watch">
+                    加入监控
+                  </button>
+                  {block.detailHref && (
+                    <a class="btn btn--secondary btn--sm" href={block.detailHref}>
+                      查看区县详情
+                    </a>
+                  )}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+
+        {/* 区县列表（同口径同周期排序） */}
+        <section aria-label="区县列表">
+          <div class="section-head">
+            <h2 class="section-title">区县列表</h2>
+            <span class="meta">同口径：挂牌参考 · 近 30 日</span>
+          </div>
+          <div class="stack-sm">
+            {demo.regions.map((region) => {
+              const badge = statusBadge(region.status);
+              return (
+                <a class="card region-row" href={`/region?id=${encodeURIComponent(region.id)}`}>
+                  <span class="region-row-name">{region.name}</span>
+                  <span class="region-row-price num">
+                    {region.listMedian.toLocaleString("zh-CN")} 元/㎡
+                  </span>
+                  <PriceChangeBadge
+                    direction={region.direction}
+                    percent={region.listChange}
+                    size="sm"
+                  />
+                  <span class="meta region-row-sample num">n={region.listSample}</span>
+                  <span class:list={["badge", badge.cls]}>{badge.text}</span>
+                </a>
+              );
+            })}
+          </div>
+        </section>
+
+        <ConfirmDialog
+          id="perm-watch"
+          title="云端监控需要登录"
+          message="游客可浏览全部公开数据；云端保存监控清单与跨设备同步需注册登录。可先注册，或继续以游客身份浏览。"
+          confirmText="去登录"
+          cancelText="继续浏览"
+        />
+      </div>
+    ) : (
+      <div class="page">
+        <EmptyState
+          title="暂未覆盖，可提交覆盖申请"
+          description="未接入数据源时，区域页不展示任何价格。可从标准城市目录选择城市并提交覆盖申请。"
+          actionText="登录后提交覆盖申请"
+          actionHref="/login"
+        />
+      </div>
+    )
+  }
+</AppShell>
+
+<script>
+  import { PERIOD_LABELS, drawChart, parseChartData } from "../scripts/chart";
+
+  const data = parseChartData(
+    document.querySelector<HTMLElement>("[data-chart-json]")?.dataset.chartJson ?? "{}",
+  );
+
+  let metric: "list" | "deal" = "list";
+  let period = "30";
+
+  const metricLabel = (key: string) =>
+    key === "list" ? "挂牌参考 · 中位价" : "实际成交 · 中位价";
+
+  const redraw = () => {
+    document.querySelectorAll<HTMLElement>("[data-region-block]").forEach((block) => {
+      const key = block.dataset.regionBlock ?? "";
+      const svg = block.querySelector<SVGSVGElement>("[data-chart]");
+      const caption = block.querySelector<HTMLElement>("[data-chart-caption]");
+      const points = data[key]?.[metric]?.[period] ?? [];
+      if (svg) drawChart(svg, points);
+      if (caption) {
+        caption.textContent = `${metricLabel(metric)} · ${PERIOD_LABELS[period] ?? period} · 数据来源 演示数据源汇总 · 统计日期 2026-11-10`;
+      }
+    });
+  };
+
+  const applyDistrict = (key: string, updateUrl: boolean) => {
+    document.querySelectorAll<HTMLElement>("[data-district]").forEach((chip) => {
+      const active = chip.dataset.district === key;
+      chip.classList.toggle("is-active", active);
+      chip.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+    document.querySelectorAll<HTMLElement>("[data-region-block]").forEach((block) => {
+      block.classList.toggle("is-hidden", (block.dataset.regionBlock ?? "") !== key);
+    });
+    if (updateUrl) {
+      const url = new URL(window.location.href);
+      if (key === "all") url.searchParams.delete("district");
+      else url.searchParams.set("district", key);
+      window.history.replaceState({}, "", url);
+    }
+    redraw();
+  };
+
+  document.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+
+    const districtChip = target.closest<HTMLElement>("[data-district]");
+    if (districtChip) {
+      applyDistrict(districtChip.dataset.district ?? "all", true);
+      return;
+    }
+
+    const metricChip = target.closest<HTMLElement>("[data-metric]");
+    if (metricChip) {
+      metric = (metricChip.dataset.metric === "deal" ? "deal" : "list") as "list" | "deal";
+      document.querySelectorAll<HTMLElement>("[data-metric]").forEach((chip) => {
+        const active = chip === metricChip;
+        chip.classList.toggle("is-active", active);
+        chip.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+      document.querySelectorAll<HTMLElement>("[data-metric-panel]").forEach((panel) => {
+        panel.classList.toggle("is-hidden", (panel.dataset.metricPanel ?? "") !== metric);
+      });
+      redraw();
+      return;
+    }
+
+    const periodChip = target.closest<HTMLElement>("[data-period]");
+    if (periodChip) {
+      period = periodChip.dataset.period ?? "30";
+      document.querySelectorAll<HTMLElement>("[data-period]").forEach((chip) => {
+        const active = chip === periodChip;
+        chip.classList.toggle("is-active", active);
+        chip.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+      redraw();
+    }
+  });
+
+  // 游客点击“加入监控”→ 确认弹层“去登录”
+  window.addEventListener("app:confirm", (event) => {
+    const detail = (event as CustomEvent<{ id: string }>).detail;
+    if (detail.id === "perm-watch") window.location.href = "/login";
+  });
+
+  // 从 query 参数恢复区县筛选（静态页 + 客户端同步）
+  const initial = new URLSearchParams(window.location.search).get("district") ?? "all";
+  applyDistrict(data[initial] ? initial : "all", false);
+</script>
+
+<style>
+  .regions-actions {
+    margin-bottom: var(--space-1);
+  }
+
+  .region-block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .region-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  .region-name {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .region-chart-wrap {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .region-chart {
+    display: block;
+    width: 100%;
+    height: 72px;
+    border-radius: var(--radius-input);
+    background: linear-gradient(
+      180deg,
+      rgb(234 242 255 / 45%) 0%,
+      rgb(234 242 255 / 0%) 100%
+    );
+  }
+
+  .region-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .region-row:hover {
+    border-color: var(--color-primary);
+  }
+
+  .region-row-name {
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    min-width: 56px;
+  }
+
+  .region-row-price {
+    font-weight: var(--weight-semibold);
+  }
+
+  .region-row-sample {
+    margin-left: auto;
+  }
+</style>

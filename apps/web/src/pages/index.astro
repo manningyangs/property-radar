@@ -1,56 +1,247 @@
 ---
-// 首页骨架占位——完整移动端 UI 按 PRD §2.2A 视觉规范在 TASK-01B 实施
-const title = "房价雷达 Property Radar";
+/**
+ * 首页 `/`（PRD 2.3）：5 秒内回答“今天数据是否更新、有没有与我有关的价格事件”。
+ * 模块顺序：搜索 → 今日数据状态 → 数据延迟提示 → 今日与我有关 → 重点监控 →
+ *          区域市场变化（口径分列）→ 最近更新小区 → 数据说明入口。
+ * 生产构建（无 PUBLIC_DEMO_DATA）：全部行情模块降级为 EmptyState，零行情数字。
+ */
+import AppShell from "../layouts/AppShell.astro";
+import GlobalSearch from "../components/GlobalSearch.astro";
+import EmptyState from "../components/EmptyState.astro";
+import StaleDataNotice from "../components/StaleDataNotice.astro";
+import DataFreshnessBadge from "../components/DataFreshnessBadge.astro";
+import PriceMetricCard from "../components/PriceMetricCard.astro";
+import EventTimelineItem from "../components/EventTimelineItem.astro";
+import WatchItemCard from "../components/WatchItemCard.astro";
+import CommunityCard from "../components/CommunityCard.astro";
+import TrendChart from "../components/TrendChart.astro";
+import SourceAttribution from "../components/SourceAttribution.astro";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+const demo = demoEnabled ? (await import("../data/demo")).demoData : null;
+
+const suggestions = demo
+  ? [...demo.communities.map((item) => item.name), ...demo.regions.map((item) => item.name)]
+  : [];
 ---
 
-<!doctype html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="description" content="房价雷达：个人购房价格监控与目标价提醒" />
-    <meta name="robots" content="noindex" />
-    <title>{title}</title>
-    <style>
-      :root {
-        --brand-deep: #14253d;
-        --brand: #3277e6;
-        --bg: #f5f7fa;
-        --text-muted: #7b8798;
-      }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
-        background: var(--bg);
-        color: var(--brand-deep);
-      }
-      main {
-        max-width: 430px;
-        margin: 0 auto;
-        padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
-      }
-      h1 { font-size: 22px; margin: 0 0 8px; }
-      p { color: var(--text-muted); line-height: 1.7; font-size: 14px; }
-      .badge {
-        display: inline-block;
-        border: 1px solid var(--brand);
-        color: var(--brand);
-        border-radius: 6px;
-        padding: 2px 8px;
-        font-size: 12px;
-      }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>房价雷达</h1>
-      <span class="badge">骨架占位 · TASK-01B 实施完整 UI</span>
-      <p>
-        个人购房价格监控与目标价提醒。当前为工程骨架阶段：页面结构、设计令牌与交互原型将按
-        PRD §2.2A 视觉规范实施。
-      </p>
-      <p>城市由你自主选择；数据覆盖状态按城市逐个标注，未覆盖城市不会显示虚构价格。</p>
-    </main>
-  </body>
-</html>
+<AppShell title="首页" activeTab="home" demo={demoEnabled} showCity>
+  {
+    demo ? (
+      <div class="page">
+        <GlobalSearch suggestions={suggestions} />
+
+        {/* 今日数据状态 */}
+        <section class="card status-card" aria-label="今日数据状态">
+          <div class="status-head">
+            <span class="section-title">今日数据状态</span>
+            <DataFreshnessBadge status="fresh" date={demo.freshness.lastSuccess} compact />
+          </div>
+          <div class="grid-2 status-grid">
+            <div class="status-item">
+              <span class="status-num num">{demo.freshness.communities}</span>
+              <span class="status-label">覆盖小区（演示市）</span>
+            </div>
+            <div class="status-item">
+              <span class="status-num num status-num--warn">
+                {demo.freshness.delayedSources}
+              </span>
+              <span class="status-label">延迟数据源（需留意）</span>
+            </div>
+          </div>
+          <p class="meta">
+            最后成功更新 <span class="num">{demo.freshness.lastSuccess}</span>
+            · 延迟源数量单独提示，不用“正常”颜色掩盖延迟。
+          </p>
+        </section>
+
+        <StaleDataNotice
+          source={demo.stale.source}
+          lastValid={demo.stale.lastValid}
+          days={demo.stale.days}
+        />
+
+        {/* 今日与我有关 */}
+        <section aria-label="今日与我有关的事件">
+          <div class="section-head">
+            <h2 class="section-title">今日与我有关</h2>
+            <a class="section-more" href="/events">
+              全部事件 ›
+            </a>
+          </div>
+          <div class="stack-sm">
+            {demo.events.slice(0, 2).map((event) => (
+              <EventTimelineItem {...event} />
+            ))}
+          </div>
+        </section>
+
+        {/* 我的重点监控 */}
+        <section aria-label="我的重点监控">
+          <div class="section-head">
+            <h2 class="section-title">我的重点监控</h2>
+            <a class="section-more" href="/watch">
+              管理 ›
+            </a>
+          </div>
+          <div class="stack-sm">
+            {demo.watchItems.slice(0, 1).map((item) => (
+              <WatchItemCard {...item} dialogId="home-watch-dialog" showActions={false} />
+            ))}
+          </div>
+          <div class="btn-row" style="margin-top: 12px">
+            <a class="btn btn--primary btn--block" href="/watch/add">
+              + 快速添加监控
+            </a>
+          </div>
+        </section>
+
+        {/* 区域市场变化：挂牌参考与实际成交分列 */}
+        <section aria-label="区域市场变化">
+          <div class="section-head">
+            <h2 class="section-title">区域市场变化</h2>
+            <a class="section-more" href="/regions">
+              区域 ›
+            </a>
+          </div>
+          <div class="stack-sm">
+            <div class="card">
+              <TrendChart
+                points={demo.cityMarket.series["30"] ?? []}
+                metric="全市挂牌中位价趋势（挂牌参考 · 近 30 日）"
+                source="演示数据源汇总"
+                statDate="2026-11-10"
+                trend="down"
+              />
+            </div>
+            <div class="grid-2">
+              <PriceMetricCard
+                metric="挂牌参考 · 中位价"
+                value={demo.cityMarket.listMedian.toLocaleString("zh-CN")}
+                direction="down"
+                percent={demo.cityMarket.listChange}
+                statDate="2026-11-10"
+                sample={demo.cityMarket.listSample}
+                status={{ text: "数据正常", tone: "ok" }}
+              />
+              <PriceMetricCard
+                metric="实际成交 · 中位价"
+                value={demo.cityMarket.dealMedian.toLocaleString("zh-CN")}
+                direction="down"
+                percent={demo.cityMarket.dealChange}
+                statDate="2026-11-10"
+                sample={demo.cityMarket.dealSample}
+                status={{ text: "数据正常", tone: "ok" }}
+                footer="成交与挂牌口径分别呈现，不混用。"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* 最近更新的小区 */}
+        <section aria-label="最近更新的小区">
+          <div class="section-head">
+            <h2 class="section-title">最近更新的小区</h2>
+            <a class="section-more" href="/communities">
+              搜索 ›
+            </a>
+          </div>
+          <div class="stack-sm">
+            {demo.communities.slice(0, 3).map((item) => (
+              <CommunityCard
+                id={item.id}
+                name={item.name}
+                regionName={item.regionName}
+                plate={item.plate}
+                median={item.median}
+                change30={item.change30}
+                direction={item.direction}
+                sample={item.sample}
+                statDate={item.statDate}
+                source={item.source}
+                status={item.status}
+              />
+            ))}
+          </div>
+        </section>
+
+        {/* 数据说明入口 */}
+        <section aria-label="数据说明">
+          <div class="section-head">
+            <h2 class="section-title">数据说明</h2>
+            <a class="section-more" href="/account">
+              账户与隐私 ›
+            </a>
+          </div>
+          <SourceAttribution
+            metric="挂牌参考 / 实际成交（分口径）"
+            source="演示数据源A / 演示数据源B（演示）"
+            statDate="2026-11-10"
+            collectedAt="2026-11-10 06:10"
+            quality="B"
+            note="示例对象均为虚构（演示市）；生产环境不会展示任何演示行情。样本不足时按质量分层降级展示。"
+          />
+        </section>
+      </div>
+    ) : (
+      <div class="page">
+        <GlobalSearch />
+        <EmptyState
+          title="暂未覆盖，可提交覆盖申请"
+          description="当前构建未接入任何房价数据源，因此不展示任何价格数字。可先浏览标准城市目录、提交覆盖申请，或登录后收藏关注对象。"
+          actionText="登录后提交覆盖申请"
+          actionHref="/login"
+        />
+        <p class="meta prod-note">
+          说明：城市选择器提供 337 个目录城市（仅元数据，全部“可申请”状态），未覆盖城市不会填充假数据。
+        </p>
+      </div>
+    )
+  }
+</AppShell>
+
+<style>
+  .status-card {
+    margin-top: var(--space-2);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .status-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+
+  .status-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    background: var(--color-bg);
+    border-radius: var(--radius-input);
+  }
+
+  .status-num {
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
+    color: var(--color-brand-900);
+    line-height: 1.2;
+  }
+
+  .status-num--warn {
+    color: var(--color-warning);
+  }
+
+  .status-label {
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+  }
+
+  .prod-note {
+    margin-top: var(--space-2);
+  }
+</style>

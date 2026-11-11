@@ -1,0 +1,612 @@
+---
+/**
+ * 管理员总览 `/admin`（PRD 8.1 / 设计稿 §2.8 与 §四）：
+ * 左侧深色导航（PRD 10 项，未建路由者标注“暂未开放”）→ 顶部状态条（城市范围 / 采集状态 /
+ * 今日入库 / 管理员账户 / 导出审计）→ 4 张指标卡 → 对象目录数据表（搜索、状态筛选、行点击）
+ * → 右侧详情抽屉（批准 / 停用 二次确认，写入会话审计日志）。
+ * 默认构建不渲染任何行情数据，降级为 EmptyState。
+ */
+import AppShell from "../layouts/AppShell.astro";
+import EmptyState from "../components/EmptyState.astro";
+import AdminDataTable from "../components/AdminDataTable.astro";
+import ConfirmDialog from "../components/ConfirmDialog.astro";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+const demo = demoEnabled ? (await import("../data/demo")).demoData : null;
+
+/** PRD 8.1 后台导航 10 项；仅“数据运营总览”已建路由 */
+const navItems: { label: string; active?: boolean }[] = [
+  { label: "数据运营总览", active: true },
+  { label: "用户管理" },
+  { label: "行政区与小区目录" },
+  { label: "数据源中心" },
+  { label: "数据覆盖地图" },
+  { label: "采集任务与日志" },
+  { label: "数据质量中心" },
+  { label: "事件与通知投递" },
+  { label: "管理员角色与审计" },
+  { label: "系统参数与费用用量" },
+];
+
+const columns = [
+  { key: "object", label: "对象" },
+  { key: "type", label: "类型" },
+  { key: "status", label: "状态" },
+  { key: "sample", label: "样本", numeric: true },
+  { key: "updated", label: "更新时间", numeric: true },
+  { key: "source", label: "来源" },
+];
+const statusIndex = columns.findIndex((column) => column.key === "status");
+
+const rows: Record<string, string | number>[] = demo ? demo.admin.rows : [];
+const metrics = demo ? demo.admin.metrics : [];
+---
+
+<AppShell title="管理后台" demo={demoEnabled} showNav={false} variant="admin">
+  {
+    demo ? (
+      <>
+        {/* ===== 左侧深色导航（slot） ===== */}
+        <div slot="sidebar" class="side">
+          <div class="side-brand">
+            <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true">
+              <rect width="32" height="32" rx="7" fill="#ffffff" fill-opacity="0.12" />
+              <path
+                d="M6 22 L13 14 L18 18 L26 9"
+                stroke="#7FB0FF"
+                stroke-width="3"
+                fill="none"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span>房价雷达 · 管理</span>
+          </div>
+          <nav class="side-nav" aria-label="后台导航">
+            {navItems.map((item) =>
+              item.active ? (
+                <a class="side-link is-active" href="/admin" aria-current="page">
+                  {item.label}
+                </a>
+              ) : (
+                <button type="button" class="side-link" data-soon={item.label}>
+                  <span class="side-link-label">{item.label}</span>
+                  <span class="badge badge--neutral">暂未开放</span>
+                </button>
+              ),
+            )}
+          </nav>
+          <p class="side-foot">演示构建 · 演示数据</p>
+        </div>
+
+        {/* ===== 主内容 ===== */}
+        <div class="page admin-page">
+          {/* 顶部状态条 */}
+          <div class="statusbar" role="status">
+            <button
+              type="button"
+              class="chip is-active"
+              data-scope
+              data-scope-options="全部,演示市"
+              aria-pressed="true"
+            >
+              城市范围：<span data-scope-label>全部</span>
+            </button>
+            <span class="badge badge--primary">● 采集运行中</span>
+            <span class="badge badge--warning">2 个数据源延迟</span>
+            <span class="meta">今日入库 <span class="num">1,204</span> 条</span>
+            <span class="badge badge--neutral">管理员 admin@demo</span>
+            <button type="button" class="btn btn--sm btn--secondary" data-soon="导出审计记录">
+              导出审计记录
+              <span class="badge badge--neutral">暂未开放</span>
+            </button>
+          </div>
+
+          {/* 指标卡（4 张，可换行不横向溢出） */}
+          <div class="grid-2 metric-grid">
+            {metrics.map((metric) => (
+              <div class="metric-card">
+                <span class="metric-label">{metric.label}</span>
+                <span class="metric-value num">{metric.value}</span>
+                <span class="meta">{metric.hint}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* 对象目录数据表 */}
+          <section class="admin-section" aria-labelledby="adm-table-title">
+            <div class="section-head">
+              <h2 class="section-title" id="adm-table-title">对象目录</h2>
+              <span class="meta">行点击 / 详情 → 右侧抽屉处理</span>
+            </div>
+            <AdminDataTable
+              columns={columns}
+              rows={rows}
+              filters={["正常", "待审核", "已停用"]}
+              filterKey="status"
+              searchPlaceholder="搜索对象、来源…"
+              emptyText="没有匹配的对象"
+            />
+          </section>
+
+          {/* 会话审计日志 */}
+          <section class="card audit-card" aria-labelledby="adm-audit-title">
+            <div class="acc-head">
+              <h2 class="section-title" id="adm-audit-title">本次会话审计日志</h2>
+              <span class="meta">批准 / 停用 均需二次确认并记录</span>
+            </div>
+            <ul class="audit-list" data-audit-list>
+              <li class="audit-empty meta" data-audit-empty>
+                暂无操作记录。完整审计日志子模块将在后续任务提供（当前标注“暂未开放”）。
+              </li>
+            </ul>
+          </section>
+
+          {/* 右侧详情抽屉 */}
+          <aside
+            class="drawer is-hidden"
+            data-drawer
+            data-status-index={statusIndex}
+            role="dialog"
+            aria-modal="false"
+            aria-label="对象详情"
+          >
+            <div class="drawer-head">
+              <h2 class="drawer-title">对象详情</h2>
+              <button type="button" class="icon-btn" data-drawer-close aria-label="关闭详情抽屉">
+                <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+                  <path
+                    d="M5 5 L15 15 M15 5 L5 15"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </button>
+            </div>
+            <dl class="drawer-fields">
+              <dt>ID</dt>
+              <dd class="num" data-field="id">—</dd>
+              <dt>对象</dt>
+              <dd data-field="object">—</dd>
+              <dt>类型</dt>
+              <dd data-field="type">—</dd>
+              <dt>状态</dt>
+              <dd data-field="status">—</dd>
+              <dt>样本</dt>
+              <dd class="num" data-field="sample">—</dd>
+              <dt>更新时间</dt>
+              <dd class="num" data-field="updated">—</dd>
+              <dt>来源</dt>
+              <dd data-field="source">—</dd>
+              <dt>归属</dt>
+              <dd data-field="owner">—</dd>
+            </dl>
+            <div class="btn-row drawer-actions">
+              <button type="button" class="btn btn--primary btn--sm" data-action="approve" data-dialog-open="admin-confirm">
+                批准
+              </button>
+              <button type="button" class="btn btn--danger btn--sm" data-action="disable" data-dialog-open="admin-confirm">
+                停用
+              </button>
+            </div>
+            <p class="meta">操作立即生效并写入会话审计日志；未审批对象不能进入自动采集。</p>
+          </aside>
+
+          <ConfirmDialog
+            id="admin-confirm"
+            title="确认操作"
+            message="该操作将立即改变对象状态并记入审计日志。"
+            confirmText="确认执行"
+            danger
+          />
+        </div>
+      </>
+    ) : (
+      <div class="page admin-page">
+        <EmptyState
+          title="暂未覆盖，可提交覆盖申请"
+          description="未接入数据源时后台没有可运营的对象目录。此处不会用示例数据冒充真实状态。"
+          actionText="返回首页"
+          actionHref="/"
+        />
+      </div>
+    )
+  }
+</AppShell>
+
+<script>
+  // 数据表行点击（app:admin-row）→ 抽屉；批准/停用二次确认 → 状态更新 + 会话审计日志
+  interface DrawerData {
+    id: string;
+    status: string;
+  }
+
+  let pending: DrawerData | null = null;
+  /** 抽屉内最近一次点击的待执行操作（approve / disable） */
+  let lastAction: "approve" | "disable" | null = null;
+
+  const statusIndex = Number(
+    document.querySelector<HTMLElement>("[data-drawer]")?.dataset.statusIndex ?? "0",
+  );
+
+  const statusBadgeClass = (status: string) =>
+    status === "正常"
+      ? "badge badge--primary"
+      : status === "待审核"
+        ? "badge badge--warning"
+        : "badge badge--neutral";
+
+  const toast = (message: string) => {
+    window.dispatchEvent(new CustomEvent("app:toast", { detail: { message } }));
+  };
+
+  // 状态列初始渲染为语义徽标
+  document.querySelectorAll<HTMLElement>("tr[data-admin-row]").forEach((row) => {
+    const cell = row.querySelectorAll<HTMLElement>("td")[statusIndex];
+    const status = row.dataset.rowFilter ?? "";
+    if (cell && status) {
+      const span = document.createElement("span");
+      span.className = statusBadgeClass(status);
+      span.textContent = status;
+      cell.replaceChildren(span);
+    }
+  });
+
+  const setDrawerField = (key: string, value: string) => {
+    const el = document.querySelector<HTMLElement>(`[data-field="${key}"]`);
+    if (el) el.textContent = value;
+  };
+
+  const syncActions = (status: string) => {
+    const approve = document.querySelector<HTMLButtonElement>('[data-action="approve"]');
+    const disable = document.querySelector<HTMLButtonElement>('[data-action="disable"]');
+    if (approve) {
+      approve.disabled = status === "正常";
+      approve.textContent = status === "已停用" ? "恢复启用" : "批准";
+    }
+    if (disable) {
+      disable.disabled = status === "已停用";
+      disable.textContent = status === "已停用" ? "已停用" : "停用";
+    }
+  };
+
+  window.addEventListener("app:admin-row", (event) => {
+    const detail = (event as CustomEvent<{ id: string; filter: string; text: string }>).detail;
+    const row = document.querySelector<HTMLElement>(
+      `tr[data-admin-row][data-row-id="${detail.id}"]`,
+    );
+    if (!row) return;
+    const cells = row.querySelectorAll<HTMLElement>("td");
+    const value = (index: number) => cells[index]?.textContent?.trim() ?? "—";
+
+    pending = { id: detail.id, status: detail.filter };
+    setDrawerField("id", detail.id);
+    setDrawerField("object", value(0));
+    setDrawerField("type", value(1));
+    setDrawerField("status", detail.filter);
+    setDrawerField("sample", value(3));
+    setDrawerField("updated", value(4));
+    setDrawerField("source", value(5));
+    setDrawerField("owner", detail.text.includes("目录申请") ? "目录申请" : "系统/管理员");
+    syncActions(detail.filter);
+    document.querySelector<HTMLElement>("[data-drawer]")?.classList.remove("is-hidden");
+  });
+
+  document
+    .querySelector<HTMLButtonElement>("[data-drawer-close]")
+    ?.addEventListener("click", () => {
+      document.querySelector<HTMLElement>("[data-drawer]")?.classList.add("is-hidden");
+    });
+
+  // 二次确认后执行：更新行状态 + 抽屉 + 审计日志
+  window.addEventListener("app:confirm", (event) => {
+    const detail = (event as CustomEvent<{ id: string }>).detail;
+    if (detail.id !== "admin-confirm" || !pending) return;
+
+    const action = lastAction ?? "approve";
+    const row = document.querySelector<HTMLElement>(
+      `tr[data-admin-row][data-row-id="${pending.id}"]`,
+    );
+    const cells = row?.querySelectorAll<HTMLElement>("td");
+    const objectName = cells?.[0]?.textContent?.trim() ?? pending.id;
+    const newStatus = action === "disable" ? "已停用" : "正常";
+
+    if (row && cells) {
+      const cell = cells[statusIndex];
+      if (cell) {
+        const span = document.createElement("span");
+        span.className = statusBadgeClass(newStatus);
+        span.textContent = newStatus;
+        cell.replaceChildren(span);
+      }
+      row.setAttribute("data-row-filter", newStatus);
+    }
+
+    pending.status = newStatus;
+    setDrawerField("status", newStatus);
+    syncActions(newStatus);
+    appendAudit(
+      action === "disable"
+        ? `停用 · ${objectName}（${pending.id}）`
+        : `批准/恢复 · ${objectName}（${pending.id}）`,
+    );
+    toast(action === "disable" ? `已停用：${objectName}` : `已批准并恢复：${objectName}`);
+    pending = null;
+  });
+
+  document.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+    const actionBtn = target.closest<HTMLElement>("[data-action]");
+    if (actionBtn) {
+      lastAction = actionBtn.dataset.action === "disable" ? "disable" : "approve";
+      return;
+    }
+    const soon = target.closest<HTMLElement>("[data-soon]");
+    if (soon) {
+      toast(`「${soon.dataset.soon ?? ""}」暂未开放，将在后续任务实现`);
+      return;
+    }
+    const scope = target.closest<HTMLElement>("[data-scope]");
+    if (scope) {
+      const options = (scope.dataset.scopeOptions ?? "").split(",").filter(Boolean);
+      const label = scope.querySelector<HTMLElement>("[data-scope-label]");
+      const current = label?.textContent ?? "";
+      const index = options.indexOf(current);
+      const next = options.length > 0 ? options[(index + 1) % options.length] : null;
+      if (label && next) {
+        label.textContent = next;
+        toast(`城市范围已切换为「${next}」（演示目录数据仅覆盖演示对象）`);
+      }
+    }
+  });
+
+  function appendAudit(text: string) {
+    const list = document.querySelector<HTMLElement>("[data-audit-list]");
+    if (!list) return;
+    list.querySelector<HTMLElement>("[data-audit-empty]")?.remove();
+    const item = document.createElement("li");
+    item.className = "audit-item";
+    const time = document.createElement("span");
+    time.className = "audit-time num";
+    time.textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+    const body = document.createElement("span");
+    body.className = "audit-body";
+    body.textContent = `${text} · 操作人 管理员 admin@demo`;
+    item.append(time, body);
+    list.prepend(item);
+  }
+</script>
+
+<style>
+  .admin-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-top: var(--space-2);
+  }
+
+  /* ===== 顶部状态条 ===== */
+  .statusbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1);
+    padding-bottom: var(--space-1);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  /* ===== 指标卡 ===== */
+  .metric-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  .metric-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: var(--space-1-5);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card-sm);
+    box-shadow: var(--shadow-card);
+  }
+
+  .metric-label {
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+  }
+
+  .metric-value {
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-bold);
+    color: var(--color-brand-900);
+    line-height: 1.2;
+  }
+
+  .admin-section {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ===== 会话审计日志 ===== */
+  .audit-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .acc-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+
+  .audit-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .audit-item {
+    display: flex;
+    gap: var(--space-1);
+    padding: 8px 0;
+    border-bottom: 1px solid var(--color-border);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+
+  .audit-item:last-child {
+    border-bottom: none;
+  }
+
+  .audit-time {
+    flex-shrink: 0;
+    color: var(--color-muted);
+  }
+
+  .audit-body {
+    color: var(--color-text);
+    word-break: break-all;
+  }
+
+  .audit-empty {
+    padding: 6px 0;
+  }
+
+  /* ===== 右侧详情抽屉 ===== */
+  .drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 85;
+    width: min(380px, 100%);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1-5);
+    padding: var(--space-2);
+    padding-top: calc(var(--space-2) + env(safe-area-inset-top, 0px));
+    overflow-y: auto;
+    background: var(--color-surface);
+    border-left: 1px solid var(--color-border);
+    box-shadow: var(--shadow-dialog);
+  }
+
+  .drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  .drawer-title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .drawer-fields {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 76px 1fr;
+    gap: 8px var(--space-1);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+
+  .drawer-fields dt {
+    color: var(--color-muted);
+  }
+
+  .drawer-fields dd {
+    margin: 0;
+    color: var(--color-text);
+    font-weight: var(--weight-medium);
+    word-break: break-all;
+  }
+
+  .drawer-actions .btn {
+    flex: 1;
+  }
+
+  /* ===== 左侧深色导航（slot 内容） ===== */
+  .side {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1-5);
+    min-height: 100%;
+    padding: var(--space-2) var(--space-1-5);
+    color: #e8eef7;
+  }
+
+  .side-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--text-base);
+    font-weight: var(--weight-bold);
+    color: #ffffff;
+    letter-spacing: 0.02em;
+  }
+
+  .side-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .side-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    min-height: var(--hit-target);
+    padding: 0 10px;
+    border: none;
+    border-radius: var(--radius-input);
+    background: transparent;
+    color: #c4d2e5;
+    font-size: var(--text-sm);
+    font-family: inherit;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .side-link:hover {
+    background: rgb(255 255 255 / 8%);
+    color: #ffffff;
+  }
+
+  .side-link.is-active {
+    background: var(--color-primary);
+    color: #ffffff;
+    font-weight: var(--weight-semibold);
+  }
+
+  .side-link-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .side-foot {
+    margin-top: auto;
+    font-size: var(--text-xs);
+    color: #8fa3bd;
+  }
+
+  @media (max-width: 767px) {
+    /* 窄屏：侧栏为浮层时保持深色可读 */
+    .side {
+      min-height: 100%;
+    }
+  }
+</style>

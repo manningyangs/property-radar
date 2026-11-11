@@ -1,0 +1,198 @@
+---
+/**
+ * 每日简报 `/briefing`（PRD 2.10）：
+ * 日期切换 → 生成中（LoadingSkeleton）→ 简报正文（口径与来源随附）→ 导出（暂未开放）。
+ */
+import AppShell from "../layouts/AppShell.astro";
+import EmptyState from "../components/EmptyState.astro";
+import LoadingSkeleton from "../components/LoadingSkeleton.astro";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+const demo = demoEnabled ? (await import("../data/demo")).demoData : null;
+---
+
+<AppShell title="每日简报" activeTab="watch" demo={demoEnabled} backHref="/">
+  {
+    demo ? (
+      <div class="page">
+        {/* 日期切换 */}
+        <div class="chip-row" role="group" aria-label="简报日期">
+          {demo.briefing.days.map((day, index) => (
+            <button
+              type="button"
+              class:list={["chip", index === 0 && "is-active"]}
+              data-brief-day={day.date}
+              aria-pressed={index === 0 ? "true" : "false"}
+            >
+              {index === 0 ? "今日" : "昨日"}
+              <span class="num brief-date">{day.date.slice(5)}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Loading 状态（进入页面先显示，随后切换为正文） */}
+        <div class="brief-loading" data-brief-loading aria-live="polite">
+          <p class="meta">正在生成今日简报…</p>
+          <LoadingSkeleton variant="list" count={2} />
+        </div>
+
+        <div class="stack is-hidden" data-brief-content>
+          {demo.briefing.days.map((day, index) => (
+            <section
+              class:list={["brief-panel", index !== 0 && "is-hidden"]}
+              data-brief-panel={day.date}
+              aria-label={`简报 ${day.date}`}
+            >
+              <div class="card brief-summary">
+                <p class="brief-date-line">
+                  每日简报 · <span class="num">{day.date}</span>
+                </p>
+                <p class="brief-text">{day.summary}</p>
+              </div>
+              <ul class="brief-list">
+                {day.bullets.map((bullet) => (
+                  <li class="brief-item">{bullet}</li>
+                ))}
+              </ul>
+              <div class="card card--flat brief-source">
+                <p class="meta">
+                  口径：挂牌参考（与实际成交分别呈现）· 数据来源：演示数据源A/B ·
+                  统计日期 <span class="num">{day.date}</span> · 样本不足条目已标注质量分层。
+                </p>
+              </div>
+            </section>
+          ))}
+        </div>
+
+        <div class="btn-row brief-actions">
+          <button type="button" class="btn btn--secondary" data-soon="简报导出">
+            导出为文本
+            <span class="badge badge--neutral">暂未开放</span>
+          </button>
+          <a class="btn btn--secondary" href="/events">查看全部事件</a>
+        </div>
+      </div>
+    ) : (
+      <div class="page">
+        <EmptyState
+          title="暂未覆盖，可提交覆盖申请"
+          description="简报由监控事件与市场数据生成；未接入数据源时没有可生成的简报。"
+          actionText="登录后提交覆盖申请"
+          actionHref="/login"
+        />
+      </div>
+    )
+  }
+</AppShell>
+
+<script>
+  // Loading → 正文；日期切换；导出“暂未开放”
+  const loading = document.querySelector<HTMLElement>("[data-brief-loading]");
+  const content = document.querySelector<HTMLElement>("[data-brief-content]");
+
+  window.setTimeout(() => {
+    loading?.classList.add("is-hidden");
+    content?.classList.remove("is-hidden");
+  }, 700);
+
+  document.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+
+    const dayChip = target.closest<HTMLElement>("[data-brief-day]");
+    if (dayChip) {
+      const date = dayChip.dataset.briefDay ?? "";
+      document.querySelectorAll<HTMLElement>("[data-brief-day]").forEach((chip) => {
+        const active = chip === dayChip;
+        chip.classList.toggle("is-active", active);
+        chip.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+      document.querySelectorAll<HTMLElement>("[data-brief-panel]").forEach((panel) => {
+        panel.classList.toggle("is-hidden", (panel.dataset.briefPanel ?? "") !== date);
+      });
+      return;
+    }
+
+    const soon = target.closest<HTMLElement>("[data-soon]");
+    if (soon) {
+      window.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: { message: `「${soon.dataset.soon ?? ""}」暂未开放，将在后续任务实现` },
+        }),
+      );
+    }
+  });
+</script>
+
+<style>
+  .brief-date {
+    opacity: 0.75;
+    font-size: var(--text-xs);
+  }
+
+  .brief-loading {
+    margin-top: var(--space-2);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .brief-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+  }
+
+  .brief-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border-left: 4px solid var(--color-primary);
+  }
+
+  .brief-date-line {
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+  }
+
+  .brief-text {
+    font-size: var(--text-md);
+    font-weight: var(--weight-medium);
+    color: var(--color-brand-900);
+    line-height: 1.7;
+  }
+
+  .brief-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .brief-item {
+    position: relative;
+    padding: 10px 12px 10px 30px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card-sm);
+    font-size: var(--text-sm);
+    line-height: 1.7;
+  }
+
+  .brief-item::before {
+    content: "";
+    position: absolute;
+    left: 12px;
+    top: 17px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-primary);
+  }
+
+  .brief-actions {
+    margin-top: var(--space-3);
+  }
+</style>

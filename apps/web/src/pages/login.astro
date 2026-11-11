@@ -1,0 +1,342 @@
+---
+/**
+ * 登录 `/login`（PRD 2.9）：邮箱 → 验证码 两步表单。
+ * 专注场景：隐藏底部导航，保留返回入口。
+ * 演示环境说明常驻：未接入真实邮件服务，验证码固定 123456（明确标注，不冒充真实发送）。
+ */
+import AppShell from "../layouts/AppShell.astro";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+---
+
+<AppShell title="登录" showNav={false} demo={demoEnabled} backHref="/">
+  <div class="page login-page">
+    <section class="card login-card" aria-label="邮箱登录">
+      <div class="login-brand">
+        <svg width="36" height="36" viewBox="0 0 32 32" aria-hidden="true">
+          <rect width="32" height="32" rx="7" fill="var(--color-brand-900)"></rect>
+          <path
+            d="M6 22 L13 14 L18 18 L26 9"
+            stroke="var(--color-primary)"
+            stroke-width="3"
+            fill="none"
+            stroke-linecap="round"
+            stroke-linejoin="round"></path>
+        </svg>
+        <div>
+          <h2 class="login-title">邮箱登录</h2>
+          <p class="meta">免密码，验证码 60 秒有效</p>
+        </div>
+      </div>
+
+      {/* 步骤 1：邮箱 */}
+      <form class="stack login-step" data-step-email novalidate>
+        <div class="field">
+          <label class="field-label" for="login-email">邮箱地址</label>
+          <input
+            type="email"
+            id="login-email"
+            class="input"
+            placeholder="you@example.com"
+            autocomplete="email"
+            data-email-input
+          />
+          <p class="field-error" data-error="email">请输入有效的邮箱地址（如 you@example.com）</p>
+        </div>
+        <button type="submit" class="btn btn--primary btn--block">
+          发送验证码
+        </button>
+        <p class="meta">
+          隐私说明：邮箱仅用于登录验证与你订阅的事件通知，不会用于营销，也不会共享给广告方。
+        </p>
+      </form>
+
+      {/* 步骤 2：验证码 */}
+      <form class="stack login-step is-hidden" data-step-code novalidate>
+        <p class="meta" data-sent-to>
+          验证码已发送至 <strong>demo@example.com</strong>
+        </p>
+        <div class="field">
+          <span class="field-label">6 位验证码</span>
+          <div class="code-row" role="group" aria-label="6 位验证码输入">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <input
+                type="text"
+                inputmode="numeric"
+                maxlength="1"
+                class="code-input"
+                data-code-input
+                aria-label={`第 ${index + 1} 位`}
+              />
+            ))}
+          </div>
+          <p class="field-error" data-error="code">验证码错误或已过期，请重新输入</p>
+          <p class="field-error" data-error="limit">
+            尝试次数过多，已限流：请 10 分钟后再试（或重新发送验证码）
+          </p>
+        </div>
+        <div class="resend-row">
+          <span class="meta num" data-countdown>60s 后可重发</span>
+          <button type="button" class="btn btn--secondary btn--sm" data-resend disabled>
+            重新发送
+          </button>
+        </div>
+        <button type="submit" class="btn btn--primary btn--block">
+          验证并登录
+        </button>
+        <button type="button" class="btn btn--secondary btn--block" data-back-email>
+          换个邮箱
+        </button>
+        <p class="meta demo-hint">
+          演示环境：未接入真实邮件服务，验证码固定为 <span class="num">123456</span>
+          ；任意邮箱地址均可接收“演示验证码”。
+        </p>
+      </form>
+
+      {/* 成功 */}
+      <div class="stack login-success is-hidden" data-login-success role="status">
+        <span class="badge badge--down">登录成功（演示）</span>
+        <p class="meta">
+          演示环境未接入账号后端，本次登录仅在当前会话生效，未向任何服务器发送邮箱。
+        </p>
+        <div class="btn-row">
+          <a class="btn btn--primary" href="/account">进入账户设置</a>
+          <a class="btn btn--secondary" href="/">返回首页</a>
+        </div>
+      </div>
+    </section>
+
+    <p class="meta login-foot">
+      没有邮箱也可继续浏览公开数据；注册仅用于保存监控与接收事件通知。
+    </p>
+  </div>
+</AppShell>
+
+<script>
+  // 邮箱 → 验证码 两步登录（校验 / 倒计时 / 限流，全部本地真实交互）
+  const emailForm = document.querySelector<HTMLFormElement>("[data-step-email]");
+  const codeForm = document.querySelector<HTMLFormElement>("[data-step-code]");
+  const successBox = document.querySelector<HTMLElement>("[data-login-success]");
+  const codeInputs = Array.from(
+    document.querySelectorAll<HTMLInputElement>("[data-code-input]"),
+  );
+
+  let attempts = 0;
+  let limited = false;
+  let countdownTimer = 0;
+
+  const showError = (key: string, show: boolean) => {
+    document
+      .querySelector<HTMLElement>(`[data-error="${key}"]`)
+      ?.classList.toggle("is-shown", show);
+  };
+
+  const startCountdown = () => {
+    let seconds = 60;
+    const label = document.querySelector<HTMLElement>("[data-countdown]");
+    const resend = document.querySelector<HTMLButtonElement>("[data-resend]");
+    if (resend) resend.disabled = true;
+    if (label) label.textContent = `${seconds}s 后可重发`;
+    window.clearInterval(countdownTimer);
+    countdownTimer = window.setInterval(() => {
+      seconds -= 1;
+      if (label) label.textContent = seconds > 0 ? `${seconds}s 后可重发` : "可以重新发送了";
+      if (seconds <= 0) {
+        window.clearInterval(countdownTimer);
+        if (resend) resend.disabled = false;
+      }
+    }, 1000);
+  };
+
+  emailForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const input = document.querySelector<HTMLInputElement>("[data-email-input]");
+    const value = input?.value.trim() ?? "";
+    const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+    if (!valid) {
+      showError("email", true);
+      return;
+    }
+    showError("email", false);
+    const sentTo = document.querySelector<HTMLElement>("[data-sent-to]");
+    if (sentTo) {
+      sentTo.innerHTML = `验证码已发送至 <strong></strong>`;
+      const strong = sentTo.querySelector("strong");
+      if (strong) strong.textContent = value;
+    }
+    emailForm.classList.add("is-hidden");
+    codeForm?.classList.remove("is-hidden");
+    codeInputs[0]?.focus();
+    startCountdown();
+    window.dispatchEvent(
+      new CustomEvent("app:toast", {
+        detail: { message: "演示环境：验证码固定为 123456" },
+      }),
+    );
+  });
+
+  // 6 格输入自动跳格与退格
+  codeInputs.forEach((input, index) => {
+    input.addEventListener("input", () => {
+      input.value = input.value.replace(/\D/g, "").slice(0, 1);
+      if (input.value && index < codeInputs.length - 1) codeInputs[index + 1]?.focus();
+      showError("code", false);
+      showError("limit", false);
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Backspace" && !input.value && index > 0) {
+        codeInputs[index - 1]?.focus();
+      }
+    });
+    input.addEventListener("paste", (event) => {
+      const text = (event.clipboardData?.getData("text") ?? "").replace(/\D/g, "").slice(0, 6);
+      if (!text) return;
+      event.preventDefault();
+      text.split("").forEach((char, charIndex) => {
+        const target = codeInputs[charIndex];
+        if (target) target.value = char;
+      });
+      codeInputs[Math.min(text.length, 6) - 1]?.focus();
+    });
+  });
+
+  document.querySelector<HTMLButtonElement>("[data-resend]")?.addEventListener("click", () => {
+    attempts = 0;
+    limited = false;
+    showError("limit", false);
+    showError("code", false);
+    startCountdown();
+    window.dispatchEvent(
+      new CustomEvent("app:toast", { detail: { message: "已重新发送（演示验证码 123456）" } }),
+    );
+  });
+
+  document.querySelector<HTMLButtonElement>("[data-back-email]")?.addEventListener("click", () => {
+    codeForm?.classList.add("is-hidden");
+    emailForm?.classList.remove("is-hidden");
+    codeInputs.forEach((input) => {
+      input.value = "";
+    });
+    showError("code", false);
+    showError("limit", false);
+  });
+
+  codeForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (limited) {
+      showError("limit", true);
+      return;
+    }
+    const code = codeInputs.map((input) => input.value).join("");
+    if (code.length < 6) {
+      showError("code", true);
+      return;
+    }
+    if (code !== "123456") {
+      attempts += 1;
+      if (attempts >= 3) {
+        limited = true;
+        showError("limit", true);
+        showError("code", false);
+      } else {
+        showError("code", true);
+      }
+      return;
+    }
+    showError("code", false);
+    codeForm.classList.add("is-hidden");
+    successBox?.classList.remove("is-hidden");
+    // 写入本设备演示会话，账户页据此显示登录状态
+    const emailValue = document.querySelector<HTMLInputElement>("[data-email-input]")?.value.trim();
+    if (emailValue) window.localStorage.setItem("pr:session:email", emailValue);
+    window.dispatchEvent(
+      new CustomEvent("app:toast", { detail: { message: "登录成功（演示会话）" } }),
+    );
+  });
+</script>
+
+<style>
+  .login-page {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: calc(100vh - var(--header-height) - 64px);
+    justify-content: center;
+  }
+
+  .login-card {
+    width: 100%;
+    max-width: 420px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .login-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .login-title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .login-step {
+    gap: var(--space-1-5);
+  }
+
+  .code-row {
+    display: flex;
+    gap: 8px;
+  }
+
+  .code-input {
+    width: 100%;
+    min-width: 0;
+    height: var(--input-height);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-input);
+    background: var(--color-surface);
+    color: var(--color-brand-900);
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
+    font-family: inherit;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .code-input:focus {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 1px;
+    border-color: var(--color-primary);
+  }
+
+  .resend-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  .demo-hint {
+    background: var(--color-warning-soft);
+    border-radius: var(--radius-input);
+    padding: 8px 10px;
+    color: #6b4510;
+    line-height: 1.7;
+  }
+
+  .login-success {
+    align-items: flex-start;
+    gap: var(--space-1);
+  }
+
+  .login-foot {
+    max-width: 420px;
+    text-align: center;
+  }
+</style>

@@ -1,0 +1,144 @@
+---
+/**
+ * ConfirmDialog：删除/退出等破坏性操作的二次确认弹层。
+ * 打开：任意元素带 data-dialog-open="<id>"；确认：页面监听 app:confirm 事件（detail.id）。
+ */
+interface Props {
+  id: string;
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  danger?: boolean;
+}
+
+const {
+  id,
+  title,
+  message,
+  confirmText = "确认",
+  cancelText = "取消",
+  danger = false,
+} = Astro.props;
+---
+
+<div class="dialog-backdrop is-hidden" data-dialog-backdrop={id}>
+  <div
+    class="dialog card"
+    role="alertdialog"
+    aria-modal="true"
+    aria-labelledby={`dialog-title-${id}`}
+  >
+    <h2 class="dialog-title" id={`dialog-title-${id}`}>{title}</h2>
+    <p class="dialog-msg">{message}</p>
+    <div class="btn-row dialog-actions">
+      <button type="button" class="btn btn--secondary dialog-btn" data-dialog-cancel={id}>
+        {cancelText}
+      </button>
+      <button
+        type="button"
+        class:list={["btn", danger ? "btn--danger" : "btn--primary", "dialog-btn"]}
+        data-dialog-confirm={id}
+      >
+        {confirmText}
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // 委托处理：打开 / 取消 / 确认 / Esc 关闭
+  const openDialog = (id: string) => {
+    const backdrop = document.querySelector<HTMLElement>(`[data-dialog-backdrop="${id}"]`);
+    backdrop?.classList.remove("is-hidden");
+    backdrop?.querySelector<HTMLElement>("[data-dialog-confirm]")?.focus();
+  };
+
+  const closeDialog = (id: string) => {
+    document
+      .querySelector<HTMLElement>(`[data-dialog-backdrop="${id}"]`)
+      ?.classList.add("is-hidden");
+  };
+
+  document.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+    const opener = target.closest<HTMLElement>("[data-dialog-open]");
+    if (opener) {
+      openDialog(opener.dataset.dialogOpen ?? "");
+      return;
+    }
+    const cancel = target.closest<HTMLElement>("[data-dialog-cancel]");
+    if (cancel) {
+      closeDialog(cancel.dataset.dialogCancel ?? "");
+      return;
+    }
+    const confirm = target.closest<HTMLElement>("[data-dialog-confirm]");
+    if (confirm) {
+      const id = confirm.dataset.dialogConfirm ?? "";
+      closeDialog(id);
+      window.dispatchEvent(new CustomEvent("app:confirm", { detail: { id } }));
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    document
+      .querySelectorAll<HTMLElement>("[data-dialog-backdrop]:not(.is-hidden)")
+      .forEach((el) => el.classList.add("is-hidden"));
+  });
+</script>
+
+<style>
+  .dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding: var(--space-2);
+    background: rgb(20 37 61 / 45%);
+  }
+
+  .dialog {
+    width: 100%;
+    max-width: 420px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-dialog);
+    /* 底部导航之上，避免遮挡 */
+    margin-bottom: calc(var(--bottom-nav-height) + var(--safe-bottom));
+  }
+
+  .dialog-title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .dialog-msg {
+    font-size: var(--text-sm);
+    color: var(--color-muted);
+    line-height: 1.7;
+  }
+
+  .dialog-actions {
+    justify-content: flex-end;
+  }
+
+  .dialog-btn {
+    flex: 1;
+  }
+
+  @media (min-width: 768px) {
+    .dialog-backdrop {
+      align-items: center;
+    }
+
+    .dialog {
+      margin-bottom: 0;
+    }
+  }
+</style>

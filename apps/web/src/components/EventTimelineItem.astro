@@ -1,0 +1,283 @@
+---
+/**
+ * EventTimelineItem：事件中心时间线条目（PRD 2.8 字段全集）。
+ * 交互（组件内委托脚本）：
+ *  - 查看证据/收起证据：data-event-evidence-toggle
+ *  - 标记已读/未读：data-event-read（派发 app:event-read 供页面更新统计）
+ */
+import PriceChangeBadge from "./PriceChangeBadge.astro";
+import SampleCountLabel from "./SampleCountLabel.astro";
+
+interface Props {
+  id: string;
+  level: "high" | "mid" | "low";
+  type: string;
+  target: string;
+  targetType: string;
+  before: number;
+  after: number;
+  direction: "up" | "down" | "flat";
+  deltaAmount: number;
+  deltaPct: number;
+  statDate: string;
+  source: string;
+  sample: number;
+  quality: "A" | "B" | "C";
+  read: boolean;
+  explanation: string;
+  evidence: string[];
+}
+
+const {
+  id,
+  level,
+  type,
+  target,
+  targetType,
+  before,
+  after,
+  direction,
+  deltaAmount,
+  deltaPct,
+  statDate,
+  source,
+  sample,
+  quality,
+  read,
+  explanation,
+  evidence,
+} = Astro.props;
+
+const levelMap = {
+  high: { text: "高", cls: "badge--danger" },
+  mid: { text: "中", cls: "badge--warning" },
+  low: { text: "低", cls: "badge--neutral" },
+} as const;
+const levelInfo = levelMap[level];
+const qualityText = quality === "A" ? "A（优质）" : quality === "B" ? "B（可用）" : "C（受限）";
+const hasValue = before !== 0 || after !== 0;
+---
+
+<article class="event card" data-event={id} data-read={read ? "true" : "false"}>
+  <div class="event-head">
+    <span class="event-dot" aria-hidden="true"></span>
+    <span class:list={["badge", levelInfo.cls]}>级别 {levelInfo.text}</span>
+    <span class="event-type">{type}</span>
+    <span class="badge badge--neutral event-read-badge" data-event-read-badge>
+      {read ? "已读" : "未读"}
+    </span>
+  </div>
+
+  <p class="event-target">
+    监控对象：<strong>{target}</strong>
+    <span class="badge badge--neutral">{targetType}</span>
+  </p>
+
+  {
+    hasValue && (
+      <div class="event-values">
+        <span class="event-value">
+          触发前 <span class="num">{before.toLocaleString("zh-CN")}</span> 元/㎡
+        </span>
+        <span class="event-arrow" aria-hidden="true">
+          →
+        </span>
+        <span class="event-value">
+          触发后 <span class="num">{after.toLocaleString("zh-CN")}</span> 元/㎡
+        </span>
+        <PriceChangeBadge
+          direction={direction}
+          percent={deltaPct}
+          amount={`${deltaAmount.toLocaleString("zh-CN")} 元/㎡`}
+          size="sm"
+        />
+      </div>
+    )
+  }
+
+  <p class="meta event-meta">
+    事件 ID <span class="num">{id}</span> · 数据日期 <span class="num">{statDate}</span> ·
+    来源 {source} · 质量 {qualityText}
+  </p>
+
+  <div class="event-sample">
+    <SampleCountLabel sample={sample} explain={false} />
+  </div>
+
+  <p class="event-explain">{explanation}</p>
+
+  <div class="event-evidence is-hidden" data-event-evidence>
+    <p class="event-evidence-title">证据明细</p>
+    <ul class="event-evidence-list">
+      {evidence.map((line) => <li>{line}</li>)}
+    </ul>
+  </div>
+
+  <div class="btn-row event-actions">
+    <button type="button" class="btn btn--secondary btn--sm" data-event-evidence-toggle={id}>
+      查看证据
+    </button>
+    <button type="button" class="btn btn--secondary btn--sm" data-event-read={id}>
+      {read ? "标记未读" : "标记已读"}
+    </button>
+  </div>
+</article>
+
+<script>
+  // 证据展开 / 已读切换（委托，多个实例共用）
+  document.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+
+    const evidenceBtn = target.closest<HTMLElement>("[data-event-evidence-toggle]");
+    if (evidenceBtn) {
+      const article = evidenceBtn.closest<HTMLElement>("[data-event]");
+      const panel = article?.querySelector<HTMLElement>("[data-event-evidence]");
+      panel?.classList.toggle("is-hidden");
+      evidenceBtn.textContent = panel?.classList.contains("is-hidden")
+        ? "查看证据"
+        : "收起证据";
+      return;
+    }
+
+    const readBtn = target.closest<HTMLElement>("[data-event-read]");
+    if (readBtn) {
+      const article = readBtn.closest<HTMLElement>("[data-event]");
+      if (!article) return;
+      const nowRead = article.dataset.read !== "true";
+      article.dataset.read = nowRead ? "true" : "false";
+      readBtn.textContent = nowRead ? "标记未读" : "标记已读";
+      const badge = article.querySelector<HTMLElement>("[data-event-read-badge]");
+      if (badge) badge.textContent = nowRead ? "已读" : "未读";
+      window.dispatchEvent(
+        new CustomEvent("app:event-read", {
+          detail: { id: article.dataset.event ?? "", read: nowRead },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: { message: nowRead ? "已标记为已读" : "已标记为未读" },
+        }),
+      );
+    }
+  });
+</script>
+
+<style>
+  .event {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-left: 18px;
+  }
+
+  .event[data-read="true"] {
+    background: var(--color-bg);
+  }
+
+  .event[data-read="true"] .event-type {
+    color: var(--color-muted);
+  }
+
+  /* 时间线圆点与连接线 */
+  .event-dot {
+    position: absolute;
+    left: 0;
+    top: 22px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    box-shadow: 0 0 0 3px var(--color-primary-soft);
+  }
+
+  .event-dot::after {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 12px;
+    width: 2px;
+    height: calc(100% + 14px);
+    background: var(--color-border);
+  }
+
+  .event:last-child .event-dot::after {
+    display: none;
+  }
+
+  .event-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .event-type {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .event-target {
+    font-size: var(--text-base);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .event-values {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 8px 10px;
+    background: var(--color-bg);
+    border-radius: var(--radius-input);
+    font-size: var(--text-sm);
+  }
+
+  .event-value {
+    color: var(--color-text);
+  }
+
+  .event-arrow {
+    color: var(--color-muted);
+  }
+
+  .event-meta {
+    margin: 0;
+  }
+
+  .event-explain {
+    font-size: var(--text-sm);
+    color: var(--color-text);
+    line-height: 1.7;
+  }
+
+  .event-evidence {
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-input);
+    padding: 10px 12px;
+    background: var(--color-bg);
+  }
+
+  .event-evidence-title {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    margin-bottom: 4px;
+  }
+
+  .event-evidence-list {
+    margin: 0;
+    padding-left: 18px;
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+    line-height: 1.8;
+  }
+
+  .event-actions {
+    margin-top: 2px;
+  }
+</style>

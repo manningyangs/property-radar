@@ -1,0 +1,203 @@
+---
+/**
+ * 事件中心 `/events`（PRD 2.8）：
+ * 筛选（全部/未读/已读，query 参数）→ 时间线（级别、对象、价差、数据日期、来源）
+ * → 标记已读/未读、查看证据（组件内真实交互）→ 未读统计实时更新。
+ */
+import AppShell from "../layouts/AppShell.astro";
+import EmptyState from "../components/EmptyState.astro";
+import EventTimelineItem from "../components/EventTimelineItem.astro";
+import type { DemoEvent } from "../data/demo";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+const demo = demoEnabled ? (await import("../data/demo")).demoData : null;
+
+const filters = [
+  { key: "all", label: "全部" },
+  { key: "unread", label: "未读" },
+  { key: "read", label: "已读" },
+];
+
+const unreadCount = demo ? demo.events.filter((event) => !event.read).length : 0;
+
+// 按日期分组（同一天一个时间组）
+const groups: { date: string; events: DemoEvent[] }[] = [];
+if (demo) {
+  for (const event of demo.events) {
+    const index = groups.findIndex((group) => group.date === event.statDate);
+    if (index >= 0) groups[index]?.events.push(event);
+    else groups.push({ date: event.statDate, events: [event] });
+  }
+}
+---
+
+<AppShell title="事件中心" activeTab="events" demo={demoEnabled} backHref="/">
+  {
+    demo ? (
+      <div class="page">
+        {/* 未读统计 */}
+        <section class="card events-summary" aria-label="事件统计">
+          <div class="events-summary-row">
+            <h2 class="section-title">事件</h2>
+            <span class="badge badge--danger" data-unread-count>
+              未读 <span class="num">{unreadCount}</span> 条
+            </span>
+          </div>
+          <p class="meta">
+            事件 = 监控对象状态变化（目标价达成、连续降价、数据源延迟等），每条事件可追溯数据日期与来源。
+          </p>
+        </section>
+
+        {/* 筛选 Tab */}
+        <div class="chip-row events-filters" role="group" aria-label="事件筛选">
+          {filters.map((filter) => (
+            <button
+              type="button"
+              class:list={["chip", filter.key === "all" && "is-active"]}
+              data-events-filter={filter.key}
+              aria-pressed={filter.key === "all" ? "true" : "false"}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+
+        <div class="stack-sm" data-events-list>
+          {groups.map((group) => (
+            <section data-events-group aria-label={group.date}>
+              <p class="events-date">
+                <span class="num">{group.date}</span>
+                <span class="events-date-line" aria-hidden="true" />
+              </p>
+              <div class="stack-sm">
+                {group.events.map((event) => (
+                  <EventTimelineItem {...event} />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+
+        <div class="is-hidden" data-events-empty>
+          <EmptyState
+            title="暂无符合条件的事件"
+            description="可切换筛选条件；未覆盖对象不会产生事件，覆盖后会从数据接入日起记录。"
+            actionText="去添加监控"
+            actionHref="/watch/add"
+          />
+        </div>
+      </div>
+    ) : (
+      <div class="page">
+        <EmptyState
+          title="暂未覆盖，可提交覆盖申请"
+          description="事件由监控对象的价格变化触发；未接入数据源时没有可展示的事件。"
+          actionText="登录后提交覆盖申请"
+          actionHref="/login"
+        />
+      </div>
+    )
+  }
+</AppShell>
+
+<script>
+  let currentFilter = "all";
+
+  const updateUnread = () => {
+    const unread = document.querySelectorAll('[data-event][data-read="false"]').length;
+    const badge = document.querySelector<HTMLElement>("[data-unread-count]");
+    if (badge) {
+      badge.innerHTML = `未读 <span class="num">${unread}</span> 条`;
+    }
+    badge?.classList.toggle("is-hidden", unread === 0);
+  };
+
+  const applyFilter = (key: string, updateUrl: boolean) => {
+    currentFilter = key;
+    let visible = 0;
+
+    document.querySelectorAll<HTMLElement>("[data-event]").forEach((item) => {
+      const isRead = item.dataset.read === "true";
+      const show =
+        key === "all" || (key === "read" ? isRead : !isRead);
+      item.classList.toggle("is-hidden", !show);
+      if (show) visible += 1;
+    });
+
+    // 日期分组：组内全部隐藏时整组隐藏
+    document.querySelectorAll<HTMLElement>("[data-events-group]").forEach((group) => {
+      const hasVisible = Array.from(
+        group.querySelectorAll<HTMLElement>("[data-event]"),
+      ).some((item) => !item.classList.contains("is-hidden"));
+      group.classList.toggle("is-hidden", !hasVisible);
+    });
+
+    document.querySelectorAll<HTMLElement>("[data-events-filter]").forEach((chip) => {
+      const active = chip.dataset.eventsFilter === key;
+      chip.classList.toggle("is-active", active);
+      chip.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+
+    const empty = document.querySelector<HTMLElement>("[data-events-empty]");
+    const list = document.querySelector<HTMLElement>("[data-events-list]");
+    empty?.classList.toggle("is-hidden", visible > 0);
+    list?.classList.toggle("is-hidden", visible === 0);
+
+    if (updateUrl) {
+      const url = new URL(window.location.href);
+      if (key === "all") url.searchParams.delete("filter");
+      else url.searchParams.set("filter", key);
+      window.history.replaceState({}, "", url);
+    }
+  };
+
+  document.addEventListener("click", (event) => {
+    const chip = (event.target as HTMLElement).closest<HTMLElement>("[data-events-filter]");
+    if (chip) applyFilter(chip.dataset.eventsFilter ?? "all", true);
+  });
+
+  // 读状态变化后：更新未读数，并在“未读/已读”筛选下即时生效
+  window.addEventListener("app:event-read", () => {
+    updateUnread();
+    applyFilter(currentFilter, false);
+  });
+
+  const initial = new URLSearchParams(window.location.search).get("filter") ?? "all";
+  applyFilter(["all", "unread", "read"].includes(initial) ? initial : "all", false);
+  updateUnread();
+</script>
+
+<style>
+  .events-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .events-summary-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  .events-filters {
+    margin-top: var(--space-2);
+  }
+
+  .events-date {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin: var(--space-2) 0 var(--space-1);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-muted);
+  }
+
+  .events-date-line {
+    flex: 1;
+    height: 1px;
+    background: var(--color-border);
+  }
+</style>

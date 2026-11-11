@@ -1,0 +1,430 @@
+---
+/**
+ * AppShell：全站页面壳（TASK-01B 组件清单第 1 项）
+ * 结构：DEMO 横幅（可选）→ 头区（品牌/返回+标题/城市徽标/通知/账户）→
+ *       内容区（slot，桌面端 max-width 1200 居中）→ 底部导航槽（可选）
+ * 断点处理：≥768px 隐藏底部导航、显示顶部导航；管理后台切换为左侧深色导航布局。
+ */
+import "../styles/tokens.css";
+import "../styles/base.css";
+import MobileBottomNav from "../components/MobileBottomNav.astro";
+import CityScopeBadge from "../components/CityScopeBadge.astro";
+
+interface Props {
+  title?: string;
+  activeTab?: "home" | "regions" | "communities" | "watch" | "events";
+  /** 是否为演示构建（决定 DEMO 横幅与角标） */
+  demo?: boolean;
+  /** 是否渲染底部导航（登录页与管理后台为 false） */
+  showNav?: boolean;
+  /** 返回按钮目标 */
+  backHref?: string;
+  /** 头区是否展示城市徽标（首页/区域页） */
+  showCity?: boolean;
+  /** app = 用户端；admin = 管理后台（左侧深色导航） */
+  variant?: "app" | "admin";
+}
+
+const {
+  title = "首页",
+  activeTab,
+  demo = false,
+  showNav = true,
+  backHref = "/",
+  showCity = false,
+  variant = "app",
+} = Astro.props;
+
+const isAdmin = variant === "admin";
+const showBrand = !isAdmin && (activeTab === undefined || activeTab === "home");
+
+const navItems: {
+  key: NonNullable<Props["activeTab"]>;
+  label: string;
+  href: string;
+}[] = [
+  { key: "home", label: "首页", href: "/" },
+  { key: "regions", label: "区域", href: "/regions" },
+  { key: "communities", label: "小区", href: "/communities" },
+  { key: "watch", label: "监控", href: "/watch" },
+  { key: "events", label: "事件", href: "/events" },
+];
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta
+      name="description"
+      content="房价雷达：轻量房产数据终端，区域与小区价格监控、目标价事件与每日简报。"
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2314253D'/%3E%3Cpath d='M6 22 L13 14 L18 18 L26 9' stroke='%233277E6' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
+    />
+    <title>{isAdmin ? "管理后台 · 房价雷达" : `${title} · 房价雷达`}</title>
+  </head>
+  <body class={isAdmin ? "is-admin" : "is-app"}>
+    {
+      demo && (
+        <div class="demo-banner" role="note">
+          <span class="demo-flag">DEMO</span>
+          <span>演示数据 · 全部为虚构对象，仅用于界面演示，非真实行情</span>
+        </div>
+      )
+    }
+
+    <header class="header">
+      <div class="header-left">
+        {
+          isAdmin && (
+            <button
+              type="button"
+              class="icon-btn admin-menu-btn"
+              data-admin-menu
+              aria-label="打开管理导航"
+            >
+              <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+                <path
+                  d="M3 5h14M3 10h14M3 15h14"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+          )
+        }
+        {
+          showBrand ? (
+            <a class="brand" href="/" aria-label="房价雷达 首页">
+              <svg
+                class="brand-mark"
+                width="26"
+                height="26"
+                viewBox="0 0 32 32"
+                aria-hidden="true"
+              >
+                <rect width="32" height="32" rx="7" fill="var(--color-brand-900)" />
+                <path
+                  d="M6 22 L13 14 L18 18 L26 9"
+                  stroke="var(--color-primary)"
+                  stroke-width="3"
+                  fill="none"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <span class="brand-name">房价雷达</span>
+            </a>
+          ) : (
+            <div class="title-group">
+              {!isAdmin && (
+                <a class="icon-btn" href={backHref} aria-label="返回上一页">
+                  <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+                    <path
+                      d="M12.5 4 L6.5 10 L12.5 16"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      fill="none"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </a>
+              )}
+              <h1 class="page-title">{title}</h1>
+            </div>
+          )
+        }
+        {showCity && <CityScopeBadge id="header" compact />}
+      </div>
+
+      <nav class="desktop-nav" aria-label="主导航">
+        {
+          navItems.map((item) => (
+            <a
+              href={item.href}
+              class="desktop-nav-link"
+              aria-current={item.key === activeTab ? "page" : undefined}
+            >
+              {item.label}
+            </a>
+          ))
+        }
+        <a href="/admin" class="desktop-nav-link">管理后台</a>
+      </nav>
+
+      <div class="header-right">
+        <a class="icon-btn" href="/events" aria-label="事件通知">
+          <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+            <path
+              d="M10 2.5a4.5 4.5 0 0 0-4.5 4.5c0 4-1.5 5.5-1.5 5.5h12s-1.5-1.5-1.5-5.5A4.5 4.5 0 0 0 10 2.5Z"
+              stroke="currentColor"
+              stroke-width="1.6"
+              fill="none"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M8.4 15.5a1.7 1.7 0 0 0 3.2 0"
+              stroke="currentColor"
+              stroke-width="1.6"
+              fill="none"
+              stroke-linecap="round"
+            />
+          </svg>
+        </a>
+        <a class="icon-btn" href="/account" aria-label="账户">
+          <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+            <circle
+              cx="10"
+              cy="6.8"
+              r="3.2"
+              stroke="currentColor"
+              stroke-width="1.6"
+              fill="none"
+            />
+            <path
+              d="M3.8 17c.9-3 3.3-4.6 6.2-4.6s5.3 1.6 6.2 4.6"
+              stroke="currentColor"
+              stroke-width="1.6"
+              fill="none"
+              stroke-linecap="round"
+            />
+          </svg>
+        </a>
+      </div>
+    </header>
+
+    {isAdmin && <aside class="admin-sidebar" data-admin-sidebar><slot name="sidebar" /></aside>}
+
+    <main class:list={["shell-main", isAdmin && "shell-main--admin"]}>
+      <slot />
+    </main>
+
+    {showNav && <MobileBottomNav active={activeTab} />}
+
+    <div class="toast" data-toast role="status" aria-live="polite"></div>
+
+    <script>
+      // 全局轻提示：任何页面脚本派发 window 事件 app:toast 即可展示
+      window.addEventListener("app:toast", (event) => {
+        const detail = (event as CustomEvent<{ message: string }>).detail;
+        const toast = document.querySelector<HTMLElement>("[data-toast]");
+        if (!toast || !detail) return;
+        toast.textContent = detail.message;
+        toast.classList.add("is-shown");
+        window.setTimeout(() => toast.classList.remove("is-shown"), 2400);
+      });
+
+      // 管理后台：窄屏下左侧深色导航的展开/收起
+      const menuBtn = document.querySelector<HTMLElement>("[data-admin-menu]");
+      const sidebar = document.querySelector<HTMLElement>("[data-admin-sidebar]");
+      menuBtn?.addEventListener("click", () => {
+        sidebar?.classList.toggle("is-open");
+      });
+    </script>
+
+    <style>
+      body {
+        min-height: 100vh;
+      }
+
+      /* ===== 头区 ===== */
+      .header {
+        position: sticky;
+        top: 0;
+        z-index: 40;
+        display: flex;
+        align-items: center;
+        gap: var(--space-1);
+        min-height: var(--header-height);
+        padding: 0 var(--page-gutter);
+        background: var(--color-surface);
+        border-bottom: 1px solid var(--color-border);
+      }
+
+      .header-left {
+        display: flex;
+        align-items: center;
+        gap: var(--space-1);
+        min-width: 0;
+        flex: 1;
+      }
+
+      .header-right {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex-shrink: 0;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--color-brand-900);
+        text-decoration: none;
+        min-width: 0;
+      }
+
+      .brand-name {
+        font-size: var(--text-md);
+        font-weight: var(--weight-bold);
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+      }
+
+      .title-group {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+      }
+
+      .page-title {
+        font-size: var(--text-md);
+        font-weight: var(--weight-semibold);
+        color: var(--color-brand-900);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .icon-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: var(--hit-target);
+        height: var(--hit-target);
+        border: none;
+        border-radius: var(--radius-pill);
+        background: transparent;
+        color: var(--color-text);
+        cursor: pointer;
+        text-decoration: none;
+        flex-shrink: 0;
+      }
+
+      .icon-btn:hover {
+        background: var(--color-primary-soft);
+        color: var(--color-primary);
+      }
+
+      /* ===== 桌面端顶部导航（≥768px 取代底部导航） ===== */
+      .desktop-nav {
+        display: none;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .desktop-nav-link {
+        display: inline-flex;
+        align-items: center;
+        min-height: var(--hit-target);
+        padding: 0 12px;
+        border-radius: var(--radius-pill);
+        color: var(--color-text);
+        font-size: var(--text-sm);
+        font-weight: var(--weight-medium);
+        text-decoration: none;
+      }
+
+      .desktop-nav-link:hover {
+        background: var(--color-primary-soft);
+        color: var(--color-primary);
+      }
+
+      .desktop-nav-link[aria-current="page"] {
+        background: var(--color-primary-soft);
+        color: var(--color-primary);
+      }
+
+      /* ===== 内容区 ===== */
+      .shell-main {
+        width: 100%;
+        max-width: var(--content-max);
+        margin: 0 auto;
+        /* 为固定底部导航预留高度 + safe-area，避免遮挡内容 */
+        padding-bottom: calc(
+          var(--bottom-nav-height) + var(--safe-bottom) + var(--space-3)
+        );
+      }
+
+      .admin-menu-btn {
+        display: none;
+      }
+
+      /* ===== 管理后台布局 ===== */
+      .admin-sidebar {
+        display: none;
+      }
+
+      body.is-admin .shell-main {
+        max-width: var(--content-max-admin);
+        padding-bottom: var(--space-4);
+      }
+
+      @media (min-width: 768px) {
+        .header {
+          padding: 0 var(--space-3);
+        }
+
+        .desktop-nav {
+          display: flex;
+        }
+
+        .admin-menu-btn {
+          display: none;
+        }
+
+        body.is-admin .admin-sidebar {
+          position: fixed;
+          top: 0;
+          left: 0;
+          bottom: 0;
+          z-index: 50;
+          display: block;
+          width: 240px;
+          overflow-y: auto;
+          background: var(--color-brand-900);
+        }
+
+        body.is-admin .shell-main--admin {
+          margin-left: 240px;
+          width: calc(100% - 240px);
+          max-width: calc(var(--content-max-admin) - 240px);
+        }
+
+        body.is-admin .header {
+          padding-left: var(--space-3);
+        }
+      }
+
+      @media (max-width: 767px) {
+        /* 窄屏：桌面导航不占位；管理后台侧栏以浮层形式展开 */
+        body.is-admin .admin-sidebar.is-open {
+          position: fixed;
+          top: 0;
+          left: 0;
+          bottom: 0;
+          z-index: 70;
+          display: block;
+          width: 240px;
+          overflow-y: auto;
+          background: var(--color-brand-900);
+          box-shadow: var(--shadow-dialog);
+        }
+
+        body.is-admin .admin-menu-btn {
+          display: inline-flex;
+        }
+      }
+    </style>
+  </body>
+</html>

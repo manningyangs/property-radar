@@ -1,0 +1,63 @@
+---
+/**
+ * StaleDataNotice：数据延迟（Stale）提示条。
+ * 显示最后有效日期与“数据延迟”文字；明确“延迟 ≠ 下跌”，防止用颜色掩盖延迟。
+ */
+interface Props {
+  source: string;
+  lastValid: string;
+  days?: number;
+}
+
+const { source, lastValid, days } = Astro.props;
+---
+
+<div class="stale" role="note">
+  <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" class="stale-icon">
+    <path
+      d="M9 2.5 16.5 15.5H1.5Z"
+      stroke="currentColor"
+      stroke-width="1.6"
+      fill="none"
+      stroke-linejoin="round"
+    />
+    <path d="M9 7v3.4M9 12.8v.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+  </svg>
+  <div class="stale-body">
+    <p class="stale-title">数据延迟 · {source}</p>
+    <p class="stale-text">
+      已超过预期更新时间{days !== undefined ? ` ${days} 天` : ""}，最后有效数据
+      <span class="num">{lastValid}</span>。延迟期间不展示过期数字冒充最新价。
+    </p>
+  </div>
+</div>
+
+<style>
+  .stale {
+    display: flex;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid rgb(217 139 32 / 45%);
+    border-radius: var(--radius-card-sm);
+    background: var(--color-warning-soft);
+    color: #6b4510;
+  }
+
+  .stale-icon {
+    color: var(--color-warning);
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .stale-title {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: #8a5a10;
+  }
+
+  .stale-text {
+    font-size: var(--text-xs);
+    line-height: 1.7;
+    margin-top: 2px;
+  }
+</style>

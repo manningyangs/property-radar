@@ -1,0 +1,88 @@
+---
+/**
+ * ErrorState：网络 / API 错误状态。
+ * 必须提供重试入口；严禁用静态假数据冒充成功。
+ * 重试交互：组件派发 app:retry 事件（detail = retryKey），页面脚本自行处理；
+ * 无监听者时给出明确反馈（不静默）。
+ */
+interface Props {
+  title?: string;
+  message: string;
+  retryKey?: string;
+}
+
+const { title = "数据加载失败", message, retryKey = "default" } = Astro.props;
+---
+
+<div class="error card" role="alert">
+  <div class="error-head">
+    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+      <circle cx="11" cy="11" r="9" stroke="var(--color-danger)" stroke-width="2" fill="none" />
+      <path
+        d="M11 6.5v5.5M11 15.2v.6"
+        stroke="var(--color-danger)"
+        stroke-width="2"
+        stroke-linecap="round"
+      />
+    </svg>
+    <h2 class="error-title">{title}</h2>
+  </div>
+  <p class="error-msg">{message}</p>
+  <p class="meta">我们不会用静态假数据冒充加载成功；恢复后会自动展示真实状态。</p>
+  <button type="button" class="btn btn--secondary" data-retry={retryKey}>
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3.2h-3.2"
+        stroke="currentColor"
+        stroke-width="1.6"
+        fill="none"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+    重试
+  </button>
+</div>
+
+<script>
+  // 重试按钮：派发 app:retry（页面脚本可监听处理），并始终给出可见反馈
+  document.addEventListener("click", (event) => {
+    const target = (event.target as HTMLElement).closest<HTMLElement>("[data-retry]");
+    if (!target) return;
+    const key = target.dataset.retry ?? "default";
+    window.dispatchEvent(new CustomEvent("app:retry", { detail: { key } }));
+    window.dispatchEvent(
+      new CustomEvent("app:toast", {
+        detail: { message: "正在重试：重新请求数据源…" },
+      }),
+    );
+  });
+</script>
+
+<style>
+  .error {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+    border-color: rgb(200 61 77 / 35%);
+  }
+
+  .error-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .error-title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-danger);
+  }
+
+  .error-msg {
+    font-size: var(--text-base);
+    color: var(--color-text);
+    line-height: 1.7;
+  }
+</style>

@@ -1,0 +1,279 @@
+---
+/**
+ * 我的监控 `/watch`（PRD 2.7）：
+ * 今日变化摘要 → 筛选 Tab（全部/区域/小区/房源/已触发，query 参数）→ 监控卡片
+ * （暂停/恢复、编辑目标价、删除二次确认，全部为真实本地交互）→ 空态引导。
+ */
+import AppShell from "../../layouts/AppShell.astro";
+import EmptyState from "../../components/EmptyState.astro";
+import WatchItemCard from "../../components/WatchItemCard.astro";
+import ConfirmDialog from "../../components/ConfirmDialog.astro";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+const demo = demoEnabled ? (await import("../../data/demo")).demoData : null;
+
+const filters = [
+  { key: "all", label: "全部" },
+  { key: "区域", label: "区域" },
+  { key: "小区", label: "小区" },
+  { key: "房源", label: "房源" },
+  { key: "triggered", label: "已触发" },
+];
+
+const triggeredCount = demo ? demo.watchItems.filter((item) => item.triggered).length : 0;
+const pausedCount = demo ? demo.watchItems.filter((item) => item.paused).length : 0;
+const activeCount = demo ? demo.watchItems.length - pausedCount : 0;
+---
+
+<AppShell title="我的监控" activeTab="watch" demo={demoEnabled} backHref="/">
+  {
+    demo ? (
+      <div class="page">
+        {/* 今日变化摘要 */}
+        <section class="card watch-summary" aria-label="今日变化摘要">
+          <div class="watch-summary-head">
+            <h2 class="section-title">今日变化</h2>
+            <span class="meta">数据日期 2026-11-10</span>
+          </div>
+          <div class="grid-2">
+            <div class="watch-stat">
+              <span class="watch-stat-num num" data-summary-triggered>
+                {triggeredCount}
+              </span>
+              <span class="watch-stat-label">今日触发（目标达成）</span>
+            </div>
+            <div class="watch-stat">
+              <span class="watch-stat-num num" data-summary-active>
+                {activeCount}
+              </span>
+              <span class="watch-stat-label">监控中</span>
+            </div>
+            <div class="watch-stat">
+              <span class="watch-stat-num num watch-stat-num--muted" data-summary-paused>
+                {pausedCount}
+              </span>
+              <span class="watch-stat-label">已暂停</span>
+            </div>
+          </div>
+        </section>
+
+        {/* 筛选 Tab */}
+        <div class="chip-row watch-filters" role="group" aria-label="监控筛选">
+          {filters.map((filter) => (
+            <button
+              type="button"
+              class:list={["chip", filter.key === "all" && "is-active"]}
+              data-watch-filter={filter.key}
+              aria-pressed={filter.key === "all" ? "true" : "false"}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+
+        <div class="stack-sm watch-list" data-watch-list>
+          {demo.watchItems.map((item) => (
+            <div data-watch-wrap data-type={item.type} data-triggered={item.triggered ? "true" : "false"}>
+              <WatchItemCard {...item} dialogId="watch-delete" />
+            </div>
+          ))}
+        </div>
+
+        <div class="is-hidden" data-watch-empty>
+          <EmptyState
+            title="该筛选下暂无监控对象"
+            description="可切换筛选条件，或添加新的区域/小区监控；未覆盖对象只能先收藏，不会显示“已开启自动监控”。"
+            actionText="去添加监控"
+            actionHref="/watch/add"
+          />
+        </div>
+
+        <div class="btn-row watch-add-row">
+          <a class="btn btn--primary btn--block" href="/watch/add">
+            + 添加监控对象
+          </a>
+        </div>
+
+        <ConfirmDialog
+          id="watch-delete"
+          title="删除监控对象"
+          message="删除后将不再产生该对象的事件与每日简报条目。历史事件保留在事件中心。此操作不可撤销。"
+          confirmText="确认删除"
+          danger
+        />
+      </div>
+    ) : (
+      <div class="page">
+        <EmptyState
+          title="暂未覆盖，可提交覆盖申请"
+          description="未接入数据源时无法建立有效的价格监控。可先登录提交覆盖申请，或浏览标准城市目录。"
+          actionText="登录后提交覆盖申请"
+          actionHref="/login"
+        />
+      </div>
+    )
+  }
+</AppShell>
+
+<script>
+  // 筛选 / 暂停恢复 / 删除（全部本地真实交互）
+  let currentFilter = "all";
+  let pendingDeleteId = "";
+
+  const summary = () => {
+    const wraps = Array.from(document.querySelectorAll<HTMLElement>("[data-watch-wrap]"));
+    const total = wraps.length;
+    const paused = wraps.filter(
+      (wrap) => wrap.querySelector("[data-watch-item]")?.getAttribute("data-paused") === "true",
+    ).length;
+    const triggered = wraps.filter(
+      (wrap) => wrap.dataset.triggered === "true",
+    ).length;
+
+    const setText = (selector: string, value: string) => {
+      const el = document.querySelector<HTMLElement>(selector);
+      if (el) el.textContent = value;
+    };
+    setText("[data-summary-triggered]", String(triggered));
+    setText("[data-summary-active]", String(total - paused));
+    setText("[data-summary-paused]", String(paused));
+  };
+
+  const applyFilter = (key: string, updateUrl: boolean) => {
+    currentFilter = key;
+    let visible = 0;
+    document.querySelectorAll<HTMLElement>("[data-watch-wrap]").forEach((wrap) => {
+      const show =
+        key === "all" ||
+        (key === "triggered" ? wrap.dataset.triggered === "true" : wrap.dataset.type === key);
+      wrap.classList.toggle("is-hidden", !show);
+      if (show) visible += 1;
+    });
+
+    document.querySelectorAll<HTMLElement>("[data-watch-filter]").forEach((chip) => {
+      const active = chip.dataset.watchFilter === key;
+      chip.classList.toggle("is-active", active);
+      chip.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+
+    const empty = document.querySelector<HTMLElement>("[data-watch-empty]");
+    const list = document.querySelector<HTMLElement>("[data-watch-list]");
+    empty?.classList.toggle("is-hidden", visible > 0);
+    list?.classList.toggle("is-hidden", visible === 0);
+
+    if (updateUrl) {
+      const url = new URL(window.location.href);
+      if (key === "all") url.searchParams.delete("filter");
+      else url.searchParams.set("filter", key);
+      window.history.replaceState({}, "", url);
+    }
+  };
+
+  document.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+
+    const filterChip = target.closest<HTMLElement>("[data-watch-filter]");
+    if (filterChip) {
+      applyFilter(filterChip.dataset.watchFilter ?? "all", true);
+      return;
+    }
+
+    const toggle = target.closest<HTMLElement>("[data-watch-toggle]");
+    if (toggle) {
+      const id = toggle.dataset.watchToggle ?? "";
+      const card = document.querySelector<HTMLElement>(`[data-watch-item="${id}"]`);
+      if (!card) return;
+      const nowPaused = card.dataset.paused !== "true";
+      card.dataset.paused = nowPaused ? "true" : "false";
+
+      const status = card.querySelector<HTMLElement>("[data-watch-status]");
+      if (status) {
+        status.textContent = nowPaused ? "已暂停" : "● 监控中";
+        status.className = `badge ${nowPaused ? "badge--neutral" : "badge--primary"}`;
+      }
+      toggle.textContent = nowPaused ? "恢复监控" : "暂停监控";
+      toggle.setAttribute("aria-pressed", nowPaused ? "false" : "true");
+      summary();
+      window.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: { message: nowPaused ? "已暂停：不再产生新事件" : "已恢复监控" },
+        }),
+      );
+      return;
+    }
+
+    const remove = target.closest<HTMLElement>("[data-watch-delete]");
+    if (remove) {
+      pendingDeleteId = remove.dataset.watchDelete ?? "";
+    }
+  });
+
+  window.addEventListener("app:confirm", (event) => {
+    const detail = (event as CustomEvent<{ id: string }>).detail;
+    if (detail.id !== "watch-delete" || !pendingDeleteId) return;
+    document
+      .querySelector<HTMLElement>(`[data-watch-wrap]:has([data-watch-item="${pendingDeleteId}"])`)
+      ?.remove();
+    pendingDeleteId = "";
+    summary();
+    applyFilter(currentFilter, false);
+    window.dispatchEvent(
+      new CustomEvent("app:toast", { detail: { message: "已删除监控对象" } }),
+    );
+  });
+
+  const initial = new URLSearchParams(window.location.search).get("filter") ?? "all";
+  applyFilter(
+    ["all", "区域", "小区", "房源", "triggered"].includes(initial) ? initial : "all",
+    false,
+  );
+  summary();
+</script>
+
+<style>
+  .watch-summary {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .watch-summary-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  .watch-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    background: var(--color-bg);
+    border-radius: var(--radius-input);
+  }
+
+  .watch-stat-num {
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
+    color: var(--color-up);
+    line-height: 1.2;
+  }
+
+  .watch-stat-num--muted {
+    color: var(--color-neutral);
+  }
+
+  .watch-stat-label {
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+  }
+
+  .watch-filters {
+    margin-top: var(--space-2);
+  }
+
+  .watch-add-row {
+    margin-top: var(--space-2);
+  }
+</style>

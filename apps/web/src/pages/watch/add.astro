@@ -1,0 +1,632 @@
+---
+/**
+ * 添加监控 `/watch/add`（PRD 2.6，5 步表单）：
+ * 选择对象 → 价格口径 → 目标条件 → 通知方式 → 确认。
+ * 每步可前进/后退；必填即时校验；未覆盖对象只允许“收藏”（Permission 说明）。
+ */
+import AppShell from "../../layouts/AppShell.astro";
+import EmptyState from "../../components/EmptyState.astro";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+const demo = demoEnabled ? (await import("../../data/demo")).demoData : null;
+
+const stepTitles = ["对象", "口径", "目标", "通知", "确认"];
+const objectTypes = ["区域", "板块", "小区", "房源"];
+const metrics = [
+  { key: "list-unit", label: "挂牌单价（元/㎡）" },
+  { key: "list-total", label: "挂牌总价（万元）" },
+  { key: "median", label: "小区中位价（元/㎡）" },
+  { key: "deal", label: "成交中位价（需授权）", note: "仅授权数据支持" },
+];
+const conditions = [
+  { key: "target-price", label: "单价 ≤ 目标价" },
+  { key: "drop-rate", label: "较上期跌幅 ≥ 阈值" },
+  { key: "peer-median", label: "低于可比样本中位价" },
+];
+const channels = [
+  { key: "daily", label: "每日摘要", hint: "每日一封汇总邮件", checked: true },
+  { key: "mail", label: "目标价触发邮件", hint: "触发时立即发送", checked: true },
+  { key: "inapp", label: "站内事件", hint: "事件中心可查看", checked: true },
+  { key: "push", label: "浏览器推送（可拒绝）", hint: "拒绝不影响其它渠道", checked: false },
+];
+---
+
+<AppShell title="添加监控" activeTab="watch" demo={demoEnabled} backHref="/watch" showNav={false}>
+  {
+    demo ? (
+      <div class="page">
+        {/* 步骤指示 */}
+        <ol class="steps" aria-label="表单步骤">
+          {stepTitles.map((title, index) => (
+            <li
+              class="step"
+              data-step-dot={index + 1}
+              aria-current={index === 0 ? "step" : undefined}
+            >
+              <span class="step-index num">{index + 1}</span>
+              <span class="step-title">{title}</span>
+            </li>
+          ))}
+        </ol>
+
+        <form class="stack add-form" data-add-form novalidate>
+          {/* 步骤 1：选择对象 */}
+          <section class="card form-step" data-step="1" aria-label="第 1 步 选择对象">
+            <h2 class="form-title">第 1 步 · 选择监控对象</h2>
+            <div class="field">
+              <span class="field-label">对象类型（必选）</span>
+              <div class="chip-row" role="radiogroup" aria-label="对象类型">
+                {objectTypes.map((type) => (
+                  <button
+                    type="button"
+                    class="chip"
+                    role="radio"
+                    aria-checked="false"
+                    data-object-type={type}
+                  >
+                    {type}
+                  </button>
+                ))}
+              </div>
+              <p class="field-error" data-error="object-type">请选择对象类型</p>
+            </div>
+
+            <div class="field">
+              <span class="field-label">选择对象（演示目录）</span>
+              <div class="stack-sm object-options">
+                {demo.regions.map((region) => (
+                  <label class="object-option">
+                    <input type="radio" name="object" value={region.name} data-object />
+                    <span>{region.name}（演示）· 区域</span>
+                    <span class="badge badge--down">已覆盖</span>
+                  </label>
+                ))}
+                {demo.communities.slice(0, 3).map((community) => (
+                  <label class="object-option">
+                    <input type="radio" name="object" value={community.name} data-object />
+                    <span>{community.name} · 小区</span>
+                    <span class="badge badge--down">已覆盖</span>
+                  </label>
+                ))}
+                <label class="object-option object-option--muted">
+                  <input type="radio" name="object" value="__request_only__" data-object />
+                  <span>真实目录城市（示例：青岛市）· 未覆盖</span>
+                  <span class="badge badge--neutral">仅可收藏</span>
+                </label>
+              </div>
+              <p class="field-error" data-error="object">请选择监控对象</p>
+              <p class="meta">
+                未覆盖对象只能“收藏观察”，不会显示“已开启自动监控”；覆盖申请流程见账户页。
+              </p>
+            </div>
+          </section>
+
+          {/* 步骤 2：价格口径 */}
+          <section class="card form-step is-hidden" data-step="2" aria-label="第 2 步 价格口径">
+            <h2 class="form-title">第 2 步 · 价格口径（必选其一）</h2>
+            <div class="stack-sm" role="radiogroup" aria-label="价格口径">
+              {metrics.map((metric) => (
+                <label class="object-option">
+                  <input type="radio" name="metric" value={metric.key} data-metric />
+                  <span>{metric.label}</span>
+                  {metric.note && <span class="badge badge--neutral">{metric.note}</span>}
+                </label>
+              ))}
+            </div>
+            <p class="field-error" data-error="metric">请选择价格口径</p>
+            <p class="meta">口径将随监控与事件一同展示，避免不同口径混比。</p>
+          </section>
+
+          {/* 步骤 3：目标条件 */}
+          <section class="card form-step is-hidden" data-step="3" aria-label="第 3 步 目标条件">
+            <h2 class="form-title">第 3 步 · 目标条件</h2>
+            <div class="field">
+              <span class="field-label">触发方式（必选）</span>
+              <div class="stack-sm" role="radiogroup" aria-label="触发方式">
+                {conditions.map((condition, index) => (
+                  <label class="object-option">
+                    <input
+                      type="radio"
+                      name="condition"
+                      value={condition.key}
+                      data-condition
+                      checked={index === 0}
+                    />
+                    <span>{condition.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div class="field">
+              <label class="field-label" for="target-price">目标价（元/㎡，必填）</label>
+              <input
+                type="number"
+                id="target-price"
+                class="input"
+                min="1"
+                inputmode="numeric"
+                placeholder="如：20500"
+                data-target-price
+              />
+              <p class="field-error" data-error="target-price">
+                请输入大于 0 的目标价
+              </p>
+            </div>
+            <div class="field">
+              <label class="field-label" for="drop-rate">跌幅阈值（%，0–100）</label>
+              <input
+                type="number"
+                id="drop-rate"
+                class="input"
+                min="0"
+                max="100"
+                inputmode="decimal"
+                placeholder="如：5"
+                value="5"
+                data-drop-rate
+              />
+              <p class="field-error" data-error="drop-rate">
+                跌幅阈值需在 0–100 之间
+              </p>
+            </div>
+          </section>
+
+          {/* 步骤 4：通知方式 */}
+          <section class="card form-step is-hidden" data-step="4" aria-label="第 4 步 通知方式">
+            <h2 class="form-title">第 4 步 · 通知方式（至少一项）</h2>
+            <div class="stack-sm">
+              {channels.map((channel) => (
+                <label class="object-option">
+                  <input
+                    type="checkbox"
+                    name="channel"
+                    value={channel.key}
+                    data-channel
+                    checked={channel.checked}
+                  />
+                  <span>
+                    {channel.label}
+                    <span class="channel-hint">{channel.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <p class="field-error" data-error="channel">请至少选择一种通知方式</p>
+            <p class="meta">
+              浏览器推送权限可拒绝且可随时撤销，拒绝仅影响该渠道；站内事件与邮件不受影响。
+            </p>
+          </section>
+
+          {/* 步骤 5：确认 */}
+          <section class="card form-step is-hidden" data-step="5" aria-label="第 5 步 确认">
+            <h2 class="form-title">第 5 步 · 确认并保存</h2>
+            <dl class="summary" data-summary>
+              <div class="summary-item">
+                <dt>对象</dt>
+                <dd data-summary-object>未选择</dd>
+              </div>
+              <div class="summary-item">
+                <dt>口径</dt>
+                <dd data-summary-metric>未选择</dd>
+              </div>
+              <div class="summary-item">
+                <dt>条件</dt>
+                <dd data-summary-condition>未设置</dd>
+              </div>
+              <div class="summary-item">
+                <dt>通知</dt>
+                <dd data-summary-channels>未选择</dd>
+              </div>
+            </dl>
+            <p class="meta">
+              保存前再次复述数据口径与可用性：未覆盖对象不会产生自动监控；演示环境未接入后端，
+              配置仅保存在本页会话中。
+            </p>
+          </section>
+
+          {/* 前进 / 后退 */}
+          <div class="btn-row form-nav">
+            <button type="button" class="btn btn--secondary" data-prev disabled>
+              ← 上一步
+            </button>
+            <button type="button" class="btn btn--primary" data-next>
+              下一步 →
+            </button>
+            <button type="submit" class="btn btn--primary is-hidden" data-submit>
+              保存监控
+            </button>
+          </div>
+        </form>
+
+        {/* 成功态 */}
+        <div class="card success is-hidden" data-success role="status">
+          <h2 class="form-title">监控配置已生成</h2>
+          <p class="success-text">
+            演示环境未接入后端：该配置仅保留在当前会话，未对外发送任何请求。
+          </p>
+          <div class="btn-row">
+            <a class="btn btn--primary" href="/watch">查看我的监控</a>
+            <button type="button" class="btn btn--secondary" data-restart>
+              再添加一个
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : (
+      <div class="page">
+        <EmptyState
+          title="暂未覆盖，可提交覆盖申请"
+          description="没有可监控的对象时无法建立规则。未接入数据源的构建不提供演示对象，避免产生无效监控。"
+          actionText="登录后提交覆盖申请"
+          actionHref="/login"
+        />
+      </div>
+    )
+  }
+</AppShell>
+
+<script>
+  // 分步表单：状态、校验、前进后退、确认摘要、提交（全部本地真实交互）
+  const form = document.querySelector<HTMLFormElement>("[data-add-form]");
+  if (form) {
+    let step = 1;
+
+    const state = {
+      objectType: "",
+      object: "",
+      objectLabel: "",
+      metric: "",
+      metricLabel: "",
+      condition: "",
+      targetPrice: "",
+      dropRate: "5",
+      channels: [] as string[],
+    };
+
+    const $ = <T extends HTMLElement>(selector: string) =>
+      form.querySelector<T>(selector);
+
+    const showError = (key: string, show: boolean) => {
+      form
+        .querySelector<HTMLElement>(`[data-error="${key}"]`)
+        ?.classList.toggle("is-shown", show);
+    };
+
+    const validate = (current: number): boolean => {
+      let ok = true;
+
+      if (current === 1) {
+        if (!state.objectType) {
+          showError("object-type", true);
+          ok = false;
+        } else showError("object-type", false);
+        if (!state.object) {
+          showError("object", true);
+          ok = false;
+        } else showError("object", false);
+      }
+
+      if (current === 2) {
+        if (!state.metric) {
+          showError("metric", true);
+          ok = false;
+        } else showError("metric", false);
+      }
+
+      if (current === 3) {
+        const price = Number(state.targetPrice);
+        const needPrice = state.condition !== "drop-rate";
+        if (needPrice && (!state.targetPrice || !(price > 0))) {
+          showError("target-price", true);
+          ok = false;
+        } else showError("target-price", false);
+
+        const rate = Number(state.dropRate);
+        if (
+          (state.condition === "drop-rate" || state.dropRate !== "") &&
+          (!(rate >= 0) || !(rate <= 100))
+        ) {
+          showError("drop-rate", true);
+          ok = false;
+        } else showError("drop-rate", false);
+      }
+
+      if (current === 4 && state.channels.length === 0) {
+        showError("channel", true);
+        ok = false;
+      } else if (current === 4) {
+        showError("channel", false);
+      }
+
+      return ok;
+    };
+
+    const renderSummary = () => {
+      const setText = (selector: string, value: string) => {
+        const el = $<HTMLElement>(selector);
+        if (el) el.textContent = value;
+      };
+      setText(
+        "[data-summary-object]",
+        `${state.objectLabel || "未选择"}${state.object === "__request_only__" ? "（仅可收藏，不产生自动监控）" : ""}`,
+      );
+      setText("[data-summary-metric]", state.metricLabel || "未选择");
+      const conditionLabel =
+        state.condition === "target-price"
+          ? `单价 ≤ ${state.targetPrice} 元/㎡`
+          : state.condition === "drop-rate"
+            ? `较上期跌幅 ≥ ${state.dropRate}%`
+            : state.condition === "peer-median"
+              ? "低于可比样本中位价"
+              : "未设置";
+      setText("[data-summary-condition]", conditionLabel);
+      setText(
+        "[data-summary-channels]",
+        state.channels.length > 0 ? state.channels.join("、") : "未选择",
+      );
+    };
+
+    const showStep = (next: number) => {
+      step = next;
+      form.querySelectorAll<HTMLElement>("[data-step]").forEach((panel) => {
+        panel.classList.toggle("is-hidden", Number(panel.dataset.step) !== step);
+      });
+      document.querySelectorAll<HTMLElement>("[data-step-dot]").forEach((dot) => {
+        const active = Number(dot.dataset.stepDot) === step;
+        dot.classList.toggle("is-active", active);
+        dot.classList.toggle("is-done", Number(dot.dataset.stepDot) < step);
+        if (active) dot.setAttribute("aria-current", "step");
+        else dot.removeAttribute("aria-current");
+      });
+
+      const prev = $<HTMLButtonElement>("[data-prev]");
+      const nextBtn = $<HTMLButtonElement>("[data-next]");
+      const submit = $<HTMLButtonElement>("[data-submit]");
+      if (prev) prev.disabled = step === 1;
+      if (nextBtn) nextBtn.classList.toggle("is-hidden", step === 5);
+      if (submit) submit.classList.toggle("is-hidden", step !== 5);
+      if (step === 5) renderSummary();
+    };
+
+    // 类型选择
+    form.querySelectorAll<HTMLElement>("[data-object-type]").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        state.objectType = chip.dataset.objectType ?? "";
+        form.querySelectorAll<HTMLElement>("[data-object-type]").forEach((other) => {
+          const checked = other === chip;
+          other.classList.toggle("is-active", checked);
+          other.setAttribute("aria-checked", checked ? "true" : "false");
+        });
+        showError("object-type", false);
+      });
+    });
+
+    // 对象 / 口径 / 条件 / 渠道采集
+    form.querySelectorAll<HTMLInputElement>("[data-object]").forEach((input) => {
+      input.addEventListener("change", () => {
+        state.object = input.value;
+        state.objectLabel = (input.parentElement?.textContent ?? "")
+          .replace(/\s+/g, " ")
+          .replace(/已覆盖|仅可收藏/g, "")
+          .trim();
+        showError("object", false);
+      });
+    });
+
+    form.querySelectorAll<HTMLInputElement>("[data-metric]").forEach((input) => {
+      input.addEventListener("change", () => {
+        state.metric = input.value;
+        state.metricLabel = (input.parentElement?.textContent ?? "")
+          .replace(/\s+/g, " ")
+          .replace(/仅授权数据支持/g, "")
+          .trim();
+        showError("metric", false);
+      });
+    });
+
+    form.querySelectorAll<HTMLInputElement>("[data-condition]").forEach((input) => {
+      input.addEventListener("change", () => {
+        state.condition = input.value;
+      });
+    });
+
+    const priceInput = $<HTMLInputElement>("[data-target-price]");
+    priceInput?.addEventListener("input", () => {
+      state.targetPrice = priceInput.value;
+    });
+
+    const rateInput = $<HTMLInputElement>("[data-drop-rate]");
+    rateInput?.addEventListener("input", () => {
+      state.dropRate = rateInput.value;
+    });
+
+    const syncChannels = () => {
+      state.channels = Array.from(
+        form.querySelectorAll<HTMLInputElement>("[data-channel]"),
+      )
+        .filter((input) => input.checked)
+        .map((input) => {
+          const label = input.parentElement?.querySelector("span")?.childNodes[0];
+          return (label?.textContent ?? input.value).trim();
+        });
+      if (state.channels.length > 0) showError("channel", false);
+    };
+
+    form.querySelectorAll<HTMLInputElement>("[data-channel]").forEach((input) => {
+      input.addEventListener("change", syncChannels);
+    });
+    syncChannels();
+
+    // 前进 / 后退 / 提交
+    $<HTMLButtonElement>("[data-next]")?.addEventListener("click", () => {
+      if (validate(step)) showStep(Math.min(step + 1, 5));
+    });
+    $<HTMLButtonElement>("[data-prev]")?.addEventListener("click", () => {
+      showStep(Math.max(step - 1, 1));
+    });
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (!validate(1) || !validate(2) || !validate(3) || !validate(4)) {
+        // 回退到第一个未通过的步骤
+        if (!validate(1)) showStep(1);
+        else if (!validate(2)) showStep(2);
+        else if (!validate(3)) showStep(3);
+        else showStep(4);
+        return;
+      }
+      form.classList.add("is-hidden");
+      document.querySelector<HTMLElement>("[data-success]")?.classList.remove("is-hidden");
+      window.dispatchEvent(
+        new CustomEvent("app:toast", { detail: { message: "监控配置已生成（演示，仅本地保存）" } }),
+      );
+    });
+
+    $<HTMLButtonElement>("[data-restart]")?.addEventListener("click", () => {
+      document.querySelector<HTMLElement>("[data-success]")?.classList.add("is-hidden");
+      form.classList.remove("is-hidden");
+      showStep(1);
+    });
+
+    showStep(1);
+  }
+</script>
+
+<style>
+  .steps {
+    display: flex;
+    gap: 6px;
+    margin: 0 0 var(--space-2);
+    padding: 0;
+    list-style: none;
+  }
+
+  .step {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding-top: 8px;
+    border-top: 3px solid var(--color-border);
+    color: var(--color-muted);
+    font-size: var(--text-xs);
+    text-align: center;
+  }
+
+  .step.is-active {
+    border-top-color: var(--color-primary);
+    color: var(--color-primary);
+    font-weight: var(--weight-semibold);
+  }
+
+  .step.is-done {
+    border-top-color: var(--color-down);
+    color: var(--color-down);
+  }
+
+  .step-index {
+    font-weight: var(--weight-bold);
+  }
+
+  .step-title {
+    white-space: nowrap;
+  }
+
+  .form-title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    margin-bottom: var(--space-1);
+  }
+
+  .form-step {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .object-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: var(--hit-target);
+    padding: 8px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-input);
+    background: var(--color-bg);
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+
+  .object-option:hover {
+    border-color: var(--color-primary);
+  }
+
+  .object-option input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--color-primary);
+    flex-shrink: 0;
+  }
+
+  .object-option--muted {
+    color: var(--color-muted);
+    border-style: dashed;
+  }
+
+  .channel-hint {
+    display: block;
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+  }
+
+  .form-nav {
+    margin-top: var(--space-1);
+  }
+
+  .form-nav .btn {
+    flex: 1;
+  }
+
+  .summary {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .summary-item {
+    display: flex;
+    gap: 10px;
+    font-size: var(--text-sm);
+    border-bottom: 1px dashed var(--color-border);
+    padding-bottom: 8px;
+  }
+
+  .summary-item dt {
+    color: var(--color-muted);
+    width: 44px;
+    flex-shrink: 0;
+  }
+
+  .summary-item dd {
+    margin: 0;
+    color: var(--color-text);
+    font-weight: var(--weight-medium);
+  }
+
+  .success {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    align-items: flex-start;
+    border-color: var(--color-down);
+  }
+
+  .success-text {
+    font-size: var(--text-sm);
+    color: var(--color-muted);
+    line-height: 1.7;
+  }
+</style>

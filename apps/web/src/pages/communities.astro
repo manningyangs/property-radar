@@ -1,0 +1,288 @@
+---
+/**
+ * 小区搜索 `/communities`（PRD 2.2 页面视觉布局“小区搜索”）：
+ * 搜索框置顶 → 区县/板块筛选 → 排序（价格/涨跌/样本数）→ 小区结果卡。
+ * q/district/sort 通过 query 参数携带，静态构建由客户端脚本执行过滤与排序。
+ */
+import AppShell from "../layouts/AppShell.astro";
+import EmptyState from "../components/EmptyState.astro";
+import CommunityCard from "../components/CommunityCard.astro";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+const demo = demoEnabled ? (await import("../data/demo")).demoData : null;
+
+const districts = demo ? [{ id: "all", name: "全部区县" }, ...demo.regions.map((r) => ({ id: r.id, name: r.name }))] : [];
+
+const sorts = [
+  { key: "default", label: "默认" },
+  { key: "price", label: "价格 ↑" },
+  { key: "change", label: "涨跌" },
+  { key: "sample", label: "样本数" },
+];
+---
+
+<AppShell title="小区搜索" activeTab="communities" demo={demoEnabled} backHref="/">
+  {
+    demo ? (
+      <div class="page" data-community-list>
+        {/* 搜索框置顶 */}
+        <form class="csearch-form" action="/communities" method="get" role="search">
+          <label class="csearch-label" for="csearch-input">
+            <span class="sr-only">搜索小区</span>
+            <input
+              type="search"
+              id="csearch-input"
+              name="q"
+              class="input"
+              placeholder="输入小区名，如：晴川花园（演示）"
+              data-community-search
+              autocomplete="off"
+            />
+          </label>
+          <button type="submit" class="btn btn--primary csearch-btn">
+            搜索
+          </button>
+        </form>
+        <p class="meta">
+          同名小区以行政区后缀消歧；仅展示已核验字段，未覆盖对象不会出现在结果中。
+        </p>
+
+        {/* 区县筛选 */}
+        <div class="chip-row" role="group" aria-label="区县筛选">
+          {districts.map((district) => (
+            <button
+              type="button"
+              class:list={["chip", district.id === "all" && "is-active"]}
+              data-filter-district={district.id}
+              aria-pressed={district.id === "all" ? "true" : "false"}
+            >
+              {district.name}
+            </button>
+          ))}
+        </div>
+
+        {/* 排序 */}
+        <div class="chip-row" role="group" aria-label="排序方式">
+          {sorts.map((sort) => (
+            <button
+              type="button"
+              class:list={["chip", sort.key === "default" && "is-active"]}
+              data-sort={sort.key}
+              aria-pressed={sort.key === "default" ? "true" : "false"}
+            >
+              {sort.label}
+            </button>
+          ))}
+        </div>
+
+        <p class="meta result-count" data-result-count />
+
+        <div class="stack-sm" data-community-results>
+          {demo.communities.map((item) => (
+            <div data-community-item data-name={item.name} data-district={item.regionId}>
+              <CommunityCard
+                id={item.id}
+                name={item.name}
+                regionName={item.regionName}
+                plate={item.plate}
+                median={item.median}
+                change30={item.change30}
+                direction={item.direction}
+                sample={item.sample}
+                statDate={item.statDate}
+                source={item.source}
+                status={item.status}
+              />
+            </div>
+          ))}
+        </div>
+
+        <div class="is-hidden" data-community-empty>
+          <EmptyState
+            title="没有匹配的小区"
+            description="换个关键词，或清除区县筛选；若目标小区未覆盖，可提交补录申请。"
+            actionText="登录后提交覆盖申请"
+            actionHref="/login"
+          />
+        </div>
+      </div>
+    ) : (
+      <div class="page">
+        <form class="csearch-form" action="/communities" method="get" role="search">
+          <label class="csearch-label" for="csearch-input-prod">
+            <span class="sr-only">搜索小区</span>
+            <input
+              type="search"
+              id="csearch-input-prod"
+              name="q"
+              class="input"
+              placeholder="搜索小区（当前未接入数据源）"
+              autocomplete="off"
+            />
+          </label>
+          <button type="submit" class="btn btn--primary csearch-btn">
+            搜索
+          </button>
+        </form>
+        <EmptyState
+          title="暂未覆盖，可提交覆盖申请"
+          description="未接入数据源时没有可搜索的小区结果。可从标准城市目录提交覆盖申请。"
+          actionText="登录后提交覆盖申请"
+          actionHref="/login"
+        />
+      </div>
+    )
+  }
+</AppShell>
+
+<script>
+  const items = Array.from(
+    document.querySelectorAll<HTMLElement>("[data-community-item]"),
+  );
+  const results = document.querySelector<HTMLElement>("[data-community-results]");
+  const empty = document.querySelector<HTMLElement>("[data-community-empty]");
+  const countEl = document.querySelector<HTMLElement>("[data-result-count]");
+  const searchInput = document.querySelector<HTMLInputElement>("[data-community-search]");
+
+  const params = new URLSearchParams(window.location.search);
+  let query = params.get("q") ?? "";
+  let district = params.get("district") ?? "all";
+  let sort = params.get("sort") ?? "default";
+
+  if (searchInput) searchInput.value = query;
+
+  const syncUrl = () => {
+    const url = new URL(window.location.href);
+    if (query) url.searchParams.set("q", query);
+    else url.searchParams.delete("q");
+    if (district !== "all") url.searchParams.set("district", district);
+    else url.searchParams.delete("district");
+    if (sort !== "default") url.searchParams.set("sort", sort);
+    else url.searchParams.delete("sort");
+    window.history.replaceState({}, "", url);
+  };
+
+  const apply = () => {
+    let visible = 0;
+    const matched: HTMLElement[] = [];
+
+    for (const item of items) {
+      const name = item.dataset.name ?? "";
+      const itemDistrict = item.dataset.district ?? "";
+      const matchQuery = !query || name.toLowerCase().includes(query.toLowerCase());
+      const matchDistrict = district === "all" || itemDistrict === district;
+      const show = matchQuery && matchDistrict;
+      item.classList.toggle("is-hidden", !show);
+      if (show) {
+        visible += 1;
+        matched.push(item);
+      }
+    }
+
+    // 排序（价格缺失者排最后，不以其他对象数字顶替）
+    if (sort !== "default" && results) {
+      const priceOf = (el: HTMLElement) => {
+        const node = el.querySelector<HTMLElement>(".ccard-price");
+        return node
+          ? Number((node.textContent ?? "0").replace(/,/g, ""))
+          : Number.POSITIVE_INFINITY;
+      };
+      const changeOf = (el: HTMLElement) => {
+        const card = el.querySelector<HTMLElement>(".ccard");
+        const match = (card?.textContent ?? "").match(/(上涨|下降)(\d+\.\d)%/);
+        if (!match?.[2]) return 0;
+        const value = Number(match[2]);
+        return match[1] === "下降" ? -value : value;
+      };
+      const sampleOf = (el: HTMLElement) => {
+        const match = (el.textContent ?? "").match(/n=(\d+)/);
+        return match?.[1] ? Number(match[1]) : 0;
+      };
+
+      const sorted = [...matched].sort((a, b) => {
+        if (sort === "price") return priceOf(a) - priceOf(b);
+        if (sort === "change") return changeOf(a) - changeOf(b);
+        if (sort === "sample") return sampleOf(b) - sampleOf(a);
+        return 0;
+      });
+      for (const el of sorted) results.appendChild(el);
+    }
+
+    if (countEl) {
+      countEl.textContent = `共 ${visible} 个结果${query ? ` · 关键词“${query}”` : ""}`;
+    }
+    empty?.classList.toggle("is-hidden", visible > 0);
+  };
+
+  document.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+
+    const districtChip = target.closest<HTMLElement>("[data-filter-district]");
+    if (districtChip) {
+      district = districtChip.dataset.filterDistrict ?? "all";
+      document.querySelectorAll<HTMLElement>("[data-filter-district]").forEach((chip) => {
+        const active = chip === districtChip;
+        chip.classList.toggle("is-active", active);
+        chip.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+      syncUrl();
+      apply();
+      return;
+    }
+
+    const sortChip = target.closest<HTMLElement>("[data-sort]");
+    if (sortChip) {
+      sort = sortChip.dataset.sort ?? "default";
+      document.querySelectorAll<HTMLElement>("[data-sort]").forEach((chip) => {
+        const active = chip === sortChip;
+        chip.classList.toggle("is-active", active);
+        chip.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+      syncUrl();
+      apply();
+    }
+  });
+
+  // 首次进入按 URL 参数应用筛选/排序（支持从首页搜索框 GET 跳转）
+  if (items.length > 0) {
+    document
+      .querySelectorAll<HTMLElement>("[data-filter-district]")
+      .forEach((chip) => {
+        const active = (chip.dataset.filterDistrict ?? "all") === district;
+        chip.classList.toggle("is-active", active);
+        chip.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+    document.querySelectorAll<HTMLElement>("[data-sort]").forEach((chip) => {
+      const active = (chip.dataset.sort ?? "default") === sort;
+      chip.classList.toggle("is-active", active);
+      chip.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+    apply();
+  }
+</script>
+
+<style>
+  .csearch-form {
+    display: flex;
+    gap: var(--space-1);
+    align-items: center;
+    margin-bottom: var(--space-1);
+  }
+
+  .csearch-label {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .csearch-btn {
+    flex-shrink: 0;
+  }
+
+  .result-count {
+    margin-top: var(--space-1);
+  }
+
+  [data-community-item] {
+    display: block;
+  }
+</style>

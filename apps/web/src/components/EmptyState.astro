@@ -1,0 +1,90 @@
+---
+/**
+ * EmptyState：空状态（无关注项 / 无搜索结果 / 暂未覆盖）。
+ * 必须解释原因并给出下一步操作；生产构建无数据时统一使用本组件。
+ */
+interface Props {
+  title?: string;
+  description?: string;
+  actionText?: string;
+  actionHref?: string;
+}
+
+const {
+  title = "暂未覆盖，可提交覆盖申请",
+  description = "当前没有可展示的可靠数据。我们不会用示例或历史数字冒充行情。",
+  actionText,
+  actionHref,
+} = Astro.props;
+---
+
+<div class="empty card" role="status">
+  <svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true" class="empty-icon">
+    <rect
+      x="6"
+      y="10"
+      width="32"
+      height="24"
+      rx="4"
+      stroke="var(--color-neutral)"
+      stroke-width="2"
+      fill="none"
+    />
+    <path
+      d="M12 28 L18 21 L23 25 L30 17"
+      stroke="var(--color-neutral)"
+      stroke-width="2"
+      fill="none"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-dasharray="3 3"
+    />
+    <circle
+      cx="29"
+      cy="29"
+      r="7"
+      fill="var(--color-surface)"
+      stroke="var(--color-neutral)"
+      stroke-width="2"
+    />
+    <path d="M34 34 L39 39" stroke="var(--color-neutral)" stroke-width="2" stroke-linecap="round" />
+  </svg>
+  <h2 class="empty-title">{title}</h2>
+  <p class="empty-desc">{description}</p>
+  {
+    actionText && actionHref && (
+      <a class="btn btn--primary" href={actionHref}>
+        {actionText}
+      </a>
+    )
+  }
+  <slot />
+</div>
+
+<style>
+  .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-4) var(--space-2);
+    text-align: center;
+  }
+
+  .empty-icon {
+    flex-shrink: 0;
+  }
+
+  .empty-title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .empty-desc {
+    font-size: var(--text-sm);
+    color: var(--color-muted);
+    line-height: 1.7;
+    max-width: 320px;
+  }
+</style>

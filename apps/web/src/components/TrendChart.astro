@@ -1,0 +1,140 @@
+---
+/**
+ * TrendChart：价格趋势图（内联 SVG 手绘折线，无第三方图表库、无外链资源）。
+ * - 默认不画多余网格线；图注必须包含指标类型、数据来源与统计日期；
+ * - 无数据时渲染空状态而不是虚构曲线。
+ */
+interface Props {
+  points: number[];
+  metric: string;
+  source: string;
+  statDate: string;
+  /** 折线颜色跟随趋势方向（仅强调，坐标轴与图注仍携带完整信息） */
+  trend?: "up" | "down" | "flat";
+  height?: number;
+}
+
+const {
+  points,
+  metric,
+  source,
+  statDate,
+  trend = "flat",
+  height = 72,
+} = Astro.props;
+
+const hasData = points.length >= 2;
+
+let path = "";
+let lastX = 0;
+let lastY = 0;
+
+if (hasData) {
+  const width = 100;
+  const pad = 4;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const range = max - min || 1;
+  const coords = points.map((point, index) => {
+    const x = pad + (index / (points.length - 1)) * (width - pad * 2);
+    const y = pad + (1 - (point - min) / range) * (height - pad * 2);
+    return [x, y] as const;
+  });
+  path = coords
+    .map(([x, y], index) => `${index === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)}`)
+    .join(" ");
+  const last = coords[coords.length - 1];
+  if (last) {
+    lastX = last[0];
+    lastY = last[1];
+  }
+}
+
+const stroke =
+  trend === "up"
+    ? "var(--color-up)"
+    : trend === "down"
+      ? "var(--color-down)"
+      : "var(--color-primary)";
+---
+
+<figure class="chart">
+  {
+    hasData ? (
+      <svg
+        class="chart-svg"
+        viewBox={`0 0 100 ${height}`}
+        preserveAspectRatio="none"
+        style={`height:${height}px`}
+        role="img"
+        aria-label={`${metric} 趋势图，数据来源 ${source}，统计日期 ${statDate}`}
+      >
+        <line
+          x1="0"
+          y1={height - 1}
+          x2="100"
+          y2={height - 1}
+          stroke="var(--color-border)"
+          stroke-width="1"
+          vector-effect="non-scaling-stroke"
+        />
+        <path
+          d={path}
+          fill="none"
+          stroke={stroke}
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          vector-effect="non-scaling-stroke"
+        />
+        <circle
+          cx={lastX}
+          cy={lastY}
+          r="2.5"
+          fill={stroke}
+          vector-effect="non-scaling-stroke"
+        />
+      </svg>
+    ) : (
+      <div class="chart-empty" role="note">
+        暂无可靠数据：不绘制虚构曲线，可提交覆盖申请
+      </div>
+    )
+  }
+  <figcaption class="meta">
+    {metric} · 数据来源 {source} · 统计日期 <span class="num">{statDate}</span>
+  </figcaption>
+</figure>
+
+<style>
+  .chart {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .chart-svg {
+    display: block;
+    width: 100%;
+    border-radius: var(--radius-input);
+    background: linear-gradient(
+      180deg,
+      rgb(234 242 255 / 45%) 0%,
+      rgb(234 242 255 / 0%) 100%
+    );
+  }
+
+  .chart-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 72px;
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-input);
+    color: var(--color-neutral);
+    font-size: var(--text-sm);
+    text-align: center;
+    padding: 0 12px;
+  }
+</style>

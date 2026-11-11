@@ -1,0 +1,135 @@
+---
+/**
+ * MobileBottomNav：移动端固定底部导航（5 Tab：首页/区域/小区/监控/事件）
+ * - 固定定位 + env(safe-area-inset-bottom)（AppShell 已为主内容预留高度）
+ * - 当前项通过 aria-current 与颜色双重编码（不只靠颜色）
+ * - ≥768px 隐藏（AppShell 切换为顶部导航，信息架构不变）
+ */
+interface Props {
+  active?: "home" | "regions" | "communities" | "watch" | "events";
+}
+
+const { active } = Astro.props;
+
+const items: {
+  key: NonNullable<Props["active"]>;
+  label: string;
+  href: string;
+  path: string;
+}[] = [
+  { key: "home", label: "首页", href: "/", path: "M3 10.5 10 4l7 6.5V17a1 1 0 0 1-1 1h-4v-4H8v4H4a1 1 0 0 1-1-1Z" },
+  {
+    key: "regions",
+    label: "区域",
+    href: "/regions",
+    path: "M3 5.5 8 3.5l4 2 5-2v11l-5 2-4-2-5 2ZM8 3.5v11M12 5.5v11",
+  },
+  {
+    key: "communities",
+    label: "小区",
+    href: "/communities",
+    path: "M4 17V6.5L9 4v13M9 8h6.5V17M2.5 17h15M11.5 10.5h1.5M11.5 13.5h1.5",
+  },
+  {
+    key: "watch",
+    label: "监控",
+    href: "/watch",
+    path: "M10 5C5.8 5 2.8 8.4 2 10c.8 1.6 3.8 5 8 5s7.2-3.4 8-5c-.8-1.6-3.8-5-8-5Z M10 12.4a2.4 2.4 0 1 0 0-4.8 2.4 2.4 0 0 0 0 4.8Z",
+  },
+  {
+    key: "events",
+    label: "事件",
+    href: "/events",
+    path: "M10 3a5 5 0 0 0-5 5c0 3.6-1.4 4.8-1.4 4.8h12.8S15 11.6 15 8a5 5 0 0 0-5-5ZM8.5 15.2a1.8 1.8 0 0 0 3 0",
+  },
+];
+---
+
+<nav class="bottom-nav" aria-label="底部主导航">
+  {
+    items.map((item) => (
+      <a
+        href={item.href}
+        class:list={["nav-item", item.key === active && "is-active"]}
+        aria-current={item.key === active ? "page" : undefined}
+      >
+        <svg width="22" height="22" viewBox="0 0 20 20" aria-hidden="true">
+          <path
+            d={item.path}
+            stroke="currentColor"
+            stroke-width="1.6"
+            fill="none"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        <span class="nav-label">{item.label}</span>
+      </a>
+    ))
+  }
+</nav>
+
+<style>
+  .bottom-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    display: flex;
+    justify-content: space-around;
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    /* iOS 安全区适配；桌面浏览器回退为 0 */
+    padding-bottom: var(--safe-bottom);
+    box-shadow: 0 -2px 12px rgb(23 43 77 / 6%);
+  }
+
+  .nav-item {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-height: var(--bottom-nav-height);
+    max-width: 88px;
+    color: var(--color-muted);
+    text-decoration: none;
+  }
+
+  .nav-label {
+    font-size: 11px;
+    line-height: 1.2;
+  }
+
+  /* 选中态：颜色 + 加粗 + 顶部指示条（不只靠颜色编码） */
+  .nav-item.is-active {
+    color: var(--color-primary);
+    font-weight: var(--weight-semibold);
+  }
+
+  .nav-item.is-active .nav-label {
+    font-weight: var(--weight-semibold);
+  }
+
+  .nav-item.is-active::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    width: 24px;
+    height: 3px;
+    border-radius: 0 0 3px 3px;
+    background: var(--color-primary);
+  }
+
+  .nav-item {
+    position: relative;
+  }
+
+  @media (min-width: 768px) {
+    .bottom-nav {
+      display: none;
+    }
+  }
+</style>

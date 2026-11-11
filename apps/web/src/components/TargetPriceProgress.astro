@@ -1,0 +1,94 @@
+---
+/**
+ * TargetPriceProgress：目标价进度条（当前值相对目标的完成度 + 状态文字）。
+ * 颜色仅为强调，状态同时以文字表达。
+ */
+interface Props {
+  /** 0–100 */
+  percent: number;
+  current: string;
+  target: string;
+  unit: string;
+  /** 状态文字，如“较目标价高 4.4%” */
+  statusText: string;
+  tone?: "up" | "down" | "neutral";
+}
+
+const { percent, current, target, unit, statusText, tone = "neutral" } = Astro.props;
+const width = Math.max(0, Math.min(100, percent));
+---
+
+<div class="tpp">
+  <div class="tpp-values">
+    <span>当前 <b class="num tpp-num">{current}</b> {unit}</span>
+    <span class="muted">目标 <b class="num tpp-num">{target}</b> {unit}</span>
+  </div>
+  <div
+    class="tpp-track"
+    role="img"
+    aria-label={`目标进度 ${width}%，${statusText}`}
+  >
+    <div class="tpp-fill" style={`width:${width}%`}></div>
+  </div>
+  <div class:list={["tpp-status", `tpp-status--${tone}`]}>
+    <span class="num tpp-percent">{width}%</span>
+    <span>·</span>
+    <span>{statusText}</span>
+  </div>
+</div>
+
+<style>
+  .tpp {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .tpp-values {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-1);
+    font-size: var(--text-sm);
+    color: var(--color-text);
+  }
+
+  .tpp-num {
+    font-weight: var(--weight-semibold);
+  }
+
+  .tpp-track {
+    height: 8px;
+    border-radius: var(--radius-pill);
+    background: var(--color-border);
+    overflow: hidden;
+  }
+
+  .tpp-fill {
+    height: 100%;
+    border-radius: var(--radius-pill);
+    background: var(--color-primary);
+    transition: width 0.25s ease;
+  }
+
+  .tpp-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--text-sm);
+    color: var(--color-muted);
+  }
+
+  .tpp-status--up {
+    color: var(--color-up);
+    font-weight: var(--weight-medium);
+  }
+
+  .tpp-status--down {
+    color: var(--color-down);
+    font-weight: var(--weight-medium);
+  }
+
+  .tpp-percent {
+    font-weight: var(--weight-bold);
+  }
+</style>

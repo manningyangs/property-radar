@@ -1,0 +1,44 @@
+---
+/**
+ * DataFreshnessBadge：数据新鲜度徽标。
+ * 规则：禁止用绿色“正常”掩盖数据延迟；延迟/超期必须显式出现“数据延迟”文字。
+ */
+interface Props {
+  status: "fresh" | "delayed" | "stale";
+  /** 展示的日期时间文本 */
+  date: string;
+  compact?: boolean;
+}
+
+const { status, date, compact = false } = Astro.props;
+
+const map = {
+  fresh: { cls: "badge--down", icon: "●", text: "数据正常" },
+  delayed: { cls: "badge--warning", icon: "▲", text: "数据延迟" },
+  stale: { cls: "badge--warning", icon: "▲", text: "数据延迟" },
+} as const;
+
+const current = map[status];
+---
+
+<span class:list={["freshness", current.cls, "badge"]}>
+  <span aria-hidden="true">{current.icon}</span>
+  <span>{current.text}</span>
+  {!compact && <span class="freshness-date num">{date}</span>}
+</span>
+{status !== "fresh" && !compact && (
+  <p class="meta freshness-note" role="note">
+    超过该数据源预期更新时间；最后有效数据 {date}。数据延迟 ≠ 价格下跌。
+  </p>
+)}
+
+<style>
+  .freshness-date {
+    font-weight: var(--weight-regular);
+    opacity: 0.85;
+  }
+
+  .freshness-note {
+    margin-top: 6px;
+  }
+</style>

@@ -1,0 +1,454 @@
+---
+/**
+ * 区县详情 `/region?id=`（PRD 2.4）：
+ * 行政路径、二手房/成交/新房分栏、价格口径与周期切换、同级比较、
+ * 区县内小区列表、加入监控（游客 → Permission 引导）。
+ * 静态构建通过 query 参数由客户端脚本选择对象（默认第一个）。
+ */
+import AppShell from "../layouts/AppShell.astro";
+import EmptyState from "../components/EmptyState.astro";
+import PriceMetricCard from "../components/PriceMetricCard.astro";
+import ConfirmDialog from "../components/ConfirmDialog.astro";
+import CommunityCard from "../components/CommunityCard.astro";
+import SourceAttribution from "../components/SourceAttribution.astro";
+import SampleCountLabel from "../components/SampleCountLabel.astro";
+import { PERIOD_LABELS } from "../scripts/chart";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+const demo = demoEnabled ? (await import("../data/demo")).demoData : null;
+
+const periodKeys = ["7", "30", "90", "180", "360"];
+
+const chartMap: Record<string, Record<string, Record<string, number[]>>> = {};
+if (demo) {
+  for (const region of demo.regions) {
+    chartMap[region.id] = { list: region.series, deal: region.dealSeries };
+  }
+}
+const chartJson = JSON.stringify(chartMap);
+
+const statusBadge = (status: string) =>
+  status === "stale"
+    ? { text: "数据延迟", cls: "badge--warning" }
+    : status === "low"
+      ? { text: "样本有限", cls: "badge--warning" }
+      : status === "none"
+        ? { text: "未覆盖", cls: "badge--neutral" }
+        : { text: "数据正常", cls: "badge--down" };
+---
+
+<AppShell title="区县详情" activeTab="regions" demo={demoEnabled} backHref="/regions">
+  {
+    demo ? (
+      <div class="page" data-chart-json={chartJson}>
+        {/* 分栏：二手房 / 成交 / 新房 */}
+        <div class="chip-row" role="group" aria-label="数据分栏">
+          <button type="button" class="chip is-active" data-pane="second" aria-pressed="true">
+            二手房
+          </button>
+          <button type="button" class="chip" data-pane="deal" aria-pressed="false">
+            成交
+          </button>
+          <button type="button" class="chip" data-pane="newhouse" aria-pressed="false">
+            新房
+          </button>
+        </div>
+
+        <div class="stack region-detail-blocks">
+          {demo.regions.map((region, index) => {
+            const badge = statusBadge(region.status);
+            const listDirection = region.direction;
+            const dealDirection =
+              region.dealChange > 0 ? "up" : region.dealChange < 0 ? "down" : "flat";
+            const peers = demo.regions.filter((item) => item.id !== region.id);
+            const communities = demo.communities.filter(
+              (item) => item.regionId === region.id,
+            );
+            return (
+              <section
+                class:list={["card", "region-detail", index !== 0 && "is-hidden"]}
+                data-region-detail={region.id}
+                aria-label={region.name}
+              >
+                <div class="rd-head">
+                  <div>
+                    <h2 class="rd-name">{region.name}</h2>
+                    <p class="meta">
+                      {region.city} › {region.name}
+                    </p>
+                  </div>
+                  <span class:list={["badge", badge.cls]}>{badge.text}</span>
+                </div>
+
+                <div data-pane-panel="second">
+                  <PriceMetricCard
+                    metric="二手房 · 挂牌参考中位价"
+                    value={region.listMedian.toLocaleString("zh-CN")}
+                    direction={listDirection}
+                    percent={region.listChange}
+                    statDate="2026-11-10"
+                    sample={region.listSample}
+                    status={
+                      region.status === "stale"
+                        ? { text: "数据延迟", tone: "warning" }
+                        : { text: "数据正常", tone: "ok" }
+                    }
+                    footer={`挂牌均价 ${region.listAvg.toLocaleString("zh-CN")} 元/㎡ · 质量等级 ${region.quality}`}
+                  />
+                </div>
+
+                <div data-pane-panel="deal" class="is-hidden">
+                  <PriceMetricCard
+                    metric="二手房 · 实际成交中位价"
+                    value={region.dealMedian.toLocaleString("zh-CN")}
+                    direction={dealDirection}
+                    percent={region.dealChange}
+                    statDate="2026-11-10"
+                    sample={region.dealSample}
+                    status={{ text: "口径独立呈现", tone: "neutral" }}
+                    footer="仅授权数据支持成交口径；与挂牌口径分别呈现，禁止混比。"
+                  />
+                </div>
+
+                <div data-pane-panel="newhouse" class="is-hidden">
+                  <EmptyState
+                    title="新房口径暂未接入"
+                    description="该区县暂无合格新房数据源。未覆盖口径不展示虚构数字，可提交覆盖申请。"
+                    actionText="登录后提交覆盖申请"
+                    actionHref="/login"
+                  />
+                </div>
+
+                <div data-chart-area>
+                  <figure class="rd-chart-wrap">
+                    <svg
+                      class="rd-chart"
+                      viewBox="0 0 100 72"
+                      preserveAspectRatio="none"
+                      data-chart
+                      role="img"
+                      aria-label="区县价格趋势图"
+                    >
+                      <line
+                        x1="0"
+                        y1="71"
+                        x2="100"
+                        y2="71"
+                        stroke="var(--color-border)"
+                        stroke-width="1"
+                        vector-effect="non-scaling-stroke"
+                      />
+                      <path
+                        data-chart-path
+                        d=""
+                        fill="none"
+                        stroke="var(--color-primary)"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        vector-effect="non-scaling-stroke"
+                      />
+                      <circle data-chart-dot cx="0" cy="0" r="0" fill="var(--color-primary)" />
+                    </svg>
+                    <figcaption class="meta" data-chart-caption />
+                  </figure>
+
+                  <div class="chip-row rd-periods" role="group" aria-label="趋势周期">
+                    {periodKeys.map((period) => (
+                      <button
+                        type="button"
+                        class:list={["chip", period === "30" && "is-active"]}
+                        data-period={period}
+                        aria-pressed={period === "30" ? "true" : "false"}
+                      >
+                        {PERIOD_LABELS[period]}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div class="rd-quality">
+                    <SampleCountLabel sample={region.listSample} />
+                  </div>
+                </div>
+
+                {/* 同级比较：同口径同周期 */}
+                <div class="rd-peers">
+                  <p class="rd-subtitle">同级比较（挂牌参考 · 近 30 日 · 同口径）</p>
+                  <div class="stack-sm">
+                    {peers.map((peer) => (
+                      <a
+                        class="rd-peer"
+                        href={`/region?id=${encodeURIComponent(peer.id)}`}
+                        data-peer-link={peer.id}
+                      >
+                        <span>{peer.name}</span>
+                        <span class="num">
+                          {peer.listMedian.toLocaleString("zh-CN")} 元/㎡
+                        </span>
+                        <span
+                          class:list={[
+                            "badge",
+                            peer.direction === "up"
+                              ? "badge--up"
+                              : peer.direction === "down"
+                                ? "badge--down"
+                                : "badge--neutral",
+                          ]}
+                        >
+                          {peer.direction === "up" ? "▲" : peer.direction === "down" ? "▼" : "—"}{" "}
+                          {Math.abs(peer.listChange).toFixed(1)}%
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 区县内小区 */}
+                <div class="rd-subtitle-row">
+                  <p class="rd-subtitle">区内小区</p>
+                </div>
+                <div class="stack-sm">
+                  {communities.map((item) => (
+                    <CommunityCard
+                      id={item.id}
+                      name={item.name}
+                      regionName={item.regionName}
+                      plate={item.plate}
+                      median={item.median}
+                      change30={item.change30}
+                      direction={item.direction}
+                      sample={item.sample}
+                      statDate={item.statDate}
+                      source={item.source}
+                      status={item.status}
+                    />
+                  ))}
+                </div>
+
+                <SourceAttribution
+                  metric="挂牌参考 / 实际成交（分口径）"
+                  source="演示数据源A / 演示数据源B（演示）"
+                  statDate="2026-11-10"
+                  collectedAt="2026-11-10 06:10"
+                  quality={region.quality}
+                />
+
+                <div class="btn-row">
+                  <button
+                    type="button"
+                    class="btn btn--primary btn--block"
+                    data-dialog-open="perm-watch"
+                  >
+                    加入监控（登录后云端同步）
+                  </button>
+                </div>
+              </section>
+            );
+          })}
+        </div>
+
+        <ConfirmDialog
+          id="perm-watch"
+          title="云端监控需要登录"
+          message="游客可本地浏览；注册登录后可云端保存监控清单并跨设备同步，事件通知不依赖浏览器推送权限。"
+          confirmText="去登录"
+          cancelText="继续浏览"
+        />
+      </div>
+    ) : (
+      <div class="page">
+        <EmptyState
+          title="暂未覆盖，可提交覆盖申请"
+          description="区县详情需要已接入的数据源。当前构建不展示任何价格数字。"
+          actionText="登录后提交覆盖申请"
+          actionHref="/login"
+        />
+      </div>
+    )
+  }
+</AppShell>
+
+<script>
+  import { PERIOD_LABELS, drawChart, parseChartData } from "../scripts/chart";
+
+  const data = parseChartData(
+    document.querySelector<HTMLElement>("[data-chart-json]")?.dataset.chartJson ?? "{}",
+  );
+
+  const params = new URLSearchParams(window.location.search);
+  let regionId = params.get("id") ?? "";
+  if (!data[regionId]) regionId = Object.keys(data)[0] ?? "";
+
+  let pane: "second" | "deal" | "newhouse" = "second";
+  let period = "30";
+
+  const metricKey = () => (pane === "deal" ? "deal" : "list");
+  const metricLabel = () =>
+    pane === "deal" ? "实际成交 · 中位价" : "挂牌参考 · 中位价";
+
+  const applyRegion = (id: string, updateUrl: boolean) => {
+    if (!data[id]) return;
+    regionId = id;
+    document.querySelectorAll<HTMLElement>("[data-region-detail]").forEach((block) => {
+      block.classList.toggle("is-hidden", (block.dataset.regionDetail ?? "") !== id);
+    });
+    if (updateUrl) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("id", id);
+      window.history.replaceState({}, "", url);
+    }
+    redraw();
+  };
+
+  const redraw = () => {
+    const block = document.querySelector<HTMLElement>(
+      `[data-region-detail="${CSS.escape(regionId)}"]`,
+    );
+    if (!block) return;
+    const svg = block.querySelector<SVGSVGElement>("[data-chart]");
+    const caption = block.querySelector<HTMLElement>("[data-chart-caption]");
+    const points = data[regionId]?.[metricKey()]?.[period] ?? [];
+    if (svg) drawChart(svg, points);
+    if (caption) {
+      caption.textContent = `${metricLabel()} · ${PERIOD_LABELS[period] ?? period} · 数据来源 演示数据源汇总 · 统计日期 2026-11-10`;
+    }
+  };
+
+  const applyPane = (next: "second" | "deal" | "newhouse") => {
+    pane = next;
+    document.querySelectorAll<HTMLElement>("[data-pane]").forEach((chip) => {
+      const active = chip.dataset.pane === next;
+      chip.classList.toggle("is-active", active);
+      chip.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+    document.querySelectorAll<HTMLElement>("[data-pane-panel]").forEach((panel) => {
+      panel.classList.toggle("is-hidden", (panel.dataset.panePanel ?? "") !== next);
+    });
+    // 新房无口径：隐藏趋势图与周期切换，避免“空曲线”
+    document.querySelectorAll<HTMLElement>("[data-chart-area]").forEach((area) => {
+      area.classList.toggle("is-hidden", next === "newhouse");
+    });
+    redraw();
+  };
+
+  document.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+
+    const paneChip = target.closest<HTMLElement>("[data-pane]");
+    if (paneChip) {
+      const value = paneChip.dataset.pane;
+      if (value === "second" || value === "deal" || value === "newhouse") applyPane(value);
+      return;
+    }
+
+    const periodChip = target.closest<HTMLElement>("[data-period]");
+    if (periodChip) {
+      period = periodChip.dataset.period ?? "30";
+      document.querySelectorAll<HTMLElement>("[data-period]").forEach((chip) => {
+        const active = chip.dataset.period === period;
+        chip.classList.toggle("is-active", active);
+        chip.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+      redraw();
+      return;
+    }
+
+    const peer = target.closest<HTMLElement>("[data-peer-link]");
+    if (peer) {
+      event.preventDefault();
+      applyRegion(peer.dataset.peerLink ?? "", true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  });
+
+  window.addEventListener("app:confirm", (event) => {
+    const detail = (event as CustomEvent<{ id: string }>).detail;
+    if (detail.id === "perm-watch") window.location.href = "/login";
+  });
+
+  applyRegion(regionId, false);
+  applyPane("second");
+</script>
+
+<style>
+  .region-detail {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .rd-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  .rd-name {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-bold);
+    color: var(--color-brand-900);
+    line-height: var(--line-tight);
+  }
+
+  .rd-chart-wrap {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .rd-chart {
+    display: block;
+    width: 100%;
+    height: 72px;
+    border-radius: var(--radius-input);
+    background: linear-gradient(
+      180deg,
+      rgb(234 242 255 / 45%) 0%,
+      rgb(234 242 255 / 0%) 100%
+    );
+  }
+
+  .rd-periods {
+    margin-top: var(--space-1);
+  }
+
+  .rd-subtitle {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .rd-subtitle-row {
+    margin-top: 4px;
+  }
+
+  .rd-peers {
+    border-top: 1px dashed var(--color-border);
+    padding-top: var(--space-1);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .rd-peer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+    min-height: var(--hit-target);
+    padding: 0 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-input);
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-size: var(--text-sm);
+    text-decoration: none;
+  }
+
+  .rd-peer:hover {
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+  }
+</style>

@@ -1,0 +1,288 @@
+---
+/**
+ * AdminDataTable：管理后台数据表（搜索 + 状态筛选 + 行点击抽屉）。
+ * - 表格容器横向滚动，页面文档级不产生横向溢出；
+ * - 行点击/“详情”按钮派发 app:admin-row 事件（detail.row）供右侧抽屉展示。
+ */
+interface Column {
+  key: string;
+  label: string;
+  numeric?: boolean;
+}
+
+interface Props {
+  columns: Column[];
+  rows: Record<string, string | number>[];
+  /** 状态筛选候选值 */
+  filters?: string[];
+  /** 筛选与行标记使用的 row key */
+  filterKey?: string;
+  searchPlaceholder?: string;
+  emptyText?: string;
+}
+
+const {
+  columns,
+  rows,
+  filters = [],
+  filterKey = "status",
+  searchPlaceholder = "搜索对象名称…",
+  emptyText = "没有匹配的对象",
+} = Astro.props;
+---
+
+<div class="admin-table">
+  <div class="table-toolbar">
+    <label class="table-search">
+      <span class="sr-only">搜索表格</span>
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.6" fill="none" />
+        <path d="M10.6 10.6 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+      </svg>
+      <input
+        type="search"
+        class="table-input"
+        data-table-search
+        placeholder={searchPlaceholder}
+        autocomplete="off"
+      />
+    </label>
+    <div class="chip-row table-filters" role="group" aria-label="状态筛选">
+      <button type="button" class="chip is-active" data-table-filter="">全部</button>
+      {
+        filters.map((value) => (
+          <button type="button" class="chip" data-table-filter={value}>
+            {value}
+          </button>
+        ))
+      }
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          {
+            columns.map((column) => (
+              <th scope="col" class:list={[column.numeric && "col-num"]}>
+                {column.label}
+              </th>
+            ))
+          }
+          <th scope="col">操作</th>
+        </tr>
+      </thead>
+      <tbody data-table-body>
+        {
+          rows.map((row) => (
+            <tr
+              data-admin-row
+              data-row-id={String(row["id"] ?? "")}
+              data-row-filter={String(row[filterKey] ?? "")}
+              tabindex="0"
+            >
+              {columns.map((column) => (
+                <td class:list={[column.numeric && "col-num"]}>
+                  {column.numeric ? (
+                    <span class="num">{String(row[column.key] ?? "")}</span>
+                  ) : (
+                    String(row[column.key] ?? "")
+                  )}
+                </td>
+              ))}
+              <td>
+                <button type="button" class="table-detail" data-row-open>
+                  详情
+                </button>
+              </td>
+            </tr>
+          ))
+        }
+        <tr class="is-hidden" data-table-empty>
+          <td colspan={columns.length + 1} class="table-empty">{emptyText}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="meta table-foot">
+    共 <span class="num" data-table-count>{rows.length}</span> 条 ·
+    点击行或“详情”查看对象明细并在右侧抽屉处理
+  </p>
+</div>
+
+<script>
+  // 搜索 + 筛选 + 行选中（委托）
+  const applyTableState = () => {
+    const search = document.querySelector<HTMLInputElement>("[data-table-search]");
+    const activeFilter = document
+      .querySelector<HTMLElement>("[data-table-filter].is-active")
+      ?.dataset.tableFilter ?? "";
+    const query = search?.value.trim().toLowerCase() ?? "";
+
+    let visible = 0;
+    document.querySelectorAll<HTMLElement>("tr[data-admin-row]").forEach((row) => {
+      const matchQuery = !query || (row.textContent ?? "").toLowerCase().includes(query);
+      const matchFilter = !activeFilter || row.dataset.rowFilter === activeFilter;
+      const show = matchQuery && matchFilter;
+      row.classList.toggle("is-hidden", !show);
+      if (show) visible += 1;
+    });
+
+    const empty = document.querySelector<HTMLElement>("[data-table-empty]");
+    empty?.classList.toggle("is-hidden", visible > 0);
+    const count = document.querySelector<HTMLElement>("[data-table-count]");
+    if (count) count.textContent = String(visible);
+  };
+
+  document.querySelector<HTMLInputElement>("[data-table-search]")?.addEventListener(
+    "input",
+    applyTableState,
+  );
+
+  document.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+
+    const filterBtn = target.closest<HTMLElement>("[data-table-filter]");
+    if (filterBtn) {
+      document
+        .querySelectorAll<HTMLElement>("[data-table-filter]")
+        .forEach((btn) => btn.classList.toggle("is-active", btn === filterBtn));
+      applyTableState();
+      return;
+    }
+
+    const row = target.closest<HTMLElement>("tr[data-admin-row]");
+    if (row) {
+      document
+        .querySelectorAll<HTMLElement>("tr[data-admin-row]")
+        .forEach((item) => item.classList.toggle("is-selected", item === row));
+      window.dispatchEvent(
+        new CustomEvent("app:admin-row", {
+          detail: {
+            id: row.dataset.rowId ?? "",
+            filter: row.dataset.rowFilter ?? "",
+            text: (row.textContent ?? "").trim().replace(/\s+/g, " "),
+          },
+        }),
+      );
+    }
+  });
+</script>
+
+<style>
+  .admin-table {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .table-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .table-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: var(--input-height);
+    max-width: 360px;
+    padding: 0 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    background: var(--color-surface);
+    color: var(--color-muted);
+  }
+
+  .table-search:focus-within {
+    border-color: var(--color-primary);
+  }
+
+  .table-input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    outline: none;
+    color: var(--color-text);
+    font-size: var(--text-sm);
+    font-family: inherit;
+  }
+
+  .table-filters {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+
+  .table {
+    width: 100%;
+    min-width: 560px;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+  }
+
+  .table th,
+  .table td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--color-border);
+    white-space: nowrap;
+  }
+
+  .table th {
+    background: var(--color-bg);
+    color: var(--color-muted);
+    font-weight: var(--weight-medium);
+    font-size: var(--text-xs);
+    position: sticky;
+    top: 0;
+  }
+
+  .table tbody tr {
+    cursor: pointer;
+  }
+
+  .table tbody tr:hover {
+    background: var(--color-primary-soft);
+  }
+
+  .table tbody tr.is-selected {
+    background: var(--color-primary-soft);
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
+
+  .col-num {
+    text-align: right;
+  }
+
+  .table-detail {
+    min-height: 32px;
+    padding: 0 10px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    background: var(--color-surface);
+    color: var(--color-primary);
+    font-size: var(--text-xs);
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .table-detail:hover {
+    border-color: var(--color-primary);
+  }
+
+  .table-empty {
+    text-align: center;
+    color: var(--color-neutral);
+    padding: var(--space-3) 12px;
+    cursor: default;
+  }
+
+  .table-foot {
+    margin: 0;
+  }
+</style>

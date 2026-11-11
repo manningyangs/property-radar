@@ -1,0 +1,264 @@
+---
+/**
+ * WatchItemCard：监控对象卡片（PRD 2.7 字段全集）。
+ * 暂停/恢复、删除由页面脚本处理：
+ *  - 暂停切换：data-watch-toggle="<id>"
+ *  - 删除：data-watch-delete="<id>"（并打开 data-dialog-open 指定的确认弹层）
+ */
+import TargetPriceProgress from "./TargetPriceProgress.astro";
+
+interface Props {
+  id: string;
+  name: string;
+  type: string;
+  metric: string;
+  current: number;
+  target: number;
+  unit: string;
+  direction: "up" | "down" | "flat";
+  statDate: string;
+  collectedAt: string;
+  sample: number;
+  quality: "A" | "B" | "C";
+  paused: boolean;
+  triggered: boolean;
+  lastEvent: string;
+  progress: number;
+  dialogId: string;
+  /** 是否渲染操作行（首页摘要场景可隐藏，交由列表页统一管理） */
+  showActions?: boolean;
+}
+
+const {
+  id,
+  name,
+  type,
+  metric,
+  current,
+  target,
+  unit,
+  statDate,
+  collectedAt,
+  sample,
+  quality,
+  paused,
+  triggered,
+  lastEvent,
+  progress,
+  dialogId,
+  showActions = true,
+} = Astro.props;
+
+const diff = current - target;
+const diffPct = target === 0 ? 0 : (diff / target) * 100;
+const above = diff > 0;
+const diffText = `${above ? "+" : "-"}${Math.abs(diff).toLocaleString("zh-CN")} ${unit}`;
+const diffPctText = `${Math.abs(diffPct).toFixed(1)}%`;
+const qualityText = quality === "A" ? "A（优质）" : quality === "B" ? "B（可用）" : "C（受限）";
+---
+
+<article class="wcard card" data-watch-item={id} data-paused={paused ? "true" : "false"}>
+  <div class="wcard-top">
+    <div class="wcard-title">
+      <span class="wcard-name">{name}</span>
+      <span class="badge badge--neutral">{type}</span>
+    </div>
+    {
+      paused ? (
+        <span class="badge badge--neutral" data-watch-status>
+          已暂停
+        </span>
+      ) : triggered ? (
+        <span class="badge badge--down" data-watch-status>
+          ● 已触发
+        </span>
+      ) : (
+        <span class="badge badge--primary" data-watch-status>
+          ● 监控中
+        </span>
+      )
+    }
+  </div>
+
+  <p class="meta">
+    指标：{metric} · 样本 <span class="num">{sample}</span> 套 · 质量 {qualityText}
+  </p>
+
+  <div class="wcard-values">
+    <div class="wcard-value">
+      <span class="wcard-label">最新值</span>
+      <span class="wcard-num num">{current.toLocaleString("zh-CN")}</span>
+      <span class="wcard-unit">{unit}</span>
+    </div>
+    <div class="wcard-value">
+      <span class="wcard-label">目标值</span>
+      <span class="wcard-num num wcard-num--target">{target.toLocaleString("zh-CN")}</span>
+      <span class="wcard-unit">{unit}</span>
+    </div>
+    <div class="wcard-value">
+      <span class="wcard-label">价差</span>
+      <span class="wcard-diff num">{diffText}</span>
+      <span class:list={["wcard-deviation", above ? "dev-up" : "dev-down"]}>
+        <span aria-hidden="true">{above ? "▲" : "▼"}</span>
+        <span class="num">{diffPctText}</span>
+        <span>{above ? "高于目标" : "低于目标"}</span>
+      </span>
+    </div>
+  </div>
+
+  <TargetPriceProgress
+    percent={progress}
+    current={current.toLocaleString("zh-CN")}
+    target={target.toLocaleString("zh-CN")}
+    unit={unit}
+    statusText={above ? "较目标价仍高，未触发" : "已达到或优于目标价"}
+    tone={above ? "up" : "down"}
+  />
+
+  <p class="meta">
+    数据日期 <span class="num">{statDate}</span> · 最近采集
+    <span class="num">{collectedAt}</span>
+  </p>
+  <p class="wcard-event" data-watch-event>最近事件：{lastEvent}</p>
+
+  {
+    showActions && (
+      <div class="btn-row wcard-actions">
+        <button
+          type="button"
+          class="btn btn--secondary btn--sm"
+          data-watch-toggle={id}
+          aria-pressed={paused ? "false" : "true"}
+        >
+          {paused ? "恢复监控" : "暂停监控"}
+        </button>
+        <a class="btn btn--secondary btn--sm" href={`/rules?id=${encodeURIComponent(id)}`}>
+          编辑目标
+        </a>
+        <button
+          type="button"
+          class="btn btn--secondary btn--sm wcard-delete"
+          data-watch-delete={id}
+          data-dialog-open={dialogId}
+        >
+          删除
+        </button>
+      </div>
+    )
+  }
+</article>
+
+<style>
+  .wcard {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .wcard[data-paused="true"] {
+    /* 暂停：降权展示，但状态同时以“已暂停”文字表达（不只靠颜色） */
+    background: var(--color-bg);
+    border-style: dashed;
+  }
+
+  .wcard-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  .wcard-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .wcard-name {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .wcard-values {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: var(--space-1);
+    padding: var(--space-1) 0;
+    border-top: 1px dashed var(--color-border);
+    border-bottom: 1px dashed var(--color-border);
+  }
+
+  .wcard-value {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .wcard-label {
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+  }
+
+  .wcard-num {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-bold);
+    color: var(--color-brand-900);
+    line-height: 1.2;
+  }
+
+  .wcard-num--target {
+    color: var(--color-muted);
+    font-size: var(--text-md);
+  }
+
+  .wcard-diff {
+    font-size: var(--text-base);
+    font-weight: var(--weight-semibold);
+    color: var(--color-text);
+  }
+
+  /* 价差状态：箭头 + 百分比 + “高于/低于目标”文字三重编码 */
+  .wcard-deviation {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+  }
+
+  .wcard-deviation.dev-up {
+    color: var(--color-up);
+  }
+
+  .wcard-deviation.dev-down {
+    color: var(--color-down);
+  }
+
+  .wcard-unit {
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+  }
+
+  .wcard-event {
+    font-size: var(--text-sm);
+    color: var(--color-text);
+    background: var(--color-primary-soft);
+    border-radius: var(--radius-input);
+    padding: 8px 10px;
+    line-height: 1.6;
+  }
+
+  .wcard-actions {
+    justify-content: flex-start;
+  }
+
+  .wcard-delete {
+    color: var(--color-danger);
+  }
+</style>

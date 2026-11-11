@@ -1,0 +1,129 @@
+---
+/**
+ * PriceMetricCard：价格主指标卡。
+ * PRD 验收要求：所有价格卡片必须显示价格口径、数据日期、样本量和数据状态。
+ */
+import PriceChangeBadge from "./PriceChangeBadge.astro";
+
+interface Props {
+  /** 价格口径，如“挂牌参考 · 中位价”（必须显式展示） */
+  metric: string;
+  /** 已格式化的价格显示文本（无数据时传“数据不足”） */
+  value: string;
+  unit?: string;
+  direction?: "up" | "down" | "flat";
+  percent?: number;
+  amount?: string;
+  /** 数据状态标签：正常 / 数据延迟 / 样本有限 / 未覆盖 */
+  status?: { text: string; tone: "ok" | "warning" | "neutral" };
+  statDate?: string;
+  sample?: number;
+  sampleText?: string;
+  footer?: string;
+}
+
+const {
+  metric,
+  value,
+  unit = "元/㎡",
+  direction = "flat",
+  percent,
+  amount,
+  status,
+  statDate,
+  sample,
+  sampleText,
+  footer,
+} = Astro.props;
+---
+
+<div class="metric-card card">
+  <div class="metric-top">
+    <span class="metric-name">{metric}</span>
+    {
+      status && (
+        <span
+          class:list={[
+            "badge",
+            status.tone === "ok" && "badge--down",
+            status.tone === "warning" && "badge--warning",
+            status.tone === "neutral" && "badge--neutral",
+          ]}
+        >
+          {status.text}
+        </span>
+      )
+    }
+  </div>
+
+  <div class="metric-value-row">
+    <span class="metric-value num">{value}</span>
+    {value !== "数据不足" && <span class="metric-unit">{unit}</span>}
+  </div>
+
+  {(percent !== undefined || amount) && (
+    <PriceChangeBadge direction={direction} percent={percent} amount={amount} />
+  )}
+
+  <div class="metric-meta meta">
+    {statDate && <span>数据日期 <span class="num">{statDate}</span></span>}
+    {sample !== undefined && <span>有效样本 <span class="num">{sample}</span> 套</span>}
+    {sampleText && <span>{sampleText}</span>}
+  </div>
+
+  <slot />
+  {footer && <p class="metric-footer meta">{footer}</p>}
+</div>
+
+<style>
+  .metric-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .metric-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  .metric-name {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--color-muted);
+  }
+
+  .metric-value-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .metric-value {
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-bold);
+    color: var(--color-brand-900);
+    line-height: var(--line-tight);
+    letter-spacing: -0.01em;
+  }
+
+  .metric-unit {
+    font-size: var(--text-sm);
+    color: var(--color-muted);
+  }
+
+  .metric-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+
+  .metric-footer {
+    border-top: 1px dashed var(--color-border);
+    padding-top: var(--space-1);
+    margin-top: 2px;
+  }
+</style>

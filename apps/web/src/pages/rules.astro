@@ -1,0 +1,482 @@
+---
+/**
+ * 规则编辑 `/rules`（PRD 2.7 编辑目标价与事件规则）：
+ * 规则列表（启停 / 编辑 / 删除确认）+ 规则编辑表单（校验 + 本地保存）。
+ * 支持 ?id=（监控/规则）与 ?target=（小区）参数预填。
+ */
+import AppShell from "../layouts/AppShell.astro";
+import EmptyState from "../components/EmptyState.astro";
+import ConfirmDialog from "../components/ConfirmDialog.astro";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+const demo = demoEnabled ? (await import("../data/demo")).demoData : null;
+
+const metricOptions = [
+  { key: "list-unit", label: "挂牌单价（元/㎡）" },
+  { key: "median", label: "小区/区域中位价（元/㎡）" },
+  { key: "list-total", label: "挂牌总价（万元）" },
+];
+const conditionOptions = [
+  { key: "lte", label: "单价 ≤ 目标价" },
+  { key: "drop", label: "较上期跌幅 ≥ 阈值" },
+];
+
+/** 可被规则引用的对象目录（小区 / 监控对象 / 规则），用于 ?target= 与 ?id= 预填 */
+const targets = demo
+  ? [
+      ...demo.communities.map((item) => ({ id: item.id, name: item.name, label: "小区" })),
+      ...demo.watchItems.map((item) => ({ id: item.id, name: item.name, label: "监控对象" })),
+      ...demo.rules.map((item) => ({ id: item.id, name: item.target, label: "规则" })),
+    ]
+  : [];
+const targetJson = JSON.stringify(targets);
+---
+
+<AppShell title="规则编辑" activeTab="watch" demo={demoEnabled} backHref="/watch">
+  {
+    demo ? (
+      <div class="page" data-rule-targets={targetJson}>
+        {/* 规则列表 */}
+        <section aria-label="现有规则">
+          <div class="section-head">
+            <h2 class="section-title">现有规则</h2>
+            <span class="meta">启停与删除立即生效（本地状态）</span>
+          </div>
+          <div class="stack-sm" data-rule-list>
+            {demo.rules.map((rule) => (
+              <article
+                class="card rule-card"
+                data-rule={rule.id}
+                data-enabled={rule.enabled ? "true" : "false"}
+              >
+                <div class="rule-head">
+                  <span class="rule-target">{rule.target}</span>
+                  <span
+                    class:list={["badge", rule.enabled ? "badge--down" : "badge--neutral"]}
+                    data-rule-status
+                  >
+                    {rule.enabled ? "● 启用中" : "已停用"}
+                  </span>
+                </div>
+                <p class="meta">
+                  指标 {rule.metric} · 更新于 <span class="num">{rule.updatedAt}</span>
+                </p>
+                <p class="rule-condition" data-rule-condition>
+                  {rule.condition}
+                </p>
+                <div class="rule-channels">
+                  {rule.channels.map((channel) => (
+                    <span class="badge badge--primary">{channel}</span>
+                  ))}
+                </div>
+                <div class="btn-row">
+                  <button type="button" class="btn btn--secondary btn--sm" data-rule-edit={rule.id}>
+                    编辑规则
+                  </button>
+                  <button type="button" class="btn btn--secondary btn--sm" data-rule-toggle={rule.id}>
+                    {rule.enabled ? "停用" : "启用"}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn--secondary btn--sm rule-delete"
+                    data-rule-delete={rule.id}
+                    data-dialog-open="rule-delete"
+                  >
+                    删除
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        {/* 规则编辑表单 */}
+        <section class="card rule-form" aria-label="编辑规则">
+          <div class="section-head rule-form-head">
+            <h2 class="section-title" data-form-title>新建 / 编辑规则</h2>
+            <button type="button" class="btn btn--secondary btn--sm" data-soon="云端规则同步">
+              同步到云端
+              <span class="badge badge--neutral">暂未开放</span>
+            </button>
+          </div>
+
+          <form class="stack" data-rule-form novalidate>
+            <div class="field">
+              <span class="field-label">监控对象</span>
+              <p class="rule-target-static" data-form-target>未选择（请从上方规则点击“编辑”或从详情页进入）</p>
+            </div>
+
+            <div class="field">
+              <label class="field-label" for="rule-metric">价格口径</label>
+              <select id="rule-metric" class="input" data-form-metric>
+                {metricOptions.map((option) => (
+                  <option value={option.key}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div class="field">
+              <span class="field-label">触发条件</span>
+              <div class="stack-sm" role="radiogroup" aria-label="触发条件">
+                {conditionOptions.map((option, index) => (
+                  <label class="rule-option">
+                    <input
+                      type="radio"
+                      name="rule-condition"
+                      value={option.key}
+                      data-form-condition
+                      checked={index === 0}
+                    />
+                    <span>{option.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="field-label" for="rule-price">目标价（元/㎡）</label>
+              <input
+                type="number"
+                id="rule-price"
+                class="input"
+                min="1"
+                inputmode="numeric"
+                placeholder="如：20500"
+                data-form-price
+              />
+              <p class="field-error" data-error="price">目标价必须大于 0</p>
+            </div>
+
+            <div class="field">
+              <label class="field-label" for="rule-rate">跌幅阈值（%）</label>
+              <input
+                type="number"
+                id="rule-rate"
+                class="input"
+                min="0"
+                max="100"
+                value="5"
+                data-form-rate
+              />
+              <p class="field-error" data-error="rate">阈值需在 0–100 之间</p>
+            </div>
+
+            <div class="field">
+              <span class="field-label">通知渠道（至少一项）</span>
+              <label class="rule-option">
+                <input type="checkbox" value="每日摘要" data-form-channel checked />
+                <span>每日摘要</span>
+              </label>
+              <label class="rule-option">
+                <input type="checkbox" value="触发邮件" data-form-channel checked />
+                <span>目标价触发邮件</span>
+              </label>
+              <label class="rule-option">
+                <input type="checkbox" value="站内事件" data-form-channel checked />
+                <span>站内事件</span>
+              </label>
+              <p class="field-error" data-error="channels">请至少选择一种通知渠道</p>
+            </div>
+
+            <div class="btn-row">
+              <button type="submit" class="btn btn--primary btn--block">
+                保存规则
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <ConfirmDialog
+          id="rule-delete"
+          title="删除规则"
+          message="删除后该条件不再产生事件，历史事件仍保留在事件中心。此操作不可撤销。"
+          confirmText="确认删除"
+          danger
+        />
+      </div>
+    ) : (
+      <div class="page">
+        <EmptyState
+          title="暂未覆盖，可提交覆盖申请"
+          description="没有可配置的监控对象时无法编辑价格规则。"
+          actionText="登录后提交覆盖申请"
+          actionHref="/login"
+        />
+      </div>
+    )
+  }
+</AppShell>
+
+<script>
+  // 规则列表操作 + 表单校验保存（本地真实交互）
+  let pendingDeleteId = "";
+  let editingId = "";
+  let editingTarget = "";
+
+  const targets = JSON.parse(
+    document.querySelector<HTMLElement>("[data-rule-targets]")?.dataset.ruleTargets ?? "[]",
+  ) as { id: string; name: string; label: string }[];
+
+  const toast = (message: string) => {
+    window.dispatchEvent(new CustomEvent("app:toast", { detail: { message } }));
+  };
+
+  const setFormTarget = (name: string) => {
+    editingTarget = name;
+    const el = document.querySelector<HTMLElement>("[data-form-target]");
+    if (el) el.textContent = name;
+    const title = document.querySelector<HTMLElement>("[data-form-title]");
+    if (title) title.textContent = `编辑规则 · ${name}`;
+  };
+
+  const showError = (key: string, show: boolean) => {
+    document
+      .querySelector<HTMLElement>(`[data-error="${key}"]`)
+      ?.classList.toggle("is-shown", show);
+  };
+
+  const readForm = () => {
+    const price = document.querySelector<HTMLInputElement>("[data-form-price]")?.value ?? "";
+    const rate = document.querySelector<HTMLInputElement>("[data-form-rate]")?.value ?? "";
+    const condition =
+      document.querySelector<HTMLInputElement>("[data-form-condition]:checked")?.value ?? "";
+    const metricSelect = document.querySelector<HTMLSelectElement>("[data-form-metric]");
+    const metricLabel = metricSelect?.selectedOptions[0]?.textContent ?? "";
+    const channels = Array.from(
+      document.querySelectorAll<HTMLInputElement>("[data-form-channel]"),
+    )
+      .filter((input) => input.checked)
+      .map((input) => input.value);
+    return { price, rate, condition, metricLabel, channels };
+  };
+
+  const validateForm = (): boolean => {
+    const { price, rate, condition, channels } = readForm();
+    let ok = true;
+    const needPrice = condition !== "drop";
+    if (needPrice && !(Number(price) > 0)) {
+      showError("price", true);
+      ok = false;
+    } else showError("price", false);
+
+    if (!(Number(rate) >= 0 && Number(rate) <= 100)) {
+      showError("rate", true);
+      ok = false;
+    } else showError("rate", false);
+
+    if (channels.length === 0) {
+      showError("channels", true);
+      ok = false;
+    } else showError("channels", false);
+    return ok;
+  };
+
+  document.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+
+    const edit = target.closest<HTMLElement>("[data-rule-edit]");
+    if (edit) {
+      const id = edit.dataset.ruleEdit ?? "";
+      const card = document.querySelector<HTMLElement>(`[data-rule="${id}"]`);
+      if (!card) return;
+      editingId = id;
+      setFormTarget(card.querySelector<HTMLElement>(".rule-target")?.textContent ?? "");
+      const conditionText = card.querySelector<HTMLElement>("[data-rule-condition]")?.textContent ?? "";
+      const priceMatch = conditionText.match(/([\d,]+)\s*元\/㎡/);
+      const rateMatch = conditionText.match(/≥\s*([\d.]+)%/);
+      const priceInput = document.querySelector<HTMLInputElement>("[data-form-price]");
+      const rateInput = document.querySelector<HTMLInputElement>("[data-form-rate]");
+      if (priceInput) priceInput.value = priceMatch?.[1]?.replace(/,/g, "") ?? "";
+      if (rateInput && rateMatch?.[1]) rateInput.value = rateMatch[1];
+      const dropCondition = document.querySelector<HTMLInputElement>(
+        '[data-form-condition][value="drop"]',
+      );
+      if (dropCondition) dropCondition.checked = conditionText.includes("跌幅");
+      document.querySelector<HTMLElement>("[data-rule-form]")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      return;
+    }
+
+    const toggle = target.closest<HTMLElement>("[data-rule-toggle]");
+    if (toggle) {
+      const id = toggle.dataset.ruleToggle ?? "";
+      const card = document.querySelector<HTMLElement>(`[data-rule="${id}"]`);
+      if (!card) return;
+      const nowEnabled = card.dataset.enabled !== "true";
+      card.dataset.enabled = nowEnabled ? "true" : "false";
+      const badge = card.querySelector<HTMLElement>("[data-rule-status]");
+      if (badge) {
+        badge.textContent = nowEnabled ? "● 启用中" : "已停用";
+        badge.className = `badge ${nowEnabled ? "badge--down" : "badge--neutral"}`;
+      }
+      toggle.textContent = nowEnabled ? "停用" : "启用";
+      toast(nowEnabled ? "规则已启用" : "规则已停用（不再产生事件）");
+      return;
+    }
+
+    const remove = target.closest<HTMLElement>("[data-rule-delete]");
+    if (remove) pendingDeleteId = remove.dataset.ruleDelete ?? "";
+
+    const soon = target.closest<HTMLElement>("[data-soon]");
+    if (soon) {
+      toast(`「${soon.dataset.soon ?? ""}」暂未开放，将在后续任务实现`);
+    }
+  });
+
+  window.addEventListener("app:confirm", (event) => {
+    const detail = (event as CustomEvent<{ id: string }>).detail;
+
+    if (detail.id === "rule-delete" && pendingDeleteId) {
+      document.querySelector<HTMLElement>(`[data-rule="${pendingDeleteId}"]`)?.remove();
+      pendingDeleteId = "";
+      toast("规则已删除");
+      return;
+    }
+
+    if (detail.id === "rule-save-confirm") {
+      saveRule();
+    }
+  });
+
+  const saveRule = () => {
+    const { price, rate, condition, metricLabel, channels } = readForm();
+    const conditionText =
+      condition === "drop"
+        ? `较上期跌幅 ≥ ${rate}%（阈值可随时调整）`
+        : `单价 ≤ ${Number(price).toLocaleString("zh-CN")} 元/㎡（当前口径：${metricLabel}）`;
+
+    if (editingId) {
+      const card = document.querySelector<HTMLElement>(`[data-rule="${editingId}"]`);
+      const conditionEl = card?.querySelector<HTMLElement>("[data-rule-condition]");
+      if (conditionEl) conditionEl.textContent = conditionText;
+      const channelsEl = card?.querySelector<HTMLElement>(".rule-channels");
+      if (channelsEl) {
+        channelsEl.innerHTML = channels
+          .map((channel) => `<span class="badge badge--primary">${channel}</span>`)
+          .join("");
+      }
+      toast(`已保存规则 · ${editingTarget}`);
+    } else {
+      toast("已保存新规则草稿（本地会话）");
+    }
+  };
+
+  const form = document.querySelector<HTMLFormElement>("[data-rule-form]");
+  form?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!validateForm()) return;
+    if (!editingTarget) {
+      toast("请先从规则列表选择要编辑的对象");
+      return;
+    }
+    saveRule();
+  });
+
+  // 从详情页参数预填：?target=小区id 或 ?id=监控/规则id
+  const params = new URLSearchParams(window.location.search);
+  const targetParam = params.get("target");
+  const idParam = params.get("id");
+  if (targetParam) {
+    const found = targets.find((item) => item.id === targetParam);
+    if (found) setFormTarget(`${found.name} · ${found.label}`);
+    else toast("未找到对应对象：请从规则列表选择要编辑的对象");
+  } else if (idParam) {
+    const rule = document.querySelector<HTMLElement>(`[data-rule="${idParam}"]`);
+    if (rule) {
+      setFormTarget(rule.querySelector<HTMLElement>(".rule-target")?.textContent ?? "");
+    } else {
+      const found = targets.find((item) => item.id === idParam);
+      if (found) setFormTarget(`${found.name} · ${found.label}`);
+      else toast("未找到对应对象：请从规则列表选择要编辑的对象");
+    }
+  }
+</script>
+
+<style>
+  .rule-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .rule-card[data-enabled="false"] {
+    background: var(--color-bg);
+    border-style: dashed;
+  }
+
+  .rule-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  .rule-target {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .rule-condition {
+    font-size: var(--text-sm);
+    color: var(--color-text);
+    background: var(--color-primary-soft);
+    border-radius: var(--radius-input);
+    padding: 8px 10px;
+  }
+
+  .rule-channels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .rule-delete {
+    color: var(--color-danger);
+  }
+
+  .rule-form {
+    margin-top: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .rule-form-head {
+    margin: 0;
+  }
+
+  .rule-target-static {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--color-text);
+    padding: 10px 12px;
+    background: var(--color-bg);
+    border-radius: var(--radius-input);
+  }
+
+  .rule-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: var(--hit-target);
+    padding: 8px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-input);
+    background: var(--color-bg);
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+
+  .rule-option input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--color-primary);
+  }
+</style>

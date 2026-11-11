@@ -1,0 +1,510 @@
+---
+/**
+ * 小区详情 `/community?id=`（PRD 2.5）：
+ * 主卡（口径+日期+样本量+状态）→ 分位与样本变化 → 趋势图（周期切换）→
+ * 数据来源 → 设定目标价 / 加入监控（游客 → Permission 引导）。
+ * 低样本对象降级展示；采集失败对象显示 ErrorState（可重试），绝不虚构价格。
+ */
+import AppShell from "../layouts/AppShell.astro";
+import EmptyState from "../components/EmptyState.astro";
+import PriceMetricCard from "../components/PriceMetricCard.astro";
+import SampleCountLabel from "../components/SampleCountLabel.astro";
+import SourceAttribution from "../components/SourceAttribution.astro";
+import DataFreshnessBadge from "../components/DataFreshnessBadge.astro";
+import StaleDataNotice from "../components/StaleDataNotice.astro";
+import ErrorState from "../components/ErrorState.astro";
+import ConfirmDialog from "../components/ConfirmDialog.astro";
+import { PERIOD_LABELS } from "../scripts/chart";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+const demo = demoEnabled ? (await import("../data/demo")).demoData : null;
+
+const periodKeys = ["30", "90", "180"];
+
+const chartMap: Record<string, Record<string, Record<string, number[]>>> = {};
+if (demo) {
+  for (const community of demo.communities) {
+    chartMap[community.id] = { list: community.series };
+  }
+}
+const chartJson = JSON.stringify(chartMap);
+
+const statusBadge = (status: string) =>
+  status === "stale"
+    ? { text: "数据延迟", cls: "badge--warning" }
+    : status === "low"
+      ? { text: "样本有限", cls: "badge--warning" }
+      : status === "none"
+        ? { text: "数据不足", cls: "badge--neutral" }
+        : { text: "数据正常", cls: "badge--down" };
+---
+
+<AppShell title="小区详情" activeTab="communities" demo={demoEnabled} backHref="/communities">
+  {
+    demo ? (
+      <div class="page" data-chart-json={chartJson}>
+        <div class="stack community-blocks">
+          {demo.communities.map((community, index) => {
+            const badge = statusBadge(community.status);
+            const isFailed = community.status === "none";
+            return (
+              <section
+                class:list={["community-detail", index !== 0 && "is-hidden"]}
+                data-community-detail={community.id}
+                aria-label={community.name}
+              >
+                <header class="card cd-head">
+                  <div class="cd-title-row">
+                    <h2 class="cd-name">{community.name}</h2>
+                    <span class:list={["badge", badge.cls]}>{badge.text}</span>
+                  </div>
+                  <p class="meta">
+                    {community.regionName} › {community.plate} · 样本质量分层
+                  </p>
+                  <div class="cd-badges">
+                    <SampleCountLabel sample={community.sample} />
+                    <DataFreshnessBadge
+                      status={community.status === "stale" ? "stale" : "fresh"}
+                      date={community.collectedAt}
+                    />
+                  </div>
+                </header>
+
+                {community.status === "stale" && (
+                  <StaleDataNotice
+                    source={community.source}
+                    lastValid={community.statDate}
+                    days={2}
+                  />
+                )}
+
+                {isFailed ? (
+                  /* 采集失败：错误状态 + 可重试（不显示静态假数据） */
+                  <div data-error-area>
+                    <ErrorState
+                      message={`${community.name} 最近一次采集失败（演示源 502）。在源恢复前不展示任何价格数字。`}
+                      retryKey={community.id}
+                    />
+                  </div>
+                ) : (
+                  <div class="cd-main">
+                    <PriceMetricCard
+                      metric="挂牌参考 · 小区中位价"
+                      value={
+                        community.median !== null
+                          ? community.median.toLocaleString("zh-CN")
+                          : "数据不足"
+                      }
+                      direction={community.direction}
+                      percent={community.change30}
+                      statDate={community.statDate}
+                      sample={community.sample}
+                      status={
+                        community.status === "stale"
+                          ? { text: "数据延迟", tone: "warning" }
+                          : community.status === "low"
+                            ? { text: "样本有限", tone: "warning" }
+                            : { text: "数据正常", tone: "ok" }
+                      }
+                      footer={
+                        community.median !== null
+                          ? `较 30 日前的变化（同口径）；低样本对象不纳入自动对标。`
+                          : "样本少于 5 套，不发布代表性价格。"
+                      }
+                    />
+
+                    {community.median !== null && (
+                      <div class="grid-2 cd-stats">
+                        <div class="cd-stat">
+                          <span class="cd-stat-label">均价</span>
+                          <span class="cd-stat-value num">
+                            {community.avg?.toLocaleString("zh-CN")} 元/㎡
+                          </span>
+                        </div>
+                        <div class="cd-stat">
+                          <span class="cd-stat-label">P25</span>
+                          <span class="cd-stat-value num">
+                            {community.p25?.toLocaleString("zh-CN")} 元/㎡
+                          </span>
+                        </div>
+                        <div class="cd-stat">
+                          <span class="cd-stat-label">P75</span>
+                          <span class="cd-stat-value num">
+                            {community.p75?.toLocaleString("zh-CN")} 元/㎡
+                          </span>
+                        </div>
+                        <div class="cd-stat">
+                          <span class="cd-stat-label">有效样本</span>
+                          <span class="cd-stat-value num">{community.sample} 套</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 口径切换：暂不支持的口径显式说明 */}
+                    <div class="chip-row" role="group" aria-label="价格口径切换">
+                      <button
+                        type="button"
+                        class="chip is-active"
+                        data-community-metric="list"
+                        aria-pressed="true"
+                      >
+                        挂牌参考
+                      </button>
+                      <button
+                        type="button"
+                        class="chip"
+                        data-community-metric="deal"
+                        aria-pressed="false"
+                      >
+                        实际成交
+                      </button>
+                      <button type="button" class="chip" data-soon="官方指数口径">
+                        官方指数
+                        <span class="badge badge--neutral">暂未开放</span>
+                      </button>
+                    </div>
+                    <div class="cd-metric-note meta is-hidden" data-metric-note />
+
+                    <figure class="cd-chart-wrap" data-community-chart>
+                      <svg
+                        class="cd-chart"
+                        viewBox="0 0 100 72"
+                        preserveAspectRatio="none"
+                        data-chart
+                        role="img"
+                        aria-label="小区价格趋势图"
+                      >
+                        <line
+                          x1="0"
+                          y1="71"
+                          x2="100"
+                          y2="71"
+                          stroke="var(--color-border)"
+                          stroke-width="1"
+                          vector-effect="non-scaling-stroke"
+                        />
+                        <path
+                          data-chart-path
+                          d=""
+                          fill="none"
+                          stroke="var(--color-primary)"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          vector-effect="non-scaling-stroke"
+                        />
+                        <circle data-chart-dot cx="0" cy="0" r="0" fill="var(--color-primary)" />
+                      </svg>
+                      <figcaption class="meta" data-chart-caption />
+                    </figure>
+
+                    <div class="chip-row" data-period-row role="group" aria-label="趋势周期">
+                      {periodKeys.map((period) => (
+                        <button
+                          type="button"
+                          class:list={["chip", period === "30" && "is-active"]}
+                          data-period={period}
+                          aria-pressed={period === "30" ? "true" : "false"}
+                        >
+                          {PERIOD_LABELS[period]}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div class="card cd-sample-change">
+                      <p class="cd-subtitle">样本变化（近 30 日）</p>
+                      <div class="cd-sample-row">
+                        <span class="badge badge--neutral">
+                          新上 <span class="num">+{community.sampleDelta.added}</span>
+                        </span>
+                        <span class="badge badge--warning">
+                          降价 <span class="num">-{community.sampleDelta.reduced}</span>
+                        </span>
+                        <span class="badge badge--neutral">
+                          下架 <span class="num">-{community.sampleDelta.removed}</span>
+                        </span>
+                      </div>
+                      <p class="meta">
+                        样本变化说明供给与降价压力，不等同于价格指数。
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <SourceAttribution
+                  metric="挂牌参考 · 小区中位价"
+                  source={community.source}
+                  statDate={community.statDate}
+                  collectedAt={community.collectedAt}
+                  quality={community.quality}
+                />
+
+                <div class="btn-row">
+                  <a class="btn btn--primary" href={`/rules?target=${encodeURIComponent(community.id)}`}>
+                    设定目标价
+                  </a>
+                  <button
+                    type="button"
+                    class="btn btn--secondary"
+                    data-dialog-open="perm-watch"
+                  >
+                    加入监控
+                  </button>
+                </div>
+              </section>
+            );
+          })}
+        </div>
+
+        <ConfirmDialog
+          id="perm-watch"
+          title="云端监控需要登录"
+          message="游客可本地浏览与设定目标价草案；注册登录后云端保存监控并推送事件（不依赖浏览器推送权限）。"
+          confirmText="去登录"
+          cancelText="继续浏览"
+        />
+      </div>
+    ) : (
+      <div class="page">
+        <EmptyState
+          title="暂未覆盖，可提交覆盖申请"
+          description="小区详情需要已接入的数据源。当前构建不展示任何价格数字。"
+          actionText="登录后提交覆盖申请"
+          actionHref="/login"
+        />
+      </div>
+    )
+  }
+</AppShell>
+
+<script>
+  import { PERIOD_LABELS, drawChart, parseChartData } from "../scripts/chart";
+
+  const data = parseChartData(
+    document.querySelector<HTMLElement>("[data-chart-json]")?.dataset.chartJson ?? "{}",
+  );
+
+  const params = new URLSearchParams(window.location.search);
+  let communityId = params.get("id") ?? "";
+  if (!data[communityId]) communityId = Object.keys(data)[0] ?? "";
+
+  let period = "30";
+
+  const redraw = () => {
+    const block = document.querySelector<HTMLElement>(
+      `[data-community-detail="${CSS.escape(communityId)}"]`,
+    );
+    if (!block) return;
+    const svg = block.querySelector<SVGSVGElement>("[data-chart]");
+    const caption = block.querySelector<HTMLElement>("[data-chart-caption]");
+    const points = data[communityId]?.["list"]?.[period] ?? [];
+    if (svg) drawChart(svg, points);
+    if (caption) {
+      caption.textContent = `挂牌参考 · 中位价 · ${PERIOD_LABELS[period] ?? period} · 数据来源 演示数据源 · 统计日期 2026-11-10`;
+    }
+  };
+
+  const applyCommunity = (id: string, updateUrl: boolean) => {
+    if (!data[id]) return;
+    communityId = id;
+    document.querySelectorAll<HTMLElement>("[data-community-detail]").forEach((block) => {
+      block.classList.toggle("is-hidden", (block.dataset.communityDetail ?? "") !== id);
+    });
+    if (updateUrl) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("id", id);
+      window.history.replaceState({}, "", url);
+    }
+    redraw();
+  };
+
+  document.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+
+    const periodChip = target.closest<HTMLElement>("[data-period]");
+    if (periodChip) {
+      period = periodChip.dataset.period ?? "30";
+      document
+        .querySelectorAll<HTMLElement>(`[data-community-detail="${CSS.escape(communityId)}"] [data-period]`)
+        .forEach((chip) => {
+          const active = chip.dataset.period === period;
+          chip.classList.toggle("is-active", active);
+          chip.setAttribute("aria-pressed", active ? "true" : "false");
+        });
+      redraw();
+      return;
+    }
+
+    const metricChip = target.closest<HTMLElement>("[data-community-metric]");
+    if (metricChip) {
+      const note = document.querySelector<HTMLElement>("[data-metric-note]");
+      document
+        .querySelectorAll<HTMLElement>("[data-community-metric]")
+        .forEach((chip) => {
+          const active = chip === metricChip;
+          chip.classList.toggle("is-active", active);
+          chip.setAttribute("aria-pressed", active ? "true" : "false");
+        });
+      if (note) {
+        if (metricChip.dataset.communityMetric === "deal") {
+          note.textContent =
+            "实际成交口径需数据授权，该对象暂无授权成交数据（不以挂牌数字顶替）。";
+          note.classList.remove("is-hidden");
+        } else {
+          note.textContent = "";
+          note.classList.add("is-hidden");
+        }
+      }
+      // 无授权口径时不展示挂牌趋势图，避免口径混淆
+      const showChart = metricChip.dataset.communityMetric !== "deal";
+      document
+        .querySelectorAll<HTMLElement>("[data-community-chart], [data-period-row]")
+        .forEach((el) => el.classList.toggle("is-hidden", !showChart));
+      return;
+    }
+
+    const soon = target.closest<HTMLElement>("[data-soon]");
+    if (soon) {
+      window.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: { message: `「${soon.dataset.soon ?? ""}」暂未开放，将在后续任务实现` },
+        }),
+      );
+    }
+  });
+
+  // 采集失败对象的重试：短暂骨架 → 明确仍失败（不假装成功）
+  window.addEventListener("app:retry", (event) => {
+    const detail = (event as CustomEvent<{ key: string }>).detail;
+    const area = document.querySelector<HTMLElement>("[data-error-area]");
+    if (!area) return;
+    const original = area.innerHTML;
+    area.innerHTML =
+      '<div class="card" aria-busy="true"><p class="meta">正在重新采集…</p><div class="skeleton" style="height:14px;width:70%;margin-top:8px"></div><div class="skeleton" style="height:14px;width:45%;margin-top:8px"></div></div>';
+    window.setTimeout(() => {
+      area.innerHTML = original;
+      window.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: { message: `重试后源仍不可用（${detail.key}）：保持错误状态展示` },
+        }),
+      );
+    }, 900);
+  });
+
+  window.addEventListener("app:confirm", (event) => {
+    const detail = (event as CustomEvent<{ id: string }>).detail;
+    if (detail.id === "perm-watch") window.location.href = "/login";
+  });
+
+  applyCommunity(communityId, false);
+</script>
+
+<style>
+  .community-detail {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .cd-head {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .cd-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  .cd-name {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-bold);
+    color: var(--color-brand-900);
+    line-height: var(--line-tight);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .cd-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .cd-main {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .cd-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px;
+    background: var(--color-bg);
+    border-radius: var(--radius-input);
+  }
+
+  .cd-stat-label {
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+  }
+
+  .cd-stat-value {
+    font-size: var(--text-base);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .cd-metric-note {
+    padding: 8px 10px;
+    background: var(--color-warning-soft);
+    border-radius: var(--radius-input);
+    color: #6b4510;
+    line-height: 1.7;
+  }
+
+  .cd-chart-wrap {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .cd-chart {
+    display: block;
+    width: 100%;
+    height: 72px;
+    border-radius: var(--radius-input);
+    background: linear-gradient(
+      180deg,
+      rgb(234 242 255 / 45%) 0%,
+      rgb(234 242 255 / 0%) 100%
+    );
+  }
+
+  .cd-sample-change {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .cd-subtitle {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .cd-sample-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+</style>

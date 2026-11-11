@@ -1,0 +1,66 @@
+---
+/**
+ * SampleCountLabel：样本量与质量分层标签（PRD 2.5 质量分层阈值）。
+ *  ≥20 样本相对充足｜10–19 样本有限｜5–9 低样本，仅供观察｜<5 数据不足（不发布代表性价格）
+ *  低样本时降低视觉强调并解释代表性限制（Low-sample 状态）。
+ */
+interface Props {
+  sample: number;
+  /** 是否附带解释文字（默认 true） */
+  explain?: boolean;
+}
+
+const { sample, explain = true } = Astro.props;
+
+let tier: "sufficient" | "limited" | "low" | "insufficient";
+let text: string;
+if (sample >= 20) {
+  tier = "sufficient";
+  text = "样本相对充足";
+} else if (sample >= 10) {
+  tier = "limited";
+  text = "样本有限";
+} else if (sample >= 5) {
+  tier = "low";
+  text = "低样本，仅供观察";
+} else {
+  tier = "insufficient";
+  text = "数据不足";
+}
+
+const tone =
+  tier === "sufficient"
+    ? "badge--neutral"
+    : tier === "limited" || tier === "low"
+      ? "badge--warning"
+      : "badge--neutral";
+
+const note =
+  tier === "sufficient"
+    ? undefined
+    : tier === "limited"
+      ? "样本 10–19 套，代表性有限，价格仅供参照。"
+      : tier === "low"
+        ? "样本 5–9 套，代表性较弱，仅供观察，不作为结论依据。"
+        : "样本少于 5 套，不发布小区代表性价格，仅展示可披露的样本数量。";
+---
+
+<span class:list={["sample", tone, "badge", tier === "low" && "sample--weak"]}>
+  <span class="num">n={sample}</span>
+  <span>·</span>
+  <span>{text}</span>
+</span>
+{explain && note && <span class="sample-note meta">{note}</span>}
+
+<style>
+  .sample--weak {
+    /* Low-sample：降低视觉强调 */
+    opacity: 0.75;
+    font-weight: var(--weight-regular);
+  }
+
+  .sample-note {
+    display: block;
+    margin-top: 4px;
+  }
+</style>
