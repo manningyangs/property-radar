@@ -1,0 +1,50 @@
+# 房价雷达城市覆盖与运行策略配置（PRD 附录 B + V1.2 条款）
+# 生产城市目录以 D1 cities 表为主数据；本文件为策略配置与覆盖登记说明。
+# 红线：不设置 PILOT_CITY_CODE；不写任何密钥。
+
+city_catalog:
+  source_of_truth: "D1.cities"
+  seed_file: "config/cities/city-catalog.json"   # 337 个大陆城市元数据，仅供播种
+  user_can_select_multiple: true
+  allow_unsupported_city_request: true           # 未开通城市可收藏并提交覆盖申请
+  auto_monitor_only_statuses: ["active", "limited"]
+  require_source_city_coverage: true
+  # 城市目录状态与房价数据覆盖状态分离：
+  # catalog_status = active/pending（是否可搜索）
+  # status = active/limited/requestable/suspended（房价数据覆盖）
+  default_status_for_uncities: "requestable"
+
+monitoring:
+  daily_collection_time: "06:10"
+  daily_digest_time: "07:30"
+  price_history_windows: [7, 30, 90, 180]
+  min_sample_count:
+    sufficient: 20
+    limited: 10
+    low: 5
+
+source_policy:
+  allowed_city_codes: ["从 D1 cities.status=active/limited 动态读取"]
+  auto_ingest_statuses: [approved_open, approved_licensed]
+  deny_arbitrary_url_fetch: true
+  store_raw_html_by_default: false
+  store_personal_contact_fields: false
+
+email:
+  primary_provider: "google_apps_script_mail"
+  secondary_provider: "disabled_until_approved"
+  provider_daily_quota: 100
+  app_hard_quota_rolling_24h: 80
+  otp_reserved_quota: 60
+  no_paid_fallback: true
+
+# 数据源→城市→对象层级覆盖登记（等价 D1 source_city_coverage；当前无任何已批准覆盖）
+# 规则：只有城市 status 为 active/limited 且目标对象指标有合格数据源，才允许开启自动价格监控。
+source_city_coverage: []
+# 格式（数据源验证通过后逐条添加，不批量导入）：
+# - source_id: stats_nbs_70city
+#   city_code: "3301"            # 按城市逐个登记
+#   object_level: city
+#   metric_codes: [second_hand_price_index]
+#   authorization_status: approved_open
+#   last_verified_at: "2026-11-11"

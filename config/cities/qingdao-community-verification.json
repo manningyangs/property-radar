@@ -1,0 +1,180 @@
+{
+  "meta": {
+    "purpose": "TASK-00B 小区目录核验清单（负责人指定核验城市：青岛）——目录层核验，不含价格数据",
+    "city_code": "3702",
+    "city_name": "青岛市",
+    "verified_at": "2026-11-11",
+    "method": "官方渠道（民政/区政府/政务网）+ 大型平台公开页（仅保存来源链接，不抓取内容，符合 PRD §5.4 未授权处置）",
+    "limitations": "source_urls 中平台链接仅作存在性来源；建成年份为分期开发口径（差异已在 verified_notes 标注）；官方标准门牌与命名公告级标准名未逐一核到；本清单不含任何价格",
+    "price_layer_status": "blocked_on_source_authorization"
+  },
+  "count": 16,
+  "communities": [
+    {
+      "name": "新贵都",
+      "aliases": ["新贵都一期", "新贵都二期"],
+      "district": "市南区",
+      "block": "浮山所板块（徐州路2号）",
+      "built_year": 2002,
+      "same_name_risk": null,
+      "source_urls": ["http://m.fang.com/xiaoqu/qd/2411012856.html", "https://house.qingdaonews.com/m/ershou/show/17085723", "http://m.anjuke.com/qd/community/297734/"],
+      "verified_notes": "房天下与安居客口径一致：2002年建成，市南区徐州路2号；分一/二期，检索未见重名"
+    },
+    {
+      "name": "中海银海一号",
+      "aliases": ["银海一号", "中海银海1号"],
+      "district": "市南区",
+      "block": "天山板块（银川西路7号）",
+      "built_year": 2011,
+      "same_name_risk": "与中海地产其他城市'银海'系名称可能混淆，需以青岛市市南区银川西路7号区分",
+      "source_urls": ["https://qd.esf.fang.com/loupan/shop/2411267823/housedetail.htm", "http://m.fang.com/news/qd/13202_53086179.html"],
+      "verified_notes": "房天下 2011 年建成；另有平台标 2009/2010（分期交付差异），待核验"
+    },
+    {
+      "name": "城市花园",
+      "aliases": ["城市花园一期", "城市花园二期"],
+      "district": "市北区",
+      "block": "海泊桥板块（南口路2号）",
+      "built_year": 2001,
+      "same_name_risk": "高：与城阳'万科城市花园'仅差前缀，全国多城亦有'城市花园'；须以'市北区南口路2号'区分",
+      "source_urls": ["https://qd.esf.fang.com/loupan/2411657227/chushou/list/j270-k290-h39-i31/", "https://i-lq.haoduofangs.com/xiaoqu/bj-6587275999606472964.html"],
+      "verified_notes": "房天下标注市北-海泊桥；幸福里显示二期建造年代 2001 年、地址南口路2号"
+    },
+    {
+      "name": "浮山后四小区",
+      "aliases": ["浮山后四小区（同安路）"],
+      "district": "市北区",
+      "block": "浮山后板块（同安路41号）",
+      "built_year": 2000,
+      "same_name_risk": "高（片区内同名系列）：市北区浮山后一至六小区仅数字编号不同，须连同编号+门牌区分",
+      "source_urls": ["https://qd.anjuke.com/sale/shibeiqu-q-fushanxinqu/j17066/", "https://qd.58.com/xiaoqu/9221/m6-s200/"],
+      "verified_notes": "安居客：同安路41号、2000年建造；同系列各平台年份口径略有差异，待核验"
+    },
+    {
+      "name": "幸福花园",
+      "aliases": ["沙岭庄幸福花园"],
+      "district": "市北区",
+      "block": "沙岭庄一带（原四方区）",
+      "built_year": 2001,
+      "same_name_risk": "高：全国多城有'幸福花园'；本地另有两个高度近似的'幸福家园'（开封路3号、伊春路）",
+      "source_urls": ["http://mz.qingdao.gov.cn/xw/mzxw/202610/t20261021_10758562.shtml"],
+      "verified_notes": "官方来源（青岛市民政局）：沙岭庄 2001 年改造为幸福花园小区；具体门牌待核验"
+    },
+    {
+      "name": "鲁信长春花园",
+      "aliases": ["长春花园（鲁信）"],
+      "district": "崂山区",
+      "block": "颐中体育场板块（银川东路1号）",
+      "built_year": 2006,
+      "same_name_risk": "'长春花园'为常见小区名，须以'崂山区银川东路1号/鲁信'区分",
+      "source_urls": ["http://m.fang.com/xiaoqu/qd/2411096980.html", "https://qd.anjuke.com/community/laoshanqu/index.html-t91/"],
+      "verified_notes": "房天下与安居客一致：2006 年建成、银川东路1号、4788户96栋；个别房源标 2008（分期差异）"
+    },
+    {
+      "name": "鲁信未央花园",
+      "aliases": [],
+      "district": "崂山区",
+      "block": "浮山前板块（海青路6号）",
+      "built_year": 2004,
+      "same_name_risk": null,
+      "source_urls": ["http://m.anjuke.com/qd/community/274217/", "https://qd.esf.fang.com/loupan/2411683019/housedetail.htm"],
+      "verified_notes": "房天下（2004-05）与安居客（2004 竣工）一致；与'鲁信长春花园'为兄弟楼盘，勿混"
+    },
+    {
+      "name": "百通馨苑",
+      "aliases": ["百通馨苑一区", "百通馨苑三区", "百通馨苑社区"],
+      "district": "李沧区",
+      "block": "东李板块（金水路753号等）",
+      "built_year": 2005,
+      "same_name_risk": "小区分一至七区（编号分区），另有'百通'系其他小区（如百通依山居），须带分区号区分",
+      "source_urls": ["http://www.qdlc.gov.cn/zfxxgk_10/bmxxgk_10/lcqscjdglj_10/gzdt_10/202311/t20231109_7651131.shtml", "http://www.qdlc.gov.cn/lczt_10/ygdzt_10/202203/t20220316_4868702.shtml", "http://m.fang.com/xiaoqu/qd/2411593943.html"],
+      "verified_notes": "李沧区政府网确认社区成立于 2007-09；房天下一区 2005、三区 2006；整体按分期 2005-2008 理解"
+    },
+    {
+      "name": "中海国际社区",
+      "aliases": ["九水花园", "中海国际社区一里城", "中海国际社区御城"],
+      "district": "李沧区",
+      "block": "九水路板块（九水路/万年泉路）",
+      "built_year": 2013,
+      "same_name_risk": "高：成全国性标准化案名（成都、济南等同名），必须以'青岛市李沧区九水路'区分",
+      "source_urls": ["https://qd.esf.fang.com/loupan/2411688817/housedetail.htm", "http://m.fang.com/news/qd/13202_54447264.html"],
+      "verified_notes": "房天下：别名九水花园、2013-09-18 建成；大盘分期开发（一里城 2014、御城 2013 等）"
+    },
+    {
+      "name": "卓越蔚蓝群岛",
+      "aliases": ["卓越蔚蓝公馆", "蔚蓝群岛一期"],
+      "district": "城阳区",
+      "block": "流亭板块（双元路18号，白沙河入海口）",
+      "built_year": null,
+      "same_name_risk": "别名'卓越蔚蓝公馆'与正式名并存，易与'蔚蓝海岸'等蔚蓝系楼盘混淆",
+      "source_urls": ["http://m.fang.com/xiaoqu/qd/2411736239.html", "https://www.excegroup.com/news/Inner/219"],
+      "verified_notes": "建成年份口径分歧大（平台 2016 / 安居客一期 2009 / 集团官网 2008 首批入住），分期约 2008-2016，宁缺毋滥填 null 待核验；11588 户大盘"
+    },
+    {
+      "name": "万科城市花园",
+      "aliases": ["万科城市花园一期", "万科城市花园二期"],
+      "district": "城阳区",
+      "block": "青岛北站板块（泰城路278号）",
+      "built_year": 2010,
+      "same_name_risk": "高：与市北区'城市花园'仅差'万科'前缀，全国亦有多个同名，须以'城阳区泰城路278号'区分",
+      "source_urls": ["http://m.fang.com/news/qd/13202_55074186.html", "https://m.fang.com/xiaoqu/qd/2411546623.html", "https://mobile.anjuke.com/qd/xiaoqu/qingdaobeizhan/wuye-1018/"],
+      "verified_notes": "房天下 2010 年建成、泰城路278号；安居客显示二期 2010、一期 2012（分期差异）"
+    },
+    {
+      "name": "千禧龙花园",
+      "aliases": [],
+      "district": "黄岛区（西海岸新区）",
+      "block": "长江路街道（平台标唐岛湾板块，武夷山路167号）",
+      "built_year": 2003,
+      "same_name_risk": null,
+      "source_urls": ["https://www.xihaian.gov.cn/ywdt/jzdt/202506/t20250625_9733800.shtml", "http://m.fang.com/news/qd/13202_54876538.html"],
+      "verified_notes": "官方（西海岸新区政务网）：长江路街道阿里山路社区千禧龙花园建成于 2003 年、10栋1702户；房天下列 2008/547 户疑为某分期——官方口径优先，差异待核验"
+    },
+    {
+      "name": "福瀛天麓湖",
+      "aliases": ["天麓湖", "福瀛天麓湖·紫园"],
+      "district": "黄岛区（西海岸新区）",
+      "block": "薛家岛板块（韶山路568号）",
+      "built_year": 2015,
+      "same_name_risk": "别名'天麓湖''紫园'并存，全国亦有'天麓湖'类案名，须带'福瀛'与地址区分",
+      "source_urls": ["http://m.anjuke.com/qd/community/574439/", "https://qd.esf.fang.com/loupan/2411677513/housedetail.htm"],
+      "verified_notes": "安居客竣工 2015；房天下 2016-05-01、1667户——年份口径 2015-2016，标差异待核验"
+    },
+    {
+      "name": "德馨珑湖",
+      "aliases": ["德馨·珑湖", "德馨珑湖三期"],
+      "district": "即墨区",
+      "block": "环秀板块（长江一路117号）",
+      "built_year": 2013,
+      "same_name_risk": "'德馨'系在当地有德馨园、德馨天骄等兄弟楼盘，须以'珑湖'全名区分",
+      "source_urls": ["http://www.jimo.gov.cn/zwgk/bmxxgk/cxjs/zdgk/gggs/202110/P020211002435872397750.pdf", "http://m.fang.com/news/qd/13202_53961575.html"],
+      "verified_notes": "官方（即墨区政府竣工验收台账 PDF）载'德馨·珑湖三期'2021-03-23 竣工；房天下/安居客标一期 2013 建成、2863户——分期开发，主期填 2013"
+    },
+    {
+      "name": "绿城春晓苑",
+      "aliases": [],
+      "district": "胶州市",
+      "block": "三里河板块（北京东路277号）",
+      "built_year": 2012,
+      "same_name_risk": "'绿城'系在青岛多区并存（李沧理想之城等），须带'春晓苑'+胶州市地址区分",
+      "source_urls": ["https://mobile.anjuke.com/qd/xiaoqu/jiaozhoushi/wuye-1014/"],
+      "verified_notes": "仅安居客单一平台来源（2012 年建造），官方来源未核到，标准名待核验"
+    },
+    {
+      "name": "宏远金田花园",
+      "aliases": ["金田花园（莱西）"],
+      "district": "莱西市",
+      "block": "水集板块（重庆路1号）",
+      "built_year": 2008,
+      "same_name_risk": "高：'金田花园'为全国高重复度小区名，须以'莱西市水集街道重庆路1号'区分",
+      "source_urls": ["https://qd.anjuke.com/community/laixishi/d-t92-y1/"],
+      "verified_notes": "安居客显示'宏远金田花园(别墅)'2008 年竣工；标准名是否含'宏远'前缀未经官方核验，待核验"
+    }
+  ],
+  "disambiguation_cases": [
+    "市北'城市花园'（南口路2号）vs 城阳'万科城市花园'（泰城路278号）——仅差前缀且全国重名",
+    "市北'幸福花园'（官方来源确认）vs 本地两个'幸福家园'（开封路3号/伊春路）——高度近似",
+    "市北浮山后一至六小区——仅数字编号之差，同片区极易串档",
+    "'中海国际社区'为开发商全国标准化案名——跨城检索须'青岛市+区+门牌'三要素消歧"
+  ]
+}
