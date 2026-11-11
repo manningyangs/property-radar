@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#14253d" />
+    <title>当前离线 · 房价雷达</title>
+    <style>
+      :root {
+        --brand-deep: #14253d;
+        --brand: #3277e6;
+        --muted: #7b8798;
+        --bg: #f5f7fa;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px 16px;
+        background: var(--bg);
+        color: var(--brand-deep);
+        font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+      .card {
+        max-width: 420px;
+        width: 100%;
+        background: #fff;
+        border-radius: 16px;
+        padding: 24px;
+        box-shadow: 0 4px 12px rgba(20, 37, 61, 0.06);
+        text-align: center;
+      }
+      .badge {
+        display: inline-block;
+        border: 1px solid var(--brand);
+        color: var(--brand);
+        border-radius: 6px;
+        padding: 3px 10px;
+        font-size: 12px;
+        margin-bottom: 12px;
+      }
+      h1 {
+        font-size: 18px;
+        margin: 0 0 8px;
+      }
+      p {
+        font-size: 14px;
+        line-height: 1.7;
+        color: var(--muted);
+        margin: 8px 0;
+      }
+      a.btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        margin-top: 16px;
+        padding: 0 24px;
+        border-radius: 12px;
+        background: var(--brand);
+        color: #fff;
+        font-size: 15px;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <span class="badge">离线模式</span>
+      <h1>当前无法连接网络</h1>
+      <p>仅「公开页面」（首页、区域、小区）在离线时提供最近一次缓存内容，并在页面上标注缓存时间。</p>
+      <p>账户、监控、规则、事件、登录等私有页面不提供离线缓存，网络恢复后可重新访问。</p>
+      <a class="btn" href="/">返回首页</a>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,250 @@
+---
+/**
+ * PwaRuntime（TASK-01C）：Service Worker 注册、更新提示、离线缓存时间提示。
+ * PRD V1.2 第 1216–1222 行：
+ *  - SW 只缓存公开静态文件与公开页面，私有数据绝不落地；
+ *  - 更新提示（有新版本时提示刷新）；
+ *  - 离线时公开页面展示缓存内容并标明缓存时间；
+ *  - 登出清理私有客户端缓存（window.__prPurgePrivateCache，account 页调用）。
+ * manifest / theme-color / apple-touch-icon 由 AppShell head 直接声明，本组件只负责运行时。
+ */
+---
+
+<div class="pwa-offline" data-pwa-offline hidden role="status" aria-live="polite">
+  <span class="pwa-dot" aria-hidden="true"></span>
+  <span data-pwa-offline-text>离线模式</span>
+</div>
+
+<div class="pwa-update" data-pwa-update hidden role="status" aria-live="polite">
+  <span>发现新版本</span>
+  <button type="button" class="pwa-refresh" data-pwa-refresh>刷新</button>
+  <button
+    type="button"
+    class="pwa-dismiss"
+    data-pwa-dismiss
+    aria-label="稍后再说"
+  >
+    稍后
+  </button>
+</div>
+
+<script>
+  // ===== Service Worker 注册 =====
+  if ("serviceWorker" in navigator) {
+    const updateBanner = document.querySelector<HTMLElement>("[data-pwa-update]");
+    const offlineBanner = document.querySelector<HTMLElement>(
+      "[data-pwa-offline]",
+    );
+    const offlineText = document.querySelector<HTMLElement>(
+      "[data-pwa-offline-text]",
+    );
+    let updateRequested = false;
+    let refreshing = false;
+
+    /** 读取 meta 缓存中的缓存时间（SW 写入 /__meta__） */
+    async function readCacheMeta(): Promise<{ cachedAt?: string } | null> {
+      try {
+        const cache = await caches.open("pr-meta-v1");
+        const response = await cache.match("/__meta__");
+        if (!response) return null;
+        return (await response.json()) as { cachedAt?: string };
+      } catch {
+        return null;
+      }
+    }
+
+    function formatCacheTime(iso?: string): string {
+      if (!iso) return "未知时间";
+      const date = new Date(iso);
+      if (Number.isNaN(date.getTime())) return "未知时间";
+      const pad = (n: number): string => String(n).padStart(2, "0");
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+
+    async function renderOfflineBanner(): Promise<void> {
+      if (!offlineBanner || !offlineText) return;
+      const meta = await readCacheMeta();
+      offlineText.textContent = `离线模式 · 显示缓存内容（缓存时间：${formatCacheTime(meta?.cachedAt)}）`;
+      offlineBanner.hidden = false;
+      positionOfflineBanner();
+    }
+
+    /**
+     * 横幅跟随头部实际位置（DEMO 构建下头部上方还有横幅，
+     * 且头部 sticky：滚动前后位置不同，需按 getBoundingClientRect 动态取值）。
+     */
+    function positionOfflineBanner(): void {
+      if (!offlineBanner || offlineBanner.hidden) return;
+      const header = document.querySelector<HTMLElement>(".header");
+      const bottom = header ? header.getBoundingClientRect().bottom : 0;
+      offlineBanner.style.top = `${Math.max(bottom, 56) + 8}px`;
+    }
+
+    window.addEventListener("scroll", positionOfflineBanner, {
+      passive: true,
+    });
+    window.addEventListener("resize", positionOfflineBanner);
+
+    function hideOfflineBanner(): void {
+      if (offlineBanner) offlineBanner.hidden = true;
+    }
+
+    // ===== 更新提示 =====
+    function watchRegistration(reg: ServiceWorkerRegistration): void {
+      reg.addEventListener("updatefound", () => {
+        const installing = reg.installing;
+        if (!installing) return;
+        installing.addEventListener("statechange", () => {
+          if (
+            installing.state === "installed" &&
+            navigator.serviceWorker.controller
+          ) {
+            if (updateBanner) updateBanner.hidden = false;
+          }
+        });
+      });
+    }
+
+    navigator.serviceWorker
+      .register("/sw.js")
+      .then((reg) => {
+        watchRegistration(reg);
+        // 已存在 waiting 的新版（上次打开时提示过）
+        if (reg.waiting && navigator.serviceWorker.controller) {
+          if (updateBanner) updateBanner.hidden = false;
+        }
+        // 页面回到前台时检查更新
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") void reg.update();
+        });
+      })
+      .catch(() => {
+        /* SW 不可用（如非安全上下文）时静默降级，不影响页面 */
+      });
+
+    document.querySelector("[data-pwa-refresh]")?.addEventListener("click", () => {
+      updateRequested = true;
+      void navigator.serviceWorker
+        .getRegistration()
+        .then((reg) => reg?.waiting?.postMessage({ type: "SKIP_WAITING" }));
+      // waiting 可能不存在（注册尚未完成），兜底直接刷新取最新
+      window.setTimeout(() => {
+        if (!refreshing) window.location.reload();
+      }, 1500);
+    });
+
+    document
+      .querySelector("[data-pwa-dismiss]")
+      ?.addEventListener("click", () => {
+        if (updateBanner) updateBanner.hidden = true;
+      });
+
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!updateRequested || refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    });
+
+    // ===== 离线 / 在线 =====
+    async function syncOnlineState(): Promise<void> {
+      if (navigator.onLine) hideOfflineBanner();
+      else await renderOfflineBanner();
+    }
+
+    window.addEventListener("online", () => void syncOnlineState());
+    window.addEventListener("offline", () => void syncOnlineState());
+    void syncOnlineState();
+
+    // ===== 登出清理私有客户端缓存（account 页调用） =====
+    (window as unknown as { __prPurgePrivateCache?: () => Promise<void> })
+      .__prPurgePrivateCache = async () => {
+      for (const storage of [window.localStorage, window.sessionStorage]) {
+        const doomed: string[] = [];
+        for (let i = 0; i < storage.length; i += 1) {
+          const key = storage.key(i);
+          if (key && key.startsWith("pr:")) doomed.push(key);
+        }
+        for (const key of doomed) storage.removeItem(key);
+      }
+      await new Promise<void>((resolve) => {
+        const controller = navigator.serviceWorker.controller;
+        if (!controller) {
+          resolve();
+          return;
+        }
+        const channel = new MessageChannel();
+        channel.port1.onmessage = () => resolve();
+        controller.postMessage({ type: "PURGE_PRIVATE" }, [channel.port2]);
+        window.setTimeout(resolve, 1000);
+      });
+      // 页面内容本身可能含私有数据缓存，登出回首页最稳妥
+    };
+  }
+</script>
+
+<style>
+  .pwa-offline,
+  .pwa-update {
+    position: fixed;
+    left: var(--page-gutter);
+    right: var(--page-gutter);
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: 40px;
+    padding: 8px 14px;
+    border-radius: var(--radius-pill);
+    font-size: var(--text-sm);
+    box-shadow: var(--shadow-raised);
+  }
+
+  .pwa-offline {
+    top: calc(var(--header-height) + 8px);
+    background: var(--color-brand-900);
+    color: #fff;
+  }
+
+  .pwa-offline[hidden],
+  .pwa-update[hidden] {
+    display: none;
+  }
+
+  .pwa-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-warning);
+    flex-shrink: 0;
+  }
+
+  .pwa-update {
+    bottom: calc(var(--bottom-nav-height) + var(--safe-bottom) + 12px);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    color: var(--color-text);
+    justify-content: space-between;
+  }
+
+  .pwa-refresh {
+    min-height: 32px;
+    padding: 0 16px;
+    border: none;
+    border-radius: var(--radius-pill);
+    background: var(--color-primary);
+    color: #fff;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    cursor: pointer;
+  }
+
+  .pwa-dismiss {
+    min-height: 32px;
+    padding: 0 10px;
+    border: none;
+    background: transparent;
+    color: var(--color-muted);
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+</style>

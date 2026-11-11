@@ -245,8 +245,12 @@ const channels = [
       return;
     }
     window.localStorage.removeItem(EMAIL_KEY);
+    // TASK-01C：登出时清理私有客户端缓存（pr:* 本机存储 + SW 页面/meta 缓存）
+    void (
+      window as unknown as { __prPurgePrivateCache?: () => Promise<void> }
+    ).__prPurgePrivateCache?.();
     renderSession();
-    toast("已退出登录（本设备会话已清除）");
+    toast("已退出登录（本设备会话与缓存已清除）");
   });
 
   // ===== 通知渠道（保存到本设备） =====
@@ -370,8 +374,12 @@ const channels = [
     }
     if (detail.id === "account-delete") {
       window.localStorage.removeItem(EMAIL_KEY);
+      // TASK-01C：注销同样触发私有客户端缓存清理
+      void (
+        window as unknown as { __prPurgePrivateCache?: () => Promise<void> }
+      ).__prPurgePrivateCache?.();
       renderSession();
-      toast("演示账号已注销：本设备登录状态与偏好已清除");
+      toast("演示账号已注销：本设备登录状态、偏好与缓存已清除");
     }
   });
 

@@ -1,0 +1,50 @@
+{
+  "id": "/",
+  "name": "房价雷达 Property Radar",
+  "short_name": "房价雷达",
+  "description": "个人购房价格监控与目标价提醒：城市与小区价格追踪、目标价事件、每日简报。",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#14253d",
+  "theme_color": "#14253d",
+  "categories": ["finance", "utilities", "news"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "我的监控",
+      "short_name": "监控",
+      "url": "/watch",
+      "description": "打开监控列表"
+    },
+    {
+      "name": "事件中心",
+      "short_name": "事件",
+      "url": "/events",
+      "description": "查看价格事件与告警"
+    }
+  ]
+}

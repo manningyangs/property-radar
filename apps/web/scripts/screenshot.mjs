@@ -13,13 +13,7 @@
  * window 全局：延时用 node:timers/promises，浏览器侧取值用字符串表达式 evaluate。
  */
 import { execSync, spawn } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -134,9 +128,10 @@ const main = async () => {
     const page = await context.newPage();
 
     mkdirSync(outputDir, { recursive: true });
-    // 清理历史截图，保证交付清单与本次运行一致
-    for (const name of readdirSync(outputDir)) {
-      if (name.endsWith(".png")) rmSync(join(outputDir, name));
+    // 只清理本脚本产出的截图，保留 sw-test.mjs 的 13-offline-390.png
+    for (const shot of shots) {
+      const file = join(outputDir, shot.file);
+      if (existsSync(file)) rmSync(file);
     }
 
     for (const shot of shots) {
@@ -174,10 +169,14 @@ const main = async () => {
   }
 
   // ===== 3. 验收断言 =====
-  const files = readdirSync(outputDir).filter((name) => name.endsWith(".png"));
+  const files = shots.filter((shot) => existsSync(join(outputDir, shot.file)));
   console.log(`[截图] 共产出 ${files.length} 张 PNG → ${outputDir}`);
-  if (files.length < 11) {
-    throw new Error(`截图数量不足：要求 ≥ 11 张，实际 ${files.length} 张`);
+  if (files.length < shots.length) {
+    const missing = shots
+      .filter((shot) => !existsSync(join(outputDir, shot.file)))
+      .map((shot) => shot.file)
+      .join(", ");
+    throw new Error(`截图缺失（要求 ${shots.length} 张）：${missing}`);
   }
   if (violations.length > 0) {
     console.error("[断言失败] 页面存在横向溢出：");

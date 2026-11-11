@@ -9,6 +9,7 @@ import "../styles/tokens.css";
 import "../styles/base.css";
 import MobileBottomNav from "../components/MobileBottomNav.astro";
 import CityScopeBadge from "../components/CityScopeBadge.astro";
+import PwaRuntime from "../components/PwaRuntime.astro";
 
 interface Props {
   title?: string;
@@ -67,6 +68,12 @@ const navItems: {
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2314253D'/%3E%3Cpath d='M6 22 L13 14 L18 18 L26 9' stroke='%233277E6' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
     />
+    <!-- PWA（TASK-01C）：Manifest 与安装相关 meta -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#14253d" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-180.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="房价雷达" />
     <title>{isAdmin ? "管理后台 · 房价雷达" : `${title} · 房价雷达`}</title>
   </head>
   <body class={isAdmin ? "is-admin" : "is-app"}>
@@ -210,6 +217,8 @@ const navItems: {
     {showNav && <MobileBottomNav active={activeTab} />}
 
     <div class="toast" data-toast role="status" aria-live="polite"></div>
+
+    <PwaRuntime />
 
     <script>
       // 全局轻提示：任何页面脚本派发 window 事件 app:toast 即可展示

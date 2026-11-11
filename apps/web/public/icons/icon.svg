@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="房价雷达">
+  <!-- 品牌底：深海军蓝圆角方块（与站点 favicon / 头部品牌标一致） -->
+  <rect width="512" height="512" rx="96" fill="#14253d" />
+  <!-- 雷达网格（极淡，仅在深底上可见） -->
+  <g stroke="#ffffff" stroke-opacity="0.08" stroke-width="4" fill="none">
+    <circle cx="256" cy="256" r="72" />
+    <circle cx="256" cy="256" r="136" />
+    <circle cx="256" cy="256" r="200" />
+  </g>
+  <!-- 趋势折线：主蓝 + 上扬走势，站点品牌核心图形 -->
+  <path
+    d="M96 352 L208 224 L288 288 L416 144"
+    stroke="#3277e6"
+    stroke-width="40"
+    fill="none"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <!-- 终点信号点：雷达捕捉标记 -->
+  <circle cx="416" cy="144" r="36" fill="#3277e6" />
+  <circle cx="416" cy="144" r="16" fill="#ffffff" />
+</svg>
