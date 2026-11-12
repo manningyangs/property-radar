@@ -10,15 +10,14 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "db:up:public": "wrangler d1 execute radar_public --local --file ../../db/migrations/public/0001_init.up.sql",
-    "db:up:private": "wrangler d1 execute radar_private --local --file ../../db/migrations/private/0001_init.up.sql",
+    "db:up:private": "wrangler d1 execute radar_private --local --file ../../db/migrations/private/0001_init.up.sql && wrangler d1 execute radar_private --local --file ../../db/migrations/private/0003_watch_item_groups.up.sql",
     "db:down:public": "wrangler d1 execute radar_public --local --file ../../db/migrations/public/0001_init.down.sql",
-    "db:down:private": "wrangler d1 execute radar_private --local --file ../../db/migrations/private/0001_init.down.sql",
+    "db:down:private": "wrangler d1 execute radar_private --local --file ../../db/migrations/private/0003_watch_item_groups.down.sql && wrangler d1 execute radar_private --local --file ../../db/migrations/private/0001_init.down.sql",
     "db:apply:public": "wrangler d1 execute radar_public --remote --file ../../db/migrations/public/0001_init.up.sql",
-    "db:apply:private": "wrangler d1 execute radar_private --remote --file ../../db/migrations/private/0001_init.up.sql"
+    "db:apply:private": "wrangler d1 execute radar_private --remote --file ../../db/migrations/private/0001_init.up.sql && wrangler d1 execute radar_private --remote --file ../../db/migrations/private/0003_watch_item_groups.up.sql"
   },
   "dependencies": {
     "@property-radar/shared": "workspace:*",
-    "ajv": "^8.17.1",
     "hono": "^4.7.0"
   },
   "devDependencies": {

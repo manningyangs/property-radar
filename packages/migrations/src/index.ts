@@ -57,6 +57,8 @@ export function loadMigrations(
 /**
  * 按序执行迁移。SQL 全部为 IF NOT EXISTS / DROP IF EXISTS 幂等语句，
  * 重复运行安全（PRD §TASK-02A「迁移可重复运行」）。
+ * down 按版本号**降序**执行：后建的表（FK 子表）先删，
+ * 避免删父表时子表外键仍引用已删对象（如 0003 watch_item_groups 引用 0001 watch_items/users）。
  * @returns 已执行的迁移名列表
  */
 export function applyMigrations(
@@ -68,8 +70,10 @@ export function applyMigrations(
   if (migrations.length === 0) {
     throw new Error(`没有找到 ${database} 库的 ${direction} 迁移文件`);
   }
-  for (const migration of migrations) {
+  // down 逆序回滚（0003 → 0002 → 0001），保证外键依赖方向正确
+  const ordered = direction === "down" ? [...migrations].reverse() : migrations;
+  for (const migration of ordered) {
     executor.exec(migration.sql);
   }
-  return migrations.map((m) => m.name);
+  return ordered.map((m) => m.name);
 }

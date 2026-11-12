@@ -1,11 +1,12 @@
 ---
 /**
  * 添加监控 `/watch/add`（PRD 2.6，5 步表单）：
- * 选择对象 → 价格口径 → 目标条件 → 通知方式 → 确认。
- * 每步可前进/后退；必填即时校验；未覆盖对象只允许“收藏”（Permission 说明）。
+ * 演示分支：选择对象 → 价格口径 → 目标条件 → 通知方式 → 确认；
+ *   每步可前进/后退；必填即时校验；未覆盖对象只允许“收藏”（Permission 说明）。
+ * 真实分支：城市 → 类型（房源禁用）→ 对象搜索 → 可选分组 → POST /me/watch-items，
+ *   按响应 auto_monitoring 提示后跳回列表；口径/目标条件/通知步骤属 03B/05x，不展示。
  */
 import AppShell from "../../layouts/AppShell.astro";
-import EmptyState from "../../components/EmptyState.astro";
 
 const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
 const demo = demoEnabled ? (await import("../../data/demo")).demoData : null;
@@ -253,13 +254,140 @@ const channels = [
         </div>
       </div>
     ) : (
-      <div class="page">
-        <EmptyState
-          title="暂未覆盖，可提交覆盖申请"
-          description="没有可监控的对象时无法建立规则。未接入数据源的构建不提供演示对象，避免产生无效监控。"
-          actionText="登录后提交覆盖申请"
-          actionHref="/login"
-        />
+      <div class="page" data-add-real>
+        <form class="stack" data-real-form novalidate>
+          {/* 步骤 1：城市（GET /public/cities，未覆盖城市仍可选） */}
+          <section class="card form-step" aria-label="第 1 步 选择城市">
+            <h2 class="form-title">第 1 步 · 选择城市</h2>
+            <div class="field">
+              <label class="field-label" for="real-city-q">搜索城市</label>
+              <input
+                type="search"
+                id="real-city-q"
+                class="input"
+                placeholder="输入城市名，如：青岛"
+                autocomplete="off"
+                data-city-q
+              />
+              <p class="meta">
+                目录内城市均可选择；未覆盖城市也允许收藏，但不会开启自动价格监控。
+              </p>
+              <div class="stack-sm real-options" data-city-results></div>
+              <p class="field-error" data-error="city">请选择城市</p>
+              <p class="meta" data-city-selected>当前未选择城市</p>
+            </div>
+          </section>
+
+          {/* 步骤 2：类型（房源禁用，需数据来源支持） */}
+          <section class="card form-step" aria-label="第 2 步 对象类型">
+            <h2 class="form-title">第 2 步 · 对象类型</h2>
+            <div class="chip-row" role="radiogroup" aria-label="对象类型">
+              <button
+                type="button"
+                class="chip"
+                role="radio"
+                aria-checked="false"
+                data-real-type="region"
+              >
+                区域（区县）
+              </button>
+              <button
+                type="button"
+                class="chip"
+                role="radio"
+                aria-checked="false"
+                data-real-type="community"
+              >
+                小区
+              </button>
+              <button
+                type="button"
+                class="chip"
+                role="radio"
+                aria-checked="false"
+                data-real-type="listing"
+                disabled
+                aria-disabled="true"
+                title="需数据来源支持"
+              >
+                房源
+              </button>
+            </div>
+            <p class="meta">房源类型需数据来源支持，当前不可选；指标、目标条件与通知偏好将在后续任务提供。</p>
+            <p class="field-error" data-error="type">请选择对象类型</p>
+          </section>
+
+          {/* 步骤 3：对象搜索（GET /public/regions、GET /public/communities） */}
+          <section class="card form-step" aria-label="第 3 步 搜索对象">
+            <h2 class="form-title">第 3 步 · 搜索对象</h2>
+            <div class="field is-hidden" data-region-field>
+              <label class="field-label" for="real-region-q">搜索区县</label>
+              <input
+                type="search"
+                id="real-region-q"
+                class="input"
+                placeholder="输入区县名"
+                autocomplete="off"
+                data-region-q
+              />
+              <div class="stack-sm real-options" data-region-results></div>
+            </div>
+            <div class="field is-hidden" data-community-field>
+              <label class="field-label" for="real-community-region">所属区县（先选择）</label>
+              <select class="input" id="real-community-region" data-community-region>
+                <option value="">请选择区县</option>
+              </select>
+              <label class="field-label" for="real-community-q">搜索小区</label>
+              <input
+                type="search"
+                id="real-community-q"
+                class="input"
+                placeholder="输入小区名"
+                autocomplete="off"
+                data-community-q
+              />
+              <div class="stack-sm real-options" data-community-results></div>
+            </div>
+            <p class="field-error" data-error="object">请选择监控对象</p>
+            <p class="meta" data-object-selected>当前未选择对象</p>
+          </section>
+
+          {/* 步骤 4：分组（可选，1–50 字符） */}
+          <section class="card form-step" aria-label="第 4 步 分组">
+            <h2 class="form-title">第 4 步 · 分组（可选）</h2>
+            <div class="field">
+              <label class="field-label" for="real-group">分组名称（1–50 字符，可留空）</label>
+              <input
+                type="text"
+                id="real-group"
+                class="input"
+                maxlength="50"
+                placeholder="如：自住考察"
+                data-group-input
+              />
+              <p class="field-error" data-error="group">分组名称需为 1–50 个字符</p>
+            </div>
+            <p class="field-error" data-error="submit"></p>
+            <p class="meta">
+              保存即加入监控列表；未覆盖对象不会产生自动监控，指标与目标条件随后续任务接入。
+            </p>
+          </section>
+
+          <div class="btn-row form-nav">
+            <button type="submit" class="btn btn--primary btn--block" data-real-submit>
+              添加到监控列表
+            </button>
+          </div>
+        </form>
+
+        {/* 成功态：按响应 auto_monitoring 提示，随后跳回列表 */}
+        <div class="card success is-hidden" data-real-success role="status">
+          <h2 class="form-title">已添加到监控列表</h2>
+          <p class="success-text" data-real-success-msg></p>
+          <div class="btn-row">
+            <a class="btn btn--primary" href="/watch">查看我的监控</a>
+          </div>
+        </div>
       </div>
     )
   }
@@ -492,6 +620,337 @@ const channels = [
   }
 </script>
 
+<script>
+  // 真实分支：城市 → 类型 → 对象搜索 → 可选分组 → POST /me/watch-items（409 提示重复）。
+  // 展示层不含规则/目标条件/通知偏好（属 03B/05x），未覆盖对象不会显示“已开启自动监控”。
+  import { ApiError, createWatchItem, searchCities, searchCommunities, searchRegions } from "../../lib/api";
+  import type { CityItem, CommunityItem, RegionItem } from "../../lib/api";
+
+  const realForm = document.querySelector<HTMLFormElement>("[data-real-form]");
+
+  if (realForm) {
+    const state: {
+      city: { code: string; name: string } | null;
+      type: "region" | "community" | null;
+      region: { id: string; name: string } | null;
+      community: { id: string; name: string } | null;
+    } = { city: null, type: null, region: null, community: null };
+
+    const toast = (message: string) => {
+      window.dispatchEvent(new CustomEvent("app:toast", { detail: { message } }));
+    };
+
+    const showError = (key: string, show: boolean, message?: string) => {
+      const el = realForm.querySelector<HTMLElement>(`[data-error="${key}"]`);
+      if (!el) return;
+      if (message) el.textContent = message;
+      el.classList.toggle("is-shown", show);
+    };
+
+    const setText = (selector: string, value: string) => {
+      const el = realForm.querySelector<HTMLElement>(selector);
+      if (el) el.textContent = value;
+    };
+
+    const clearBox = (box: HTMLElement | null) => box?.replaceChildren();
+
+    /** 渲染可点选的搜索结果列表（动态节点，样式用 :global） */
+    const renderOptions = (
+      box: HTMLElement | null,
+      options: Array<{ value: string; label: string }>,
+      activeValue: string,
+      onPick: (value: string, label: string) => void,
+    ) => {
+      if (!box) return;
+      box.replaceChildren();
+      if (options.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "meta";
+        empty.textContent = "无匹配结果，请更换关键词";
+        box.append(empty);
+        return;
+      }
+      for (const option of options) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "real-option";
+        if (option.value === activeValue) button.classList.add("is-active");
+        button.dataset.value = option.value;
+        button.textContent = option.label;
+        button.addEventListener("click", () => onPick(option.value, option.label));
+        box.append(button);
+      }
+    };
+
+    /** 结果列表内切换选中态 */
+    const markActive = (box: HTMLElement | null, value: string) => {
+      box?.querySelectorAll<HTMLElement>(".real-option").forEach((button) => {
+        button.classList.toggle("is-active", button.dataset.value === value);
+      });
+    };
+
+    /** 搜索失败：401 已由 API 客户端跳登录，其余提示后可继续 */
+    const failSearch = (error: unknown, fallback: string) => {
+      if (error instanceof ApiError && error.status === 401) return;
+      toast(error instanceof ApiError && error.message ? error.message : fallback);
+    };
+
+    const cityInput = realForm.querySelector<HTMLInputElement>("[data-city-q]");
+    const cityResults = realForm.querySelector<HTMLElement>("[data-city-results]");
+    const regionField = realForm.querySelector<HTMLElement>("[data-region-field]");
+    const communityField = realForm.querySelector<HTMLElement>("[data-community-field]");
+    const regionInput = realForm.querySelector<HTMLInputElement>("[data-region-q]");
+    const regionResults = realForm.querySelector<HTMLElement>("[data-region-results]");
+    const regionSelect = realForm.querySelector<HTMLSelectElement>("[data-community-region]");
+    const communityInput = realForm.querySelector<HTMLInputElement>("[data-community-q]");
+    const communityResults = realForm.querySelector<HTMLElement>("[data-community-results]");
+    const groupInput = realForm.querySelector<HTMLInputElement>("[data-group-input]");
+    const submitBtn = realForm.querySelector<HTMLButtonElement>("[data-real-submit]");
+
+    const resetObject = () => {
+      state.region = null;
+      state.community = null;
+      clearBox(regionResults);
+      clearBox(communityResults);
+      setText("[data-object-selected]", "当前未选择对象");
+    };
+
+    /** 选中城市（未覆盖城市同样可选）；城市变化时清空对象选择 */
+    const pickCity = (code: string, name: string) => {
+      const changed = state.city?.code !== code;
+      state.city = { code, name };
+      showError("city", false);
+      setText("[data-city-selected]", `当前选择：${name}`);
+      markActive(cityResults, code);
+      if (changed) {
+        resetObject();
+        if (state.type === "community") void loadRegionSelect();
+      }
+    };
+
+    const loadCities = async (q: string) => {
+      try {
+        const result = await searchCities(q);
+        renderOptions(
+          cityResults,
+          result.items.map((item: CityItem) => ({ value: item.city_code, label: item.name })),
+          state.city?.code ?? "",
+          pickCity,
+        );
+      } catch (error) {
+        failSearch(error, "城市搜索失败");
+      }
+    };
+
+    let cityTimer = 0;
+    cityInput?.addEventListener("input", () => {
+      window.clearTimeout(cityTimer);
+      const q = cityInput.value.trim();
+      cityTimer = window.setTimeout(() => void loadCities(q), 300);
+    });
+
+    /** 小区流程：先按城市加载区县下拉（GET /public/regions?city_code=） */
+    const loadRegionSelect = async () => {
+      if (!regionSelect) return;
+      if (!state.city) {
+        showError("city", true);
+        toast("请先选择城市");
+        return;
+      }
+      try {
+        const result = await searchRegions(state.city.code, "");
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "请选择区县";
+        const options = result.items.map((item: RegionItem) => {
+          const option = document.createElement("option");
+          option.value = item.region_id;
+          option.textContent = item.name;
+          return option;
+        });
+        regionSelect.replaceChildren(placeholder, ...options);
+        regionSelect.value = state.region?.id ?? "";
+      } catch (error) {
+        failSearch(error, "区县列表加载失败");
+      }
+    };
+
+    /** 类型切换：区域走 regions 搜索；小区需先选区县；房源禁用（需数据来源支持） */
+    realForm.querySelectorAll<HTMLButtonElement>("[data-real-type]").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        if (chip.disabled) return;
+        const type = chip.dataset.realType;
+        if (type !== "region" && type !== "community") return;
+        state.type = type;
+        realForm.querySelectorAll<HTMLButtonElement>("[data-real-type]").forEach((other) => {
+          const active = other === chip;
+          other.classList.toggle("is-active", active);
+          other.setAttribute("aria-checked", active ? "true" : "false");
+        });
+        showError("type", false);
+        regionField?.classList.toggle("is-hidden", type !== "region");
+        communityField?.classList.toggle("is-hidden", type !== "community");
+        resetObject();
+        if (type === "community") void loadRegionSelect();
+      });
+    });
+
+    regionSelect?.addEventListener("change", () => {
+      const name = regionSelect.selectedOptions[0]?.textContent ?? "";
+      state.region = regionSelect.value ? { id: regionSelect.value, name } : null;
+      state.community = null;
+      clearBox(communityResults);
+      showError("object", false);
+      setText("[data-object-selected]", "当前未选择对象");
+    });
+
+    /** 区域对象搜索（GET /public/regions?city_code=&q=） */
+    let regionTimer = 0;
+    const loadRegions = async (q: string) => {
+      if (!state.city) {
+        showError("city", true);
+        toast("请先选择城市");
+        return;
+      }
+      try {
+        const result = await searchRegions(state.city.code, q);
+        renderOptions(
+          regionResults,
+          result.items.map((item: RegionItem) => ({ value: item.region_id, label: item.name })),
+          state.region?.id ?? "",
+          (value, label) => {
+            state.region = { id: value, name: label };
+            showError("object", false);
+            markActive(regionResults, value);
+            setText("[data-object-selected]", `当前选择：${label}`);
+          },
+        );
+      } catch (error) {
+        failSearch(error, "区县搜索失败");
+      }
+    };
+    regionInput?.addEventListener("input", () => {
+      window.clearTimeout(regionTimer);
+      const q = regionInput.value.trim();
+      regionTimer = window.setTimeout(() => void loadRegions(q), 300);
+    });
+
+    /** 小区对象搜索（GET /public/communities?region_id=&q=） */
+    let communityTimer = 0;
+    const loadCommunities = async (q: string) => {
+      if (!state.region) {
+        toast("请先选择所属区县");
+        return;
+      }
+      try {
+        const result = await searchCommunities(state.region.id, q);
+        renderOptions(
+          communityResults,
+          result.items.map((item: CommunityItem) => ({
+            value: item.community_id,
+            label: item.name,
+          })),
+          state.community?.id ?? "",
+          (value, label) => {
+            state.community = { id: value, name: label };
+            showError("object", false);
+            markActive(communityResults, value);
+            setText("[data-object-selected]", `当前选择：${label}`);
+          },
+        );
+      } catch (error) {
+        failSearch(error, "小区搜索失败");
+      }
+    };
+    communityInput?.addEventListener("input", () => {
+      window.clearTimeout(communityTimer);
+      const q = communityInput.value.trim();
+      communityTimer = window.setTimeout(() => void loadCommunities(q), 300);
+    });
+
+    /** 提交：POST /me/watch-items → 按 auto_monitoring 提示 → 跳回列表 */
+    let submitting = false;
+    realForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (submitting) return;
+
+      if (!state.city) {
+        showError("city", true);
+        return;
+      }
+      if (!state.type) {
+        showError("type", true);
+        return;
+      }
+      let objectId = "";
+      let objectName = "";
+      if (state.type === "region") {
+        if (!state.region) {
+          showError("object", true);
+          return;
+        }
+        objectId = state.region.id;
+        objectName = state.region.name;
+      } else {
+        if (!state.region) {
+          toast("请先选择所属区县");
+          return;
+        }
+        if (!state.community) {
+          showError("object", true);
+          return;
+        }
+        objectId = state.community.id;
+        objectName = state.community.name;
+      }
+      showError("submit", false);
+
+      const group = groupInput?.value.trim() ?? "";
+      submitting = true;
+      if (submitBtn) submitBtn.disabled = true;
+      try {
+        const result = await createWatchItem({
+          object_type: state.type,
+          object_id: objectId,
+          display_name_snapshot: objectName,
+          ...(group ? { group_name: group } : {}),
+        });
+        const monitored = result.item.auto_monitoring === true;
+        const message = monitored ? "已开启自动价格监控" : "已收藏，未开启自动价格监控";
+        realForm.classList.add("is-hidden");
+        const successPanel = document.querySelector<HTMLElement>("[data-real-success]");
+        const successMsg = successPanel?.querySelector<HTMLElement>("[data-real-success-msg]");
+        if (successMsg) successMsg.textContent = `${objectName}：${message}`;
+        successPanel?.classList.remove("is-hidden");
+        toast(message);
+        window.setTimeout(() => {
+          window.location.href = "/watch";
+        }, 1800);
+        return;
+      } catch (error) {
+        const status = error instanceof ApiError ? error.status : 0;
+        if (status === 409) {
+          showError("submit", true, "该对象已在监控列表中");
+        } else if (status === 404) {
+          showError("submit", true, "对象不存在或已下架，请重新搜索");
+        } else if (status === 401) {
+          // API 客户端已统一跳转登录
+        } else if (error instanceof ApiError && error.message) {
+          showError("submit", true, error.message);
+        } else {
+          showError("submit", true, "保存失败，请稍后重试");
+        }
+      } finally {
+        submitting = false;
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+
+    // 初始加载城市目录（空关键词 = 默认列表）
+    void loadCities("");
+  }
+</script>
+
 <style>
   .steps {
     display: flex;
@@ -628,5 +1087,37 @@ const channels = [
     font-size: var(--text-sm);
     color: var(--color-muted);
     line-height: 1.7;
+  }
+
+  /* ===== 真实分支 ===== */
+  .chip[disabled] {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  /* 动态渲染的搜索结果节点无 Astro 作用域属性，样式需 :global 命中 */
+  :global(.real-option) {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    text-align: left;
+    min-height: var(--hit-target);
+    padding: 8px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-input);
+    background: var(--color-bg);
+    font-size: var(--text-sm);
+    color: var(--color-text);
+    cursor: pointer;
+  }
+
+  :global(.real-option:hover) {
+    border-color: var(--color-primary);
+  }
+
+  :global(.real-option.is-active) {
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+    font-weight: var(--weight-semibold);
   }
 </style>

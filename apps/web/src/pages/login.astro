@@ -2,16 +2,27 @@
 /**
  * 登录 `/login`（PRD 2.9）：邮箱 → 验证码 两步表单。
  * 专注场景：隐藏底部导航，保留返回入口。
- * 演示环境说明常驻：未接入真实邮件服务，验证码固定 123456（明确标注，不冒充真实发送）。
+ * 演示分支（PUBLIC_DEMO_DATA=1）：固定验证码 123456、本地会话，保持 01B 行为不变。
+ * 真实分支：Turnstile 人机验证 → request-code → verify-code → 按 ?next= 跳转；
+ *           PUBLIC_TURNSTILE_SITEKEY 未配置时表单禁用并提示，绝不放行。
  */
 import AppShell from "../layouts/AppShell.astro";
 
 const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+const turnstileSitekey = String(
+  import.meta.env.PUBLIC_TURNSTILE_SITEKEY ?? "",
+).trim();
 ---
 
 <AppShell title="登录" showNav={false} demo={demoEnabled} backHref="/">
   <div class="page login-page">
-    <section class="card login-card" aria-label="邮箱登录">
+    <section
+      class="card login-card"
+      aria-label="邮箱登录"
+      data-login-card
+      data-login-mode={demoEnabled ? "demo" : "real"}
+      data-sitekey={turnstileSitekey}
+    >
       <div class="login-brand">
         <svg width="36" height="36" viewBox="0 0 32 32" aria-hidden="true">
           <rect width="32" height="32" rx="7" fill="var(--color-brand-900)"></rect>
@@ -43,6 +54,18 @@ const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
           />
           <p class="field-error" data-error="email">请输入有效的邮箱地址（如 you@example.com）</p>
         </div>
+        {
+          !demoEnabled && (
+            <div class="field">
+              <span class="field-label">人机验证</span>
+              <div class="login-turnstile" data-turnstile />
+              <p class="field-error" data-error="turnstile">
+                人机验证未配置：无法登录，请联系管理员配置后再试。
+              </p>
+              <p class="field-error" data-error="send" />
+            </div>
+          )
+        }
         <button type="submit" class="btn btn--primary btn--block">
           发送验证码
         </button>
@@ -74,6 +97,7 @@ const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
           <p class="field-error" data-error="limit">
             尝试次数过多，已限流：请 10 分钟后再试（或重新发送验证码）
           </p>
+          {!demoEnabled && <p class="field-error" data-error="service" />}
         </div>
         <div class="resend-row">
           <span class="meta num" data-countdown>60s 后可重发</span>
@@ -87,23 +111,30 @@ const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
         <button type="button" class="btn btn--secondary btn--block" data-back-email>
           换个邮箱
         </button>
-        <p class="meta demo-hint">
-          演示环境：未接入真实邮件服务，验证码固定为 <span class="num">123456</span>
-          ；任意邮箱地址均可接收“演示验证码”。
-        </p>
+        {
+          demoEnabled && (
+            <p class="meta demo-hint">
+              演示环境：未接入真实邮件服务，验证码固定为{" "}
+              <span class="num">123456</span>
+              ；任意邮箱地址均可接收“演示验证码”。
+            </p>
+          )
+        }
       </form>
 
-      {/* 成功 */}
-      <div class="stack login-success is-hidden" data-login-success role="status">
-        <span class="badge badge--down">登录成功（演示）</span>
-        <p class="meta">
-          演示环境未接入账号后端，本次登录仅在当前会话生效，未向任何服务器发送邮箱。
-        </p>
-        <div class="btn-row">
-          <a class="btn btn--primary" href="/account">进入账户设置</a>
-          <a class="btn btn--secondary" href="/">返回首页</a>
+      {/* 成功（仅演示分支展示；真实分支验证通过后直接跳转） */}
+      {demoEnabled && (
+        <div class="stack login-success is-hidden" data-login-success role="status">
+          <span class="badge badge--down">登录成功（演示）</span>
+          <p class="meta">
+            演示环境未接入账号后端，本次登录仅在当前会话生效，未向任何服务器发送邮箱。
+          </p>
+          <div class="btn-row">
+            <a class="btn btn--primary" href="/account">进入账户设置</a>
+            <a class="btn btn--secondary" href="/">返回首页</a>
+          </div>
         </div>
-      </div>
+      )}
     </section>
 
     <p class="meta login-foot">
@@ -113,23 +144,41 @@ const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
 </AppShell>
 
 <script>
-  // 邮箱 → 验证码 两步登录（校验 / 倒计时 / 限流，全部本地真实交互）
+  // 登录两步表单：演示分支（123456 / 本地会话）保持 01B 行为；
+  // 真实分支走 Turnstile → request-code → verify-code，成功后按 ?next= 跳转。
+  import { ApiError, requestCode, verifyCode } from "../lib/api";
+
+  const cardRoot = document.querySelector<HTMLElement>("[data-login-card]");
+  const mode = cardRoot?.dataset.loginMode ?? "demo";
+
   const emailForm = document.querySelector<HTMLFormElement>("[data-step-email]");
   const codeForm = document.querySelector<HTMLFormElement>("[data-step-code]");
-  const successBox = document.querySelector<HTMLElement>("[data-login-success]");
   const codeInputs = Array.from(
     document.querySelectorAll<HTMLInputElement>("[data-code-input]"),
   );
 
-  let attempts = 0;
-  let limited = false;
   let countdownTimer = 0;
 
-  const showError = (key: string, show: boolean) => {
-    document
-      .querySelector<HTMLElement>(`[data-error="${key}"]`)
-      ?.classList.toggle("is-shown", show);
+  const toast = (message: string) => {
+    window.dispatchEvent(new CustomEvent("app:toast", { detail: { message } }));
   };
+
+  const showError = (key: string, show: boolean, message?: string) => {
+    const el = document.querySelector<HTMLElement>(`[data-error="${key}"]`);
+    if (!el) return;
+    if (message) el.textContent = message;
+    el.classList.toggle("is-shown", show);
+  };
+
+  const clearCodeErrors = () => {
+    showError("code", false);
+    showError("limit", false);
+    showError("service", false);
+  };
+
+  const emailValue = () =>
+    document.querySelector<HTMLInputElement>("[data-email-input]")?.value.trim() ??
+    "";
 
   const startCountdown = () => {
     let seconds = 60;
@@ -148,40 +197,12 @@ const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
     }, 1000);
   };
 
-  emailForm?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const input = document.querySelector<HTMLInputElement>("[data-email-input]");
-    const value = input?.value.trim() ?? "";
-    const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-    if (!valid) {
-      showError("email", true);
-      return;
-    }
-    showError("email", false);
-    const sentTo = document.querySelector<HTMLElement>("[data-sent-to]");
-    if (sentTo) {
-      sentTo.innerHTML = `验证码已发送至 <strong></strong>`;
-      const strong = sentTo.querySelector("strong");
-      if (strong) strong.textContent = value;
-    }
-    emailForm.classList.add("is-hidden");
-    codeForm?.classList.remove("is-hidden");
-    codeInputs[0]?.focus();
-    startCountdown();
-    window.dispatchEvent(
-      new CustomEvent("app:toast", {
-        detail: { message: "演示环境：验证码固定为 123456" },
-      }),
-    );
-  });
-
-  // 6 格输入自动跳格与退格
+  // 6 格输入自动跳格与退格（两个分支共用）
   codeInputs.forEach((input, index) => {
     input.addEventListener("input", () => {
       input.value = input.value.replace(/\D/g, "").slice(0, 1);
       if (input.value && index < codeInputs.length - 1) codeInputs[index + 1]?.focus();
-      showError("code", false);
-      showError("limit", false);
+      clearCodeErrors();
     });
     input.addEventListener("keydown", (event) => {
       if (event.key === "Backspace" && !input.value && index > 0) {
@@ -200,59 +221,246 @@ const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
     });
   });
 
-  document.querySelector<HTMLButtonElement>("[data-resend]")?.addEventListener("click", () => {
-    attempts = 0;
-    limited = false;
-    showError("limit", false);
-    showError("code", false);
-    startCountdown();
-    window.dispatchEvent(
-      new CustomEvent("app:toast", { detail: { message: "已重新发送（演示验证码 123456）" } }),
-    );
-  });
-
+  // 换个邮箱（两个分支共用）
   document.querySelector<HTMLButtonElement>("[data-back-email]")?.addEventListener("click", () => {
     codeForm?.classList.add("is-hidden");
     emailForm?.classList.remove("is-hidden");
     codeInputs.forEach((input) => {
       input.value = "";
     });
-    showError("code", false);
-    showError("limit", false);
+    clearCodeErrors();
+    showError("send", false);
   });
 
-  codeForm?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (limited) {
-      showError("limit", true);
-      return;
-    }
-    const code = codeInputs.map((input) => input.value).join("");
-    if (code.length < 6) {
-      showError("code", true);
-      return;
-    }
-    if (code !== "123456") {
-      attempts += 1;
-      if (attempts >= 3) {
-        limited = true;
-        showError("limit", true);
-        showError("code", false);
-      } else {
-        showError("code", true);
+  if (mode === "demo") {
+    initDemo();
+  } else {
+    initReal();
+  }
+
+  /** 演示分支：固定验证码 123456、本地倒计时与限流提示（01B 原样保留） */
+  function initDemo() {
+    const successBox = document.querySelector<HTMLElement>("[data-login-success]");
+    let attempts = 0;
+    let limited = false;
+
+    emailForm?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const value = emailValue();
+      const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+      if (!valid) {
+        showError("email", true);
+        return;
       }
+      showError("email", false);
+      const sentTo = document.querySelector<HTMLElement>("[data-sent-to]");
+      if (sentTo) {
+        sentTo.innerHTML = `验证码已发送至 <strong></strong>`;
+        const strong = sentTo.querySelector("strong");
+        if (strong) strong.textContent = value;
+      }
+      emailForm.classList.add("is-hidden");
+      codeForm?.classList.remove("is-hidden");
+      codeInputs[0]?.focus();
+      startCountdown();
+      toast("演示环境：验证码固定为 123456");
+    });
+
+    document.querySelector<HTMLButtonElement>("[data-resend]")?.addEventListener("click", () => {
+      attempts = 0;
+      limited = false;
+      showError("limit", false);
+      showError("code", false);
+      startCountdown();
+      toast("已重新发送（演示验证码 123456）");
+    });
+
+    codeForm?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (limited) {
+        showError("limit", true);
+        return;
+      }
+      const code = codeInputs.map((input) => input.value).join("");
+      if (code.length < 6) {
+        showError("code", true);
+        return;
+      }
+      if (code !== "123456") {
+        attempts += 1;
+        if (attempts >= 3) {
+          limited = true;
+          showError("limit", true);
+          showError("code", false);
+        } else {
+          showError("code", true);
+        }
+        return;
+      }
+      showError("code", false);
+      codeForm.classList.add("is-hidden");
+      successBox?.classList.remove("is-hidden");
+      // 写入本设备演示会话，账户页据此显示登录状态
+      const email = emailValue();
+      if (email) window.localStorage.setItem("pr:session:email", email);
+      toast("登录成功（演示会话）");
+    });
+  }
+
+  /** 真实分支：Turnstile → request-code → verify-code → 按 ?next= 跳转 */
+  function initReal() {
+    const sitekey = cardRoot?.dataset.sitekey?.trim() ?? "";
+
+    // 1) sitekey 未配置：表单整体禁用并提示，绝不放行
+    if (!sitekey) {
+      showError("turnstile", true);
+      cardRoot
+        ?.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button")
+        .forEach((el) => {
+          el.disabled = true;
+        });
       return;
     }
-    showError("code", false);
-    codeForm.classList.add("is-hidden");
-    successBox?.classList.remove("is-hidden");
-    // 写入本设备演示会话，账户页据此显示登录状态
-    const emailValue = document.querySelector<HTMLInputElement>("[data-email-input]")?.value.trim();
-    if (emailValue) window.localStorage.setItem("pr:session:email", emailValue);
-    window.dispatchEvent(
-      new CustomEvent("app:toast", { detail: { message: "登录成功（演示会话）" } }),
-    );
-  });
+
+    interface TurnstileApi {
+      render(container: HTMLElement, options: Record<string, unknown>): string;
+      getResponse(id?: string): string | undefined;
+      execute(id?: string): void;
+      reset(id?: string): void;
+    }
+    const turnstile = () =>
+      (window as typeof window & { turnstile?: TurnstileApi }).turnstile;
+    let widgetId = "";
+
+    // 2) 加载 Turnstile 脚本并显式渲染（加载失败时禁止提交）
+    const script = document.createElement("script");
+    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+    script.async = true;
+    script.addEventListener("load", () => {
+      const container = cardRoot?.querySelector<HTMLElement>("[data-turnstile]");
+      const api = turnstile();
+      if (!container || !api) return;
+      widgetId = api.render(container, { sitekey });
+    });
+    script.addEventListener("error", () => {
+      showError("send", true, "人机验证加载失败，请刷新页面重试");
+    });
+    document.head.appendChild(script);
+
+    // 错误信封 → 友好文案（429 频率 / 401 验证码无效 / 503 服务未配置或邮件不可用）
+    const friendlyError = (error: unknown, fallback: string): string => {
+      if (error instanceof ApiError) {
+        if (error.status === 429) return "请求过于频繁，请稍后再试";
+        if (error.status === 401) return "验证码无效或已过期，请重新输入";
+        if (error.status === 503) {
+          return error.message || "服务暂不可用（服务未配置或邮件不可用），请稍后再试";
+        }
+        if (error.message) return error.message;
+      }
+      return fallback;
+    };
+
+    const setBusy = (form: HTMLFormElement | null, busy: boolean) => {
+      form?.querySelectorAll<HTMLButtonElement>("button").forEach((button) => {
+        button.disabled = busy;
+      });
+    };
+
+    const setSentTo = (email: string) => {
+      const sentTo = document.querySelector<HTMLElement>("[data-sent-to]");
+      if (!sentTo) return;
+      sentTo.innerHTML = `验证码已发送至 <strong></strong>`;
+      const strong = sentTo.querySelector("strong");
+      if (strong) strong.textContent = email;
+    };
+
+    let sending = false;
+    let verifying = false;
+
+    // 步骤 1：请求验证码
+    emailForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (sending) return;
+      const email = emailValue();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        showError("email", true);
+        return;
+      }
+      showError("email", false);
+      showError("send", false);
+
+      const api = turnstile();
+      const token = widgetId ? api?.getResponse(widgetId) : undefined;
+      if (!token) {
+        if (widgetId) api?.execute(widgetId);
+        showError("send", true, "请先完成人机验证");
+        return;
+      }
+
+      sending = true;
+      setBusy(emailForm, true);
+      try {
+        const result = await requestCode(email, token);
+        // 人机令牌单次有效：发送成功后重置，重发前需重新验证
+        if (widgetId) api?.reset(widgetId);
+        setSentTo(email);
+        emailForm.classList.add("is-hidden");
+        codeForm?.classList.remove("is-hidden");
+        codeInputs[0]?.focus();
+        startCountdown();
+        toast(result.message || "验证码已发送");
+      } catch (error) {
+        if (widgetId) api?.reset(widgetId);
+        showError("send", true, friendlyError(error, "验证码发送失败，请稍后重试"));
+      } finally {
+        sending = false;
+        setBusy(emailForm, false);
+      }
+    });
+
+    // 重新发送：令牌已消费，回到邮箱步骤重新完成人机验证
+    document.querySelector<HTMLButtonElement>("[data-resend]")?.addEventListener("click", () => {
+      if (sending) return;
+      codeForm?.classList.add("is-hidden");
+      emailForm?.classList.remove("is-hidden");
+      showError("send", false);
+      document.querySelector<HTMLInputElement>("[data-email-input]")?.focus();
+    });
+
+    // 步骤 2：校验验证码并按 ?next= 跳转
+    codeForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (verifying) return;
+      const code = codeInputs.map((input) => input.value).join("");
+      if (code.length < 6) {
+        showError("code", true, "请输入完整的 6 位验证码");
+        return;
+      }
+      clearCodeErrors();
+
+      verifying = true;
+      setBusy(codeForm, true);
+      try {
+        await verifyCode(emailValue(), code);
+        const next = new URLSearchParams(window.location.search).get("next");
+        const target =
+          next && next.startsWith("/") && !next.startsWith("//") ? next : "/watch";
+        window.location.href = target;
+      } catch (error) {
+        const status = error instanceof ApiError ? error.status : 0;
+        if (status === 429) {
+          showError("limit", true, friendlyError(error, "尝试次数过多，请稍后重新获取验证码"));
+        } else if (status === 503 || status === 0 || status >= 500) {
+          showError("service", true, friendlyError(error, "服务暂不可用，请稍后再试"));
+        } else {
+          showError("code", true, friendlyError(error, "验证码错误或已过期，请重新输入"));
+        }
+      } finally {
+        verifying = false;
+        setBusy(codeForm, false);
+      }
+    });
+  }
 </script>
 
 <style>

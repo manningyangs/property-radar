@@ -1,8 +1,10 @@
 ---
 /**
  * 我的监控 `/watch`（PRD 2.7）：
- * 今日变化摘要 → 筛选 Tab（全部/区域/小区/房源/已触发，query 参数）→ 监控卡片
- * （暂停/恢复、编辑目标价、删除二次确认，全部为真实本地交互）→ 空态引导。
+ * 演示分支（PUBLIC_DEMO_DATA=1）：今日变化摘要 → 筛选 Tab → 监控卡片
+ *   （暂停/恢复、编辑目标价、删除二次确认，全部为真实本地交互）→ 空态引导，保持 01B 行为。
+ * 真实分支：listWatchItems 加载真实数据（401 跳登录），排序/分组筛选走 API 查询参数，
+ *   暂停/恢复/删除/设置分组走 PATCH/DELETE；规则与目标价等 03B 字段占位“—”，不造数。
  */
 import AppShell from "../../layouts/AppShell.astro";
 import EmptyState from "../../components/EmptyState.astro";
@@ -103,131 +105,470 @@ const activeCount = demo ? demo.watchItems.length - pausedCount : 0;
         />
       </div>
     ) : (
-      <div class="page">
-        <EmptyState
-          title="暂未覆盖，可提交覆盖申请"
-          description="未接入数据源时无法建立有效的价格监控。可先登录提交覆盖申请，或浏览标准城市目录。"
-          actionText="登录后提交覆盖申请"
-          actionHref="/login"
+      <div class="page" data-watch-real>
+        {/* 真实分支：排序与分组筛选（分组选项由返回项 group_name 去重生成） */}
+        <section class="card real-toolbar" aria-label="排序与分组筛选">
+          <label class="field real-field">
+            <span class="field-label">排序</span>
+            <select class="input real-select" data-real-sort>
+              <option value="created_at:desc">创建时间（新→旧）</option>
+              <option value="created_at:asc">创建时间（旧→新）</option>
+              <option value="priority:desc">优先级（高→低）</option>
+              <option value="priority:asc">优先级（低→高）</option>
+            </select>
+          </label>
+          <label class="field real-field">
+            <span class="field-label">分组筛选</span>
+            <select class="input real-select" data-real-group>
+              <option value="">全部分组</option>
+            </select>
+          </label>
+        </section>
+
+        <p class="meta real-loading is-hidden" data-real-loading>正在加载监控列表…</p>
+
+        <div class="stack-sm watch-list is-hidden" data-real-list></div>
+
+        <div class="is-hidden" data-real-empty>
+          <EmptyState
+            title="暂无监控对象"
+            description="添加区域或小区后可在此管理；未覆盖对象只能先收藏，不会显示“已开启自动价格监控”。"
+            actionText="去添加监控"
+            actionHref="/watch/add"
+          />
+        </div>
+
+        <div class="is-hidden" data-real-error>
+          <EmptyState
+            title="监控列表加载失败"
+            description="无法连接服务获取你的监控数据，请检查网络后重试。"
+          >
+            <button type="button" class="btn btn--secondary" data-real-retry>
+              重新加载
+            </button>
+          </EmptyState>
+        </div>
+
+        <div class="btn-row watch-add-row">
+          <a class="btn btn--primary btn--block" href="/watch/add">
+            + 添加监控对象
+          </a>
+        </div>
+
+        <ConfirmDialog
+          id="watch-delete"
+          title="删除监控对象"
+          message="删除后将不再产生该对象的事件与每日简报条目。历史事件保留在事件中心。此操作不可撤销。"
+          confirmText="确认删除"
+          danger
         />
+
+        {/* 真实卡片模板：脚本按 API 返回数据克隆渲染（规则/目标价属 03B，占位“—”不造数） */}
+        <template data-real-card>
+          <div data-watch-wrap>
+            <article class="rwcard card" data-watch-item="" data-paused="false">
+              <div class="rwcard-top">
+                <div class="rwcard-title">
+                  <span class="rwcard-name" data-field="name"></span>
+                  <span class="badge badge--neutral" data-field="type"></span>
+                </div>
+                <span class="badge badge--primary" data-field="status">● 监控中</span>
+              </div>
+              <p class="meta" data-field="meta"></p>
+              <div class="rwcard-badges">
+                <span class="badge badge--neutral is-hidden" data-field="monitor">
+                  未开启自动价格监控
+                </span>
+              </div>
+              <div class="rwcard-values">
+                <div class="rwcard-value">
+                  <span class="rwcard-label">最新值</span>
+                  <span class="rwcard-num num">—</span>
+                </div>
+                <div class="rwcard-value">
+                  <span class="rwcard-label">目标值</span>
+                  <span class="rwcard-num num">—</span>
+                </div>
+                <div class="rwcard-value">
+                  <span class="rwcard-label">价差</span>
+                  <span class="rwcard-num num">—</span>
+                </div>
+              </div>
+              <p class="meta">监控规则与目标价待后续任务接入，不展示估算值。</p>
+              <div class="btn-row rwcard-actions">
+                <button
+                  type="button"
+                  class="btn btn--secondary btn--sm"
+                  data-watch-toggle=""
+                  aria-pressed="true"
+                >
+                  暂停监控
+                </button>
+                <button type="button" class="btn btn--secondary btn--sm" data-watch-group="">
+                  设置分组
+                </button>
+                <button
+                  type="button"
+                  class="btn btn--secondary btn--sm rwcard-delete"
+                  data-watch-delete=""
+                  data-dialog-open="watch-delete"
+                >
+                  删除
+                </button>
+              </div>
+            </article>
+          </div>
+        </template>
       </div>
     )
   }
 </AppShell>
 
 <script>
-  // 筛选 / 暂停恢复 / 删除（全部本地真实交互）
-  let currentFilter = "all";
-  let pendingDeleteId = "";
+  import { ApiError, deleteWatchItem, listWatchItems, patchWatchItem } from "../../lib/api";
+  import type { WatchItem } from "../../lib/api";
 
-  const summary = () => {
-    const wraps = Array.from(document.querySelectorAll<HTMLElement>("[data-watch-wrap]"));
-    const total = wraps.length;
-    const paused = wraps.filter(
-      (wrap) => wrap.querySelector("[data-watch-item]")?.getAttribute("data-paused") === "true",
-    ).length;
-    const triggered = wraps.filter(
-      (wrap) => wrap.dataset.triggered === "true",
-    ).length;
+  const realRoot = document.querySelector<HTMLElement>("[data-watch-real]");
 
-    const setText = (selector: string, value: string) => {
-      const el = document.querySelector<HTMLElement>(selector);
-      if (el) el.textContent = value;
+  if (realRoot) {
+    initRealWatch(realRoot);
+  } else {
+    // ===== 演示分支（01B 原样保留）：筛选 / 暂停恢复 / 删除，全部本地交互 =====
+    let currentFilter = "all";
+    let pendingDeleteId = "";
+
+    const summary = () => {
+      const wraps = Array.from(document.querySelectorAll<HTMLElement>("[data-watch-wrap]"));
+      const total = wraps.length;
+      const paused = wraps.filter(
+        (wrap) => wrap.querySelector("[data-watch-item]")?.getAttribute("data-paused") === "true",
+      ).length;
+      const triggered = wraps.filter(
+        (wrap) => wrap.dataset.triggered === "true",
+      ).length;
+
+      const setText = (selector: string, value: string) => {
+        const el = document.querySelector<HTMLElement>(selector);
+        if (el) el.textContent = value;
+      };
+      setText("[data-summary-triggered]", String(triggered));
+      setText("[data-summary-active]", String(total - paused));
+      setText("[data-summary-paused]", String(paused));
     };
-    setText("[data-summary-triggered]", String(triggered));
-    setText("[data-summary-active]", String(total - paused));
-    setText("[data-summary-paused]", String(paused));
-  };
 
-  const applyFilter = (key: string, updateUrl: boolean) => {
-    currentFilter = key;
-    let visible = 0;
-    document.querySelectorAll<HTMLElement>("[data-watch-wrap]").forEach((wrap) => {
-      const show =
-        key === "all" ||
-        (key === "triggered" ? wrap.dataset.triggered === "true" : wrap.dataset.type === key);
-      wrap.classList.toggle("is-hidden", !show);
-      if (show) visible += 1;
-    });
+    const applyFilter = (key: string, updateUrl: boolean) => {
+      currentFilter = key;
+      let visible = 0;
+      document.querySelectorAll<HTMLElement>("[data-watch-wrap]").forEach((wrap) => {
+        const show =
+          key === "all" ||
+          (key === "triggered" ? wrap.dataset.triggered === "true" : wrap.dataset.type === key);
+        wrap.classList.toggle("is-hidden", !show);
+        if (show) visible += 1;
+      });
 
-    document.querySelectorAll<HTMLElement>("[data-watch-filter]").forEach((chip) => {
-      const active = chip.dataset.watchFilter === key;
-      chip.classList.toggle("is-active", active);
-      chip.setAttribute("aria-pressed", active ? "true" : "false");
-    });
+      document.querySelectorAll<HTMLElement>("[data-watch-filter]").forEach((chip) => {
+        const active = chip.dataset.watchFilter === key;
+        chip.classList.toggle("is-active", active);
+        chip.setAttribute("aria-pressed", active ? "true" : "false");
+      });
 
-    const empty = document.querySelector<HTMLElement>("[data-watch-empty]");
-    const list = document.querySelector<HTMLElement>("[data-watch-list]");
-    empty?.classList.toggle("is-hidden", visible > 0);
-    list?.classList.toggle("is-hidden", visible === 0);
+      const empty = document.querySelector<HTMLElement>("[data-watch-empty]");
+      const list = document.querySelector<HTMLElement>("[data-watch-list]");
+      empty?.classList.toggle("is-hidden", visible > 0);
+      list?.classList.toggle("is-hidden", visible === 0);
 
-    if (updateUrl) {
-      const url = new URL(window.location.href);
-      if (key === "all") url.searchParams.delete("filter");
-      else url.searchParams.set("filter", key);
-      window.history.replaceState({}, "", url);
-    }
-  };
-
-  document.addEventListener("click", (event) => {
-    const target = event.target as HTMLElement;
-
-    const filterChip = target.closest<HTMLElement>("[data-watch-filter]");
-    if (filterChip) {
-      applyFilter(filterChip.dataset.watchFilter ?? "all", true);
-      return;
-    }
-
-    const toggle = target.closest<HTMLElement>("[data-watch-toggle]");
-    if (toggle) {
-      const id = toggle.dataset.watchToggle ?? "";
-      const card = document.querySelector<HTMLElement>(`[data-watch-item="${id}"]`);
-      if (!card) return;
-      const nowPaused = card.dataset.paused !== "true";
-      card.dataset.paused = nowPaused ? "true" : "false";
-
-      const status = card.querySelector<HTMLElement>("[data-watch-status]");
-      if (status) {
-        status.textContent = nowPaused ? "已暂停" : "● 监控中";
-        status.className = `badge ${nowPaused ? "badge--neutral" : "badge--primary"}`;
+      if (updateUrl) {
+        const url = new URL(window.location.href);
+        if (key === "all") url.searchParams.delete("filter");
+        else url.searchParams.set("filter", key);
+        window.history.replaceState({}, "", url);
       }
-      toggle.textContent = nowPaused ? "恢复监控" : "暂停监控";
-      toggle.setAttribute("aria-pressed", nowPaused ? "false" : "true");
+    };
+
+    document.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement;
+
+      const filterChip = target.closest<HTMLElement>("[data-watch-filter]");
+      if (filterChip) {
+        applyFilter(filterChip.dataset.watchFilter ?? "all", true);
+        return;
+      }
+
+      const toggle = target.closest<HTMLElement>("[data-watch-toggle]");
+      if (toggle) {
+        const id = toggle.dataset.watchToggle ?? "";
+        const card = document.querySelector<HTMLElement>(`[data-watch-item="${id}"]`);
+        if (!card) return;
+        const nowPaused = card.dataset.paused !== "true";
+        card.dataset.paused = nowPaused ? "true" : "false";
+
+        const status = card.querySelector<HTMLElement>("[data-watch-status]");
+        if (status) {
+          status.textContent = nowPaused ? "已暂停" : "● 监控中";
+          status.className = `badge ${nowPaused ? "badge--neutral" : "badge--primary"}`;
+        }
+        toggle.textContent = nowPaused ? "恢复监控" : "暂停监控";
+        toggle.setAttribute("aria-pressed", nowPaused ? "false" : "true");
+        summary();
+        window.dispatchEvent(
+          new CustomEvent("app:toast", {
+            detail: { message: nowPaused ? "已暂停：不再产生新事件" : "已恢复监控" },
+          }),
+        );
+        return;
+      }
+
+      const remove = target.closest<HTMLElement>("[data-watch-delete]");
+      if (remove) {
+        pendingDeleteId = remove.dataset.watchDelete ?? "";
+      }
+    });
+
+    window.addEventListener("app:confirm", (event) => {
+      const detail = (event as CustomEvent<{ id: string }>).detail;
+      if (detail.id !== "watch-delete" || !pendingDeleteId) return;
+      document
+        .querySelector<HTMLElement>(`[data-watch-wrap]:has([data-watch-item="${pendingDeleteId}"])`)
+        ?.remove();
+      pendingDeleteId = "";
       summary();
+      applyFilter(currentFilter, false);
       window.dispatchEvent(
-        new CustomEvent("app:toast", {
-          detail: { message: nowPaused ? "已暂停：不再产生新事件" : "已恢复监控" },
-        }),
+        new CustomEvent("app:toast", { detail: { message: "已删除监控对象" } }),
       );
-      return;
-    }
+    });
 
-    const remove = target.closest<HTMLElement>("[data-watch-delete]");
-    if (remove) {
-      pendingDeleteId = remove.dataset.watchDelete ?? "";
-    }
-  });
-
-  window.addEventListener("app:confirm", (event) => {
-    const detail = (event as CustomEvent<{ id: string }>).detail;
-    if (detail.id !== "watch-delete" || !pendingDeleteId) return;
-    document
-      .querySelector<HTMLElement>(`[data-watch-wrap]:has([data-watch-item="${pendingDeleteId}"])`)
-      ?.remove();
-    pendingDeleteId = "";
-    summary();
-    applyFilter(currentFilter, false);
-    window.dispatchEvent(
-      new CustomEvent("app:toast", { detail: { message: "已删除监控对象" } }),
+    const initial = new URLSearchParams(window.location.search).get("filter") ?? "all";
+    applyFilter(
+      ["all", "区域", "小区", "房源", "triggered"].includes(initial) ? initial : "all",
+      false,
     );
-  });
+    summary();
+  }
 
-  const initial = new URLSearchParams(window.location.search).get("filter") ?? "all";
-  applyFilter(
-    ["all", "区域", "小区", "房源", "triggered"].includes(initial) ? initial : "all",
-    false,
-  );
-  summary();
+  /** 真实分支：列表加载、排序/分组筛选（API 查询参数）、暂停恢复/设置分组/删除（API 写操作） */
+  function initRealWatch(root: HTMLElement) {
+    const listEl = root.querySelector<HTMLElement>("[data-real-list]");
+    const template = root.querySelector<HTMLTemplateElement>("[data-real-card]");
+    const loadingEl = root.querySelector<HTMLElement>("[data-real-loading]");
+    const emptyEl = root.querySelector<HTMLElement>("[data-real-empty]");
+    const errorEl = root.querySelector<HTMLElement>("[data-real-error]");
+    const sortSelect = root.querySelector<HTMLSelectElement>("[data-real-sort]");
+    const groupSelect = root.querySelector<HTMLSelectElement>("[data-real-group]");
+    const retryBtn = root.querySelector<HTMLButtonElement>("[data-real-retry]");
+
+    let items: WatchItem[] = [];
+    let pendingDeleteId = "";
+
+    const toast = (message: string) => {
+      window.dispatchEvent(new CustomEvent("app:toast", { detail: { message } }));
+    };
+
+    const typeLabel = (type: string) =>
+      type === "region" ? "区域" : type === "community" ? "小区" : type === "listing" ? "房源" : type;
+
+    /** 卡片状态徽标与暂停标记同步 */
+    const applyStatus = (card: HTMLElement, status: string) => {
+      const badge = card.querySelector<HTMLElement>('[data-field="status"]');
+      if (badge) {
+        badge.textContent =
+          status === "paused" ? "已暂停" : status === "archived" ? "已归档" : "● 监控中";
+        badge.className = `badge ${status === "active" ? "badge--primary" : "badge--neutral"}`;
+      }
+      card.dataset.paused = status === "paused" ? "true" : "false";
+      const toggle = card.querySelector<HTMLButtonElement>("[data-watch-toggle]");
+      if (toggle) {
+        const paused = status === "paused";
+        toggle.textContent = paused ? "恢复监控" : "暂停监控";
+        toggle.setAttribute("aria-pressed", paused ? "false" : "true");
+      }
+    };
+
+    /** 按 API 返回字段克隆渲染一张卡片（03B 字段一律占位“—”，不造数） */
+    const renderCard = (item: WatchItem): HTMLElement | null => {
+      const wrap = template?.content.firstElementChild?.cloneNode(true) as HTMLElement | undefined;
+      if (!wrap) return null;
+      wrap.setAttribute("data-group", item.group_name ?? "");
+      const card = wrap.querySelector<HTMLElement>("[data-watch-item]");
+      if (!card) return wrap;
+      card.setAttribute("data-watch-item", item.watch_id);
+
+      const setText = (field: string, value: string) => {
+        const el = card.querySelector<HTMLElement>(`[data-field="${field}"]`);
+        if (el) el.textContent = value;
+      };
+      setText("name", item.display_name_snapshot);
+      setText("type", typeLabel(item.object_type));
+      setText(
+        "meta",
+        `分组：${item.group_name?.trim() || "—"} · 优先级 ${item.priority} · 创建时间 ${item.created_at.slice(0, 16)}`,
+      );
+
+      // 自动价格监控：false（或字段缺失）显示“未开启”徽标，true 不额外造提示
+      const monitor = card.querySelector<HTMLElement>('[data-field="monitor"]');
+      monitor?.classList.toggle("is-hidden", item.auto_monitoring === true);
+
+      applyStatus(card, item.status);
+      return wrap;
+    };
+
+    /** 分组筛选项：对返回项 group_name 去重生成（筛选中保留当前选中项） */
+    const rebuildGroupOptions = () => {
+      if (!groupSelect) return;
+      const names = new Set<string>();
+      for (const item of items) {
+        const name = item.group_name?.trim();
+        if (name) names.add(name);
+      }
+      if (groupSelect.value) names.add(groupSelect.value);
+      const current = groupSelect.value;
+      const all = document.createElement("option");
+      all.value = "";
+      all.textContent = "全部分组";
+      const options = [all, ...Array.from(names).sort((a, b) => a.localeCompare(b, "zh-CN")).map((name) => {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        return option;
+      })];
+      groupSelect.replaceChildren(...options);
+      groupSelect.value = current;
+    };
+
+    const renderAll = () => {
+      const fragment = document.createDocumentFragment();
+      for (const item of items) {
+        const card = renderCard(item);
+        if (card) fragment.append(card);
+      }
+      listEl?.replaceChildren(fragment);
+      rebuildGroupOptions();
+      const hasItems = items.length > 0;
+      listEl?.classList.toggle("is-hidden", !hasItems);
+      emptyEl?.classList.toggle("is-hidden", hasItems);
+      errorEl?.classList.add("is-hidden");
+    };
+
+    const load = async () => {
+      loadingEl?.classList.remove("is-hidden");
+      errorEl?.classList.add("is-hidden");
+      try {
+        const [sortRaw = "created_at", orderRaw = "desc"] = (
+          sortSelect?.value ?? "created_at:desc"
+        ).split(":");
+        const result = await listWatchItems({
+          sort: sortRaw === "priority" ? "priority" : "created_at",
+          order: orderRaw === "asc" ? "asc" : "desc",
+          group_name: groupSelect?.value || undefined,
+        });
+        items = result.items;
+        renderAll();
+      } catch (error) {
+        // 401 已由 API 客户端统一跳转登录
+        if (error instanceof ApiError && error.status === 401) return;
+        errorEl?.classList.remove("is-hidden");
+        listEl?.classList.add("is-hidden");
+        emptyEl?.classList.add("is-hidden");
+      } finally {
+        loadingEl?.classList.add("is-hidden");
+      }
+    };
+
+    /** 用服务端返回的最新 item 更新本地状态并重绘 */
+    const applyItem = (updated: WatchItem) => {
+      items = items.map((item) => (item.watch_id === updated.watch_id ? updated : item));
+      renderAll();
+    };
+
+    const failToast = (error: unknown, fallback: string) => {
+      toast(error instanceof ApiError && error.status === 401 ? "登录已过期，请重新登录" : fallback);
+    };
+
+    sortSelect?.addEventListener("change", () => void load());
+    groupSelect?.addEventListener("change", () => void load());
+    retryBtn?.addEventListener("click", () => void load());
+
+    root.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement;
+
+      // 暂停 / 恢复：PATCH status
+      const toggle = target.closest<HTMLButtonElement>("[data-watch-toggle]");
+      if (toggle) {
+        const card = toggle.closest<HTMLElement>("[data-watch-item]");
+        const id = card?.dataset.watchItem ?? "";
+        if (!card || !id || toggle.disabled) return;
+        const next = card.dataset.paused === "true" ? "active" : "paused";
+        toggle.disabled = true;
+        void (async () => {
+          try {
+            const result = await patchWatchItem(id, { status: next });
+            applyItem(result.item);
+            toast(next === "paused" ? "已暂停：不再产生新事件" : "已恢复监控");
+          } catch (error) {
+            failToast(error, "操作失败，请稍后重试");
+          } finally {
+            toggle.disabled = false;
+          }
+        })();
+        return;
+      }
+
+      // 设置分组：字符串 = upsert 分组，留空 = 移出分组（PATCH group_name）
+      const groupBtn = target.closest<HTMLButtonElement>("[data-watch-group]");
+      if (groupBtn) {
+        const card = groupBtn.closest<HTMLElement>("[data-watch-item]");
+        const id = card?.dataset.watchItem ?? "";
+        if (!id) return;
+        const current = items.find((item) => item.watch_id === id)?.group_name ?? "";
+        const input = window.prompt("分组名称（1–50 字符，留空则移出分组）", current || "");
+        if (input === null) return;
+        const name = input.trim();
+        if (name.length > 50) {
+          toast("分组名称不能超过 50 个字符");
+          return;
+        }
+        groupBtn.disabled = true;
+        void (async () => {
+          try {
+            const result = await patchWatchItem(id, { group_name: name === "" ? null : name });
+            applyItem(result.item);
+            toast(name === "" ? "已移出分组" : `已设置分组「${name}」`);
+          } catch (error) {
+            failToast(error, "设置分组失败，请稍后重试");
+          } finally {
+            groupBtn.disabled = false;
+          }
+        })();
+        return;
+      }
+
+      // 删除：记录待删对象，确认弹窗回执后调用 DELETE
+      const remove = target.closest<HTMLElement>("[data-watch-delete]");
+      if (remove) {
+        pendingDeleteId = remove.closest<HTMLElement>("[data-watch-item]")?.dataset.watchItem ?? "";
+      }
+    });
+
+    window.addEventListener("app:confirm", (event) => {
+      const detail = (event as CustomEvent<{ id: string }>).detail;
+      if (detail.id !== "watch-delete" || !pendingDeleteId) return;
+      const id = pendingDeleteId;
+      pendingDeleteId = "";
+      void (async () => {
+        try {
+          await deleteWatchItem(id);
+          items = items.filter((item) => item.watch_id !== id);
+          renderAll();
+          toast("已删除监控对象");
+        } catch (error) {
+          failToast(error, "删除失败，请稍后重试");
+        }
+      })();
+    });
+
+    void load();
+  }
 </script>
 
 <style>
@@ -275,5 +616,104 @@ const activeCount = demo ? demo.watchItems.length - pausedCount : 0;
 
   .watch-add-row {
     margin-top: var(--space-2);
+  }
+
+  /* ===== 真实分支 ===== */
+  .real-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+  }
+
+  .real-field {
+    flex: 1;
+    min-width: 150px;
+  }
+
+  .real-select {
+    width: 100%;
+  }
+
+  .real-loading {
+    margin-top: var(--space-2);
+    text-align: center;
+  }
+
+  /* 动态克隆的卡片节点无 Astro 作用域属性，样式需 :global 命中 */
+  :global(.rwcard) {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  :global(.rwcard[data-paused="true"]) {
+    /* 暂停：降权展示（虚线边框 + “已暂停”文字，不只靠颜色） */
+    background: var(--color-bg);
+    border-style: dashed;
+  }
+
+  :global(.rwcard-top) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  :global(.rwcard-title) {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  :global(.rwcard-name) {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    word-break: break-all;
+  }
+
+  :global(.rwcard-badges) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  :global(.rwcard-values) {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: var(--space-1);
+    padding: var(--space-1) 0;
+    border-top: 1px dashed var(--color-border);
+    border-bottom: 1px dashed var(--color-border);
+  }
+
+  :global(.rwcard-value) {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  :global(.rwcard-label) {
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+  }
+
+  :global(.rwcard-num) {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-bold);
+    color: var(--color-muted);
+    line-height: 1.2;
+  }
+
+  :global(.rwcard-actions) {
+    justify-content: flex-start;
+  }
+
+  :global(.rwcard-delete) {
+    color: var(--color-danger);
   }
 </style>

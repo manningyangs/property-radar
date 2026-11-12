@@ -48,6 +48,20 @@ interface WatchRow {
 const WATCH_COLUMNS = `watch_id, object_type, object_id, display_name_snapshot,
   priority, status, created_at, updated_at`;
 
+/** item 响应行：LEFT JOIN 分组表得到 group_name（未分组为 null） */
+type WatchItemRow = Omit<WatchRow, "user_id"> & { group_name: string | null };
+
+/** item 最终响应：在行基础上附加读取时计算的 auto_monitoring */
+type WatchItem = WatchItemRow & { auto_monitoring: boolean };
+
+/** 带分组名的查询（LEFT JOIN watch_item_groups，联接条件同时限定 user_id） */
+const ITEM_SELECT = `SELECT w.watch_id, w.object_type, w.object_id,
+    w.display_name_snapshot, w.priority, w.status, w.created_at, w.updated_at,
+    g.group_name
+  FROM watch_items w
+  LEFT JOIN watch_item_groups g
+    ON g.watch_id = w.watch_id AND g.user_id = w.user_id`;
+
 async function loadOwnWatch(
   c: Context<AppEnv>,
   userId: string,
@@ -62,17 +76,152 @@ async function loadOwnWatch(
   return row;
 }
 
-// GET /me/watch-items
+/** 加载本人单个监控对象（含 group_name），不存在（含他人资源）→ 404 */
+async function loadOwnWatchItem(
+  c: Context<AppEnv>,
+  userId: string,
+  watchId: string,
+): Promise<WatchItemRow> {
+  const row = await c.env.DB_PRIVATE.prepare(
+    `${ITEM_SELECT} WHERE w.watch_id = ? AND w.user_id = ?`,
+  )
+    .bind(watchId, userId)
+    .first<WatchItemRow>();
+  if (!row) throw errors.notFound("监控对象不存在");
+  return row;
+}
+
+/**
+ * 读取时批量计算 auto_monitoring（不落库）：按 object_type 分组后每类型至多
+ * 1 条 IN 查询（region/community 查 Public 的 price_snapshots，listing 查
+ * listing_price_events_public），总计 ≤3 条，禁止逐条 N+1。
+ */
+async function attachAutoMonitoring<
+  T extends { object_type: string; object_id: string },
+>(
+  c: Context<AppEnv>,
+  items: T[],
+): Promise<Array<T & { auto_monitoring: boolean }>> {
+  // 收集各类型去重后的 object_id
+  const idsByType = new Map<string, Set<string>>();
+  for (const item of items) {
+    const set = idsByType.get(item.object_type) ?? new Set<string>();
+    set.add(item.object_id);
+    idsByType.set(item.object_type, set);
+  }
+  const covered = new Set<string>(); // `${object_type}:${object_id}` 有价格数据
+  for (const [objectType, idSet] of idsByType) {
+    const ids = [...idSet];
+    const marks = ids.map(() => "?").join(", ");
+    if (objectType === "listing") {
+      // listing 的目录键即 listing_key_hash（Public 库唯一索引键）
+      const res = await c.env.DB_PUBLIC.prepare(
+        `SELECT DISTINCT listing_key_hash FROM listing_price_events_public
+         WHERE listing_key_hash IN (${marks})`,
+      )
+        .bind(...ids)
+        .all<{ listing_key_hash: string }>();
+      for (const row of res.results) {
+        covered.add(`listing:${row.listing_key_hash}`);
+      }
+    } else {
+      const res = await c.env.DB_PUBLIC.prepare(
+        `SELECT DISTINCT object_id FROM price_snapshots
+         WHERE object_type = ? AND object_id IN (${marks})`,
+      )
+        .bind(objectType, ...ids)
+        .all<{ object_id: string }>();
+      for (const row of res.results) {
+        covered.add(`${objectType}:${row.object_id}`);
+      }
+    }
+  }
+  return items.map((item) => ({
+    ...item,
+    auto_monitoring: covered.has(`${item.object_type}:${item.object_id}`),
+  }));
+}
+
+/** 单个 item 响应：读取本人对象（含 group_name）+ 附加 auto_monitoring */
+async function loadRespondItem(
+  c: Context<AppEnv>,
+  userId: string,
+  watchId: string,
+): Promise<WatchItem> {
+  const row = await loadOwnWatchItem(c, userId, watchId);
+  const [item] = await attachAutoMonitoring(c, [row]);
+  return item as WatchItem;
+}
+
+// GET /me/watch-items?status=&object_type=&group_name=&sort=&order=
 meRoutes.get("/watch-items", async (c) => {
+  // 空串按未提供处理（与 limit 参数风格一致）；非法值 → 400 validation_failed
+  const pick = (name: string): string | undefined => {
+    const v = c.req.query(name);
+    return v === undefined || v === "" ? undefined : v;
+  };
+  const status = pick("status");
+  const objectType = pick("object_type");
+  const groupName = pick("group_name");
+  const sort = pick("sort") ?? "created_at";
+  const order = pick("order") ?? "desc";
+  const invalid: Array<{ field: string; message: string }> = [];
+  if (
+    status !== undefined &&
+    !["active", "paused", "archived", "all"].includes(status)
+  ) {
+    invalid.push({
+      field: "status",
+      message: "必须是 active、paused、archived 或 all",
+    });
+  }
+  if (
+    objectType !== undefined &&
+    !["region", "community", "listing"].includes(objectType)
+  ) {
+    invalid.push({
+      field: "object_type",
+      message: "必须是 region、community 或 listing",
+    });
+  }
+  if (
+    groupName !== undefined &&
+    (groupName.length < 1 || groupName.length > 50)
+  ) {
+    invalid.push({ field: "group_name", message: "长度必须是 1-50 字符" });
+  }
+  if (!["created_at", "priority"].includes(sort)) {
+    invalid.push({ field: "sort", message: "必须是 created_at 或 priority" });
+  }
+  if (!["asc", "desc"].includes(order)) {
+    invalid.push({ field: "order", message: "必须是 asc 或 desc" });
+  }
+  if (invalid.length > 0) throw errors.validation(invalid);
+
+  const where = ["w.user_id = ?"]; // 强制 user_id 过滤（数据隔离）
+  const params: Array<string | number> = [c.get("userId")];
+  if (status !== undefined && status !== "all") {
+    where.push("w.status = ?");
+    params.push(status);
+  }
+  if (objectType !== undefined) {
+    where.push("w.object_type = ?");
+    params.push(objectType);
+  }
+  if (groupName !== undefined) {
+    where.push("g.group_name = ?");
+    params.push(groupName);
+  }
   const res = await c.env.DB_PRIVATE.prepare(
-    `SELECT ${WATCH_COLUMNS} FROM watch_items
-     WHERE user_id = ?
-     ORDER BY created_at DESC
+    `${ITEM_SELECT}
+     WHERE ${where.join(" AND ")}
+     ORDER BY w.${sort} ${order}
      LIMIT 50`,
   )
-    .bind(c.get("userId"))
-    .all<WatchRow>();
-  return c.json({ items: res.results, count: res.results.length });
+    .bind(...params)
+    .all<WatchItemRow>();
+  const items = await attachAutoMonitoring(c, res.results);
+  return c.json({ items, count: items.length });
 });
 
 // POST /me/watch-items
@@ -84,7 +233,26 @@ meRoutes.post("/watch-items", async (c) => {
     object_id: string;
     display_name_snapshot: string;
     priority?: number;
+    group_name?: string;
   };
+  const userId = c.get("userId");
+  // 目录存在性校验：region/community 必须在 Public 目录中（不存在→404）；
+  // listing 不做目录校验（数据来源支持后放开），未覆盖价格数据只影响 auto_monitoring。
+  if (input.object_type === "region") {
+    const hit = await c.env.DB_PUBLIC.prepare(
+      "SELECT region_id FROM regions WHERE region_id = ?",
+    )
+      .bind(input.object_id)
+      .first();
+    if (!hit) throw errors.notFound("区域不存在或未收录");
+  } else if (input.object_type === "community") {
+    const hit = await c.env.DB_PUBLIC.prepare(
+      "SELECT community_id FROM communities WHERE community_id = ?",
+    )
+      .bind(input.object_id)
+      .first();
+    if (!hit) throw errors.notFound("小区不存在或未收录");
+  }
   const watchId = crypto.randomUUID();
   try {
     await c.env.DB_PRIVATE.prepare(
@@ -94,17 +262,26 @@ meRoutes.post("/watch-items", async (c) => {
     )
       .bind(
         watchId,
-        c.get("userId"),
+        userId,
         input.object_type,
         input.object_id,
         input.display_name_snapshot,
         input.priority ?? 0,
       )
       .run();
+    // 可选分组：创建时即入组（重复对象在上面 INSERT 时 UNIQUE→409）
+    if (input.group_name !== undefined) {
+      await c.env.DB_PRIVATE.prepare(
+        `INSERT INTO watch_item_groups (watch_id, user_id, group_name, updated_at)
+         VALUES (?, ?, ?, datetime('now'))`,
+      )
+        .bind(watchId, userId, input.group_name)
+        .run();
+    }
   } catch (e) {
     mapDbError(e);
   }
-  const item = await loadOwnWatch(c, c.get("userId"), watchId);
+  const item = await loadRespondItem(c, userId, watchId);
   return c.json({ item }, 201);
 });
 
@@ -118,6 +295,7 @@ meRoutes.patch("/watch-items/:id", async (c) => {
     display_name_snapshot: string;
     priority: number;
     status: string;
+    group_name: string | null;
   }>;
   await loadOwnWatch(c, userId, watchId); // 不存在（含他人资源）→ 404
   const sets: string[] = ["updated_at = datetime('now')"];
@@ -141,10 +319,30 @@ meRoutes.patch("/watch-items/:id", async (c) => {
     )
       .bind(...params)
       .run();
+    // 分组：字符串 = 入组/改组（upsert），null = 移出分组（删本人该对象的分组行）
+    if (patch.group_name !== undefined) {
+      if (patch.group_name === null) {
+        await c.env.DB_PRIVATE.prepare(
+          "DELETE FROM watch_item_groups WHERE watch_id = ? AND user_id = ?",
+        )
+          .bind(watchId, userId)
+          .run();
+      } else {
+        await c.env.DB_PRIVATE.prepare(
+          `INSERT INTO watch_item_groups (watch_id, user_id, group_name, updated_at)
+           VALUES (?, ?, ?, datetime('now'))
+           ON CONFLICT(watch_id) DO UPDATE SET
+             group_name = excluded.group_name,
+             updated_at = datetime('now')`,
+        )
+          .bind(watchId, userId, patch.group_name)
+          .run();
+      }
+    }
   } catch (e) {
     mapDbError(e);
   }
-  return c.json({ item: await loadOwnWatch(c, userId, watchId) });
+  return c.json({ item: await loadRespondItem(c, userId, watchId) });
 });
 
 // DELETE /me/watch-items/:id

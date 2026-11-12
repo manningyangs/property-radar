@@ -1,8 +1,8 @@
 // TASK-02B：写接口 JSON Schema（PRD §10 统一 JSON Schema 校验）
 // 枚举值与 db/migrations 的 CHECK 约束保持一致；PRD 未定义取值的字段用长度约束。
-import type { AnySchema } from "ajv";
+import type { JsonSchema } from "./validation";
 
-export const createWatchItemSchema: AnySchema = {
+export const createWatchItemSchema: JsonSchema = {
   type: "object",
   required: ["object_type", "object_id", "display_name_snapshot"],
   additionalProperties: false,
@@ -11,17 +11,26 @@ export const createWatchItemSchema: AnySchema = {
     object_id: { type: "string", minLength: 1, maxLength: 128 },
     display_name_snapshot: { type: "string", minLength: 1, maxLength: 200 },
     priority: { type: "integer", minimum: -100, maximum: 100 },
+    // TASK-03A：可选分组名（1–50 字符，与 0003 迁移 CHECK 约束一致）
+    group_name: { type: "string", minLength: 1, maxLength: 50 },
   },
 };
 
-export const patchWatchItemSchema: AnySchema = {
+export const patchWatchItemSchema: JsonSchema = {
   type: "object",
   minProperties: 1,
   additionalProperties: false,
   properties: {
     display_name_snapshot: { type: "string", minLength: 1, maxLength: 200 },
     priority: { type: "integer", minimum: -100, maximum: 100 },
-    status: { type: "string", enum: ["active", "archived"] },
+    // TASK-03A：状态枚举扩展 paused（暂停/恢复）
+    status: { type: "string", enum: ["active", "paused", "archived"] },
+    // TASK-03A：字符串=入组/改组，null=移出分组
+    group_name: {
+      type: ["string", "null"],
+      minLength: 1,
+      maxLength: 50,
+    },
   },
 };
 
@@ -47,21 +56,21 @@ const RULE_PROPERTIES = {
   is_enabled: { type: "boolean" },
 };
 
-export const createRuleSchema: AnySchema = {
+export const createRuleSchema: JsonSchema = {
   type: "object",
   required: ["rule_type", "metric_code"],
   additionalProperties: false,
   properties: RULE_PROPERTIES,
 };
 
-export const patchRuleSchema: AnySchema = {
+export const patchRuleSchema: JsonSchema = {
   type: "object",
   minProperties: 1,
   additionalProperties: false,
   properties: RULE_PROPERTIES,
 };
 
-export const patchPreferencesSchema: AnySchema = {
+export const patchPreferencesSchema: JsonSchema = {
   type: "object",
   minProperties: 1,
   additionalProperties: false,
@@ -75,7 +84,7 @@ export const patchPreferencesSchema: AnySchema = {
 };
 
 /** 通用空对象/无字段约束的 PATCH（如标记已读，仅要求是 JSON 对象） */
-export const emptyObjectSchema: AnySchema = {
+export const emptyObjectSchema: JsonSchema = {
   type: "object",
   additionalProperties: false,
 };
@@ -85,7 +94,7 @@ export const emptyObjectSchema: AnySchema = {
 /** 邮箱形态校验（不依赖 ajv-formats，纯 pattern，避免 strict 模式缺插件报错） */
 const EMAIL_PATTERN = "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$";
 
-export const requestCodeSchema: AnySchema = {
+export const requestCodeSchema: JsonSchema = {
   type: "object",
   required: ["email", "turnstile_token"],
   additionalProperties: false,
@@ -95,7 +104,7 @@ export const requestCodeSchema: AnySchema = {
   },
 };
 
-export const verifyCodeSchema: AnySchema = {
+export const verifyCodeSchema: JsonSchema = {
   type: "object",
   required: ["email", "code"],
   additionalProperties: false,

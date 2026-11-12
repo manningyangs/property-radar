@@ -29,6 +29,7 @@ const PRIVATE_TABLES = [
   "user_cities",
   "user_consents",
   "users",
+  "watch_item_groups",
   "watch_items",
   "watch_rules",
 ];
@@ -220,7 +221,7 @@ describe("Public D1（radar_public）", () => {
 });
 
 describe("Private D1（radar_private）", () => {
-  it("up 建出全部 14 张表，且重复执行（幂等）不报错", () => {
+  it("up 建出全部 15 张表，且重复执行（幂等）不报错", () => {
     const db = createDb();
     applyMigrations(db, "private", "up");
     expect(tablesOf(db).sort()).toEqual(PRIVATE_TABLES);
@@ -248,6 +249,7 @@ describe("Private D1（radar_private）", () => {
     expect(idx).toContain("ix_sessions_token_expires"); // sessions(token_hash, expires_at)
     expect(idx).toContain("ix_email_otps_email_purpose_expires"); // email_otps(email_normalized, purpose, expires_at)
     expect(idx).toContain("ix_email_send_ledger_created"); // email_send_ledger(created_at, status, template) 配额求和
+    expect(idx).toContain("ix_watch_item_groups_user_group"); // watch_item_groups(user_id, group_name) 分组筛选
   });
 
   it("邮件配额账本可按滚动 24 小时求和（TASK-02C 硬上限依据）", () => {
@@ -325,6 +327,50 @@ describe("Private D1（radar_private）", () => {
         )
         .run(),
     ).toThrow();
+    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+  });
+
+  it("watch_item_groups：分组名长度受 CHECK，删除监控对象按 FK 级联清空分组行", () => {
+    const db = createDb();
+    applyMigrations(db, "private", "up");
+    db.prepare(
+      "INSERT INTO users (user_id, email_normalized) VALUES ('usr_g', 'g@example.com')",
+    ).run();
+    db.prepare(
+      "INSERT INTO watch_items (watch_id, user_id, object_type, object_id, display_name_snapshot) VALUES ('w_g', 'usr_g', 'region', 'rgn_g', 'x')",
+    ).run();
+    db.prepare(
+      "INSERT INTO watch_item_groups (watch_id, user_id, group_name) VALUES ('w_g', 'usr_g', '核心关注')",
+    ).run();
+    // 分组名 1–50 字符：空串与 51 字符被 CHECK 拒绝
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO watch_item_groups (watch_id, user_id, group_name) VALUES ('w_g', 'usr_g', '')",
+        )
+        .run(),
+    ).toThrow();
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO watch_item_groups (watch_id, user_id, group_name) VALUES ('w_g', 'usr_g', ?)",
+        )
+        .run("x".repeat(51)),
+    ).toThrow();
+    // 同一监控对象不能重复入组（watch_id 主键）
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO watch_item_groups (watch_id, user_id, group_name) VALUES ('w_g', 'usr_g', '重复组')",
+        )
+        .run(),
+    ).toThrow();
+    // 删除 watch item → 分组行级联消失
+    db.prepare("DELETE FROM watch_items WHERE watch_id = 'w_g'").run();
+    const rows = db
+      .prepare("SELECT watch_id FROM watch_item_groups WHERE watch_id = 'w_g'")
+      .all();
+    expect(rows).toEqual([]);
     expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   });
 
