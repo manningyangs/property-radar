@@ -29,10 +29,10 @@
 - [x] Task 9: 部署与定时任务
   - [x] SubTask 9.1: 远端补齐迁移（public 0002/0003、private 0003–0006 按序）+ 应用种子；`db:apply:*` 脚本补全为覆盖全部迁移
   - [x] SubTask 9.2: `wrangler deploy` + `wrangler secret put INGEST_HMAC_SECRET`（生成 32 字节 hex，不入仓库/日志）+ `gh secret set API_BASE/INGEST_HMAC_SECRET` + 生产冒烟（eligibility 200 / batch 202 / methodology 含 field_verifications / run_daily 生产 e2e exit=0）
-  - [ ] SubTask 9.3: `.github/workflows/daily-collect.yml`（cron 10 22 * * * UTC + workflow_dispatch、固定 SHA、collectors 目录运行、Secrets 注入）→ push 后 dispatch 真跑（真实网络 + 生产 API，记真实日历日第 1 日；失败如实记录）
-- [ ] Task 10: 提交、CI 与收尾
-  - [ ] SubTask 10.1: 中文 commit `TASK-04C: …`（UTF-8 `git commit -F`）→ push → 盯 CI 至绿（quality + collectors）
-  - [ ] SubTask 10.2: §12.0 收尾报告（改动摘要/文件/测试/7 回放+真实日口径/风险/回滚）→ checklist 勾选入库 → 更新记忆 topics.md / project_memory.md
+  - [x] SubTask 9.3: `.github/workflows/daily-collect.yml`（cron 10 22 * * * UTC + workflow_dispatch、固定 SHA、collectors 目录运行、Secrets 注入）→ dispatch 真跑成功（run 43186878575，真实访问青岛市统计局站点，`期次=2 观测=4 资格=approved_open 健康=ok`，记真实日历日第 1 日 2026-11-12）
+- [x] Task 10: 提交、CI 与收尾
+  - [x] SubTask 10.1: 中文 commit `TASK-04C: …`（UTF-8 `git commit -F`，06dd717）→ push → CI 绿（quality + collectors 两跑 success）
+  - [x] SubTask 10.2: §12.0 收尾报告（改动摘要/文件/测试/7 回放+真实日口径/风险/回滚）→ checklist 勾选入库 → 更新记忆 topics.md / project_memory.md
 
 # Task Dependencies
 

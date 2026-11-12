@@ -25,14 +25,14 @@
 ## 7 运行日（验收①）
 
 - [x] 本地回放 7 个 run-date（2026-11-05~2026-11-11，fixture 零出网）→ 本地 `ingest_jobs` 7 行 status=succeeded、job/batch 各 7 条、错误码为空；证据入收尾报告
-- [ ] 生产每日 schedule（06:10 北京）已上线，真实日历日累计口径在报告中与回放口径明确区分
+- [x] 生产每日 schedule（06:10 北京）已上线，真实日历日累计口径在报告中与回放口径明确区分
 
 ## 部署与定时任务
 
 - [x] 远端迁移补齐（public 0001–0003、private 0001–0006）且幂等可重放；种子在本地与远端同文件应用成功
 - [x] 生产 Worker 已部署；`INGEST_HMAC_SECRET` 仅存 Wrangler/GitHub Secrets，仓库与日志无值；`db:apply:*` 脚本补全
 - [x] GitHub Secrets `API_BASE`/`INGEST_HMAC_SECRET` 配置完成；daily workflow（固定 SHA、最小 permissions、prettier 过）
-- [ ] `workflow_dispatch` 真跑：真实访问青岛市统计局站点 + 生产 API 记录第 1 个真实运行日；失败则如实入报告不伪造
+- [x] `workflow_dispatch` 真跑：真实访问青岛市统计局站点 + 生产 API 记录第 1 个真实运行日（2026-11-12，run 43186878575 success）
 
 ## 门禁、验收与流程
 
@@ -40,5 +40,5 @@
 - [x] 生产冒烟：eligibility 200 / jobs start+finish 202 / batch 202 / methodology 含 field_verifications
 - [x] 浏览器回归（真实模式 + 演示 4322）零回归——6/6 PASS
 - [x] 无真实数据源违规接入（仅官方开放许可源）、无爬虫绕过、无付费依赖新增；仓库/日志无密钥与真实个人邮箱
-- [ ] 中文 commit `TASK-04C: …` → push → CI 绿；备份 tag `pre-v1-p2-task-04c` 存在
-- [ ] §12.0 收尾报告输出，checklist 勾选入库，记忆 topics.md / project_memory.md 更新
+- [x] 中文 commit `TASK-04C: …`（06dd717）→ push → CI 绿（quality + collectors）；备份 tag `pre-v1-p2-task-04c` 存在
+- [x] §12.0 收尾报告输出，checklist 勾选入库，记忆 topics.md / project_memory.md 更新
