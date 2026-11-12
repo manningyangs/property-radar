@@ -24,7 +24,7 @@ export class ApiError extends Error {
 export type ObjectType = "region" | "community" | "listing";
 export type WatchStatus = "active" | "paused" | "archived";
 
-/** 监控对象（item 响应；group_name / auto_monitoring 为本任务新增字段） */
+/** 监控对象（item 响应；group_name/auto_monitoring 03A，规则摘要 03B） */
 export interface WatchItem {
   watch_id: string;
   object_type: string;
@@ -36,6 +36,46 @@ export interface WatchItem {
   updated_at: string;
   group_name?: string | null;
   auto_monitoring?: boolean;
+  /** 03B：已启用规则数（卡片“规则状态行”） */
+  enabled_rule_count: number;
+  /** 03B：最新已启用规则摘要（卡片“目标值”，无启用规则为 null） */
+  rule_highlight: RuleHighlight | null;
+}
+
+/** 03B：规则摘要高亮（由 GET /me/watch-items 携带） */
+export interface RuleHighlight {
+  rule_id: string;
+  rule_type: string;
+  metric_code: string;
+  price_type: string | null;
+  target_value: number | null;
+  unit: string | null;
+  threshold_pct: number | null;
+}
+
+/** 03B：监控规则（含有效期/每规则通知渠道/触发状态/版本） */
+export interface Rule {
+  rule_id: string;
+  watch_id: string;
+  rule_type: string;
+  metric_code: string;
+  price_type: string | null;
+  target_value: number | null;
+  currency: string;
+  unit: string | null;
+  window_days: number | null;
+  threshold_pct: number | null;
+  hysteresis_pct: number | null;
+  is_enabled: number;
+  armed_state: string;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  valid_until: string | null;
+  notify_email: boolean;
+  notify_digest: boolean;
+  notify_inapp: boolean;
+  is_expired: boolean;
 }
 
 export interface ListWatchItemsParams {
@@ -81,6 +121,8 @@ interface ErrorEnvelope {
   error_code?: string;
   message?: string;
   error?: { code?: string; message?: string };
+  /** 400 校验错误的字段级明细（03B 绑定校验的中文文案在此） */
+  details?: Array<{ field?: string; message?: string }>;
 }
 
 /** 统一请求：解析 JSON、错误信封抛 ApiError、401 统一跳登录 */
@@ -133,8 +175,10 @@ async function request<T>(
     const envelope = (body ?? {}) as ErrorEnvelope;
     const code =
       envelope.error_code ?? envelope.error?.code ?? `http_${res.status}`;
+    const detail = envelope.details?.[0]?.message;
     const message =
       envelope.error?.message ??
+      detail ??
       envelope.message ??
       `请求失败（HTTP ${res.status}）`;
     throw new ApiError(res.status, code, message);
@@ -221,6 +265,78 @@ export function patchWatchItem(
 /** DELETE /me/watch-items/:id——删除监控对象（关联规则/分组级联消失） */
 export function deleteWatchItem(id: string): Promise<{ deleted: boolean }> {
   return request(`/me/watch-items/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+// ---------------- 监控规则（TASK-03B） ----------------
+
+export interface CreateRuleInput {
+  rule_type: string;
+  metric_code: string;
+  price_type: string;
+  target_value?: number | null;
+  unit?: string | null;
+  window_days?: number | null;
+  threshold_pct?: number | null;
+  hysteresis_pct?: number | null;
+  currency?: string;
+  is_enabled?: boolean;
+  valid_until?: string | null;
+  notify_email?: boolean;
+  notify_digest?: boolean;
+  notify_inapp?: boolean;
+}
+
+export interface PatchRuleInput {
+  rule_type?: string;
+  metric_code?: string;
+  price_type?: string;
+  target_value?: number | null;
+  unit?: string | null;
+  window_days?: number | null;
+  threshold_pct?: number | null;
+  hysteresis_pct?: number | null;
+  currency?: string;
+  is_enabled?: boolean;
+  valid_until?: string | null;
+  notify_email?: boolean;
+  notify_digest?: boolean;
+  notify_inapp?: boolean;
+}
+
+/** GET /me/watch-items/:id/rules——某监控对象的规则列表 */
+export function listRules(
+  watchId: string,
+): Promise<{ items: Rule[]; count: number }> {
+  return request(`/me/watch-items/${encodeURIComponent(watchId)}/rules`);
+}
+
+/** POST /me/watch-items/:id/rules——创建规则（绑定非法后端 400 拦截） */
+export function createRule(
+  watchId: string,
+  input: CreateRuleInput,
+): Promise<{ item: Rule }> {
+  return request(`/me/watch-items/${encodeURIComponent(watchId)}/rules`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** PATCH /me/rules/:id——改目标/口径/有效期/渠道/启停（内容变更 version+1） */
+export function patchRule(
+  id: string,
+  patch: PatchRuleInput,
+): Promise<{ item: Rule }> {
+  return request(`/me/rules/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+/** DELETE /me/rules/:id——删除规则（设置行级联消失） */
+export function deleteRule(id: string): Promise<{ deleted: boolean }> {
+  return request(`/me/rules/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
 }

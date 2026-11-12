@@ -4,7 +4,8 @@
  * 演示分支（PUBLIC_DEMO_DATA=1）：今日变化摘要 → 筛选 Tab → 监控卡片
  *   （暂停/恢复、编辑目标价、删除二次确认，全部为真实本地交互）→ 空态引导，保持 01B 行为。
  * 真实分支：listWatchItems 加载真实数据（401 跳登录），排序/分组筛选走 API 查询参数，
- *   暂停/恢复/删除/设置分组走 PATCH/DELETE；规则与目标价等 03B 字段占位“—”，不造数。
+ *   暂停/恢复/删除/设置分组走 PATCH/DELETE；目标值与规则状态行由 03B 规则摘要
+ *   （enabled_rule_count/rule_highlight）渲染，最新值/价差仍占位“—”（价格快照属数据接入任务）。
  */
 import AppShell from "../../layouts/AppShell.astro";
 import EmptyState from "../../components/EmptyState.astro";
@@ -163,7 +164,7 @@ const activeCount = demo ? demo.watchItems.length - pausedCount : 0;
           danger
         />
 
-        {/* 真实卡片模板：脚本按 API 返回数据克隆渲染（规则/目标价属 03B，占位“—”不造数） */}
+        {/* 真实卡片模板：脚本按 API 返回数据克隆渲染（目标值/规则状态来自 03B 规则摘要，最新值/价差不造数） */}
         <template data-real-card>
           <div data-watch-wrap>
             <article class="rwcard card" data-watch-item="" data-paused="false">
@@ -187,14 +188,14 @@ const activeCount = demo ? demo.watchItems.length - pausedCount : 0;
                 </div>
                 <div class="rwcard-value">
                   <span class="rwcard-label">目标值</span>
-                  <span class="rwcard-num num">—</span>
+                  <span class="rwcard-num num" data-field="target">—</span>
                 </div>
                 <div class="rwcard-value">
                   <span class="rwcard-label">价差</span>
                   <span class="rwcard-num num">—</span>
                 </div>
               </div>
-              <p class="meta">监控规则与目标价待后续任务接入，不展示估算值。</p>
+              <p class="meta" data-field="rules">—</p>
               <div class="btn-row rwcard-actions">
                 <button
                   type="button"
@@ -204,6 +205,9 @@ const activeCount = demo ? demo.watchItems.length - pausedCount : 0;
                 >
                   暂停监控
                 </button>
+                <a class="btn btn--secondary btn--sm" data-field="rules-link" href="/rules">
+                  编辑规则
+                </a>
                 <button type="button" class="btn btn--secondary btn--sm" data-watch-group="">
                   设置分组
                 </button>
@@ -347,6 +351,25 @@ const activeCount = demo ? demo.watchItems.length - pausedCount : 0;
     summary();
   }
 
+  /** 卡片目标值文案（03B：最新已启用规则摘要；无规则 → “—”，不造数） */
+  function ruleHighlightText(item: WatchItem): string {
+    const highlight = item.rule_highlight;
+    if (!highlight) return "—";
+    const fmt = (n: number | null) => (n === null ? "—" : n.toLocaleString("zh-CN"));
+    if (highlight.rule_type === "price_drop_pct") return `跌幅 ≥ ${fmt(highlight.threshold_pct)}%`;
+    if (highlight.rule_type === "below_comparable_median_pct") {
+      return `低于可比 ≥ ${fmt(highlight.threshold_pct)}%`;
+    }
+    return `≤ ${fmt(highlight.target_value)} ${highlight.unit ?? ""}`.trim();
+  }
+
+  /** 卡片规则状态行：已启用 N 条 / 未设置规则 / 区域规则待指标接入 */
+  function rulesLineText(item: WatchItem): string {
+    if (item.object_type === "region") return "区域规则待指标接入";
+    if (item.enabled_rule_count > 0) return `已启用 ${item.enabled_rule_count} 条规则`;
+    return "未设置规则";
+  }
+
   /** 真实分支：列表加载、排序/分组筛选（API 查询参数）、暂停恢复/设置分组/删除（API 写操作） */
   function initRealWatch(root: HTMLElement) {
     const listEl = root.querySelector<HTMLElement>("[data-real-list]");
@@ -385,7 +408,7 @@ const activeCount = demo ? demo.watchItems.length - pausedCount : 0;
       }
     };
 
-    /** 按 API 返回字段克隆渲染一张卡片（03B 字段一律占位“—”，不造数） */
+    /** 按 API 返回字段克隆渲染一张卡片（最新值/价差无价格快照来源，保持“—”不造数） */
     const renderCard = (item: WatchItem): HTMLElement | null => {
       const wrap = template?.content.firstElementChild?.cloneNode(true) as HTMLElement | undefined;
       if (!wrap) return null;
@@ -408,6 +431,14 @@ const activeCount = demo ? demo.watchItems.length - pausedCount : 0;
       // 自动价格监控：false（或字段缺失）显示“未开启”徽标，true 不额外造提示
       const monitor = card.querySelector<HTMLElement>('[data-field="monitor"]');
       monitor?.classList.toggle("is-hidden", item.auto_monitoring === true);
+
+      // 目标值与规则状态行（03B 规则摘要），编辑规则入口 → /rules?watch=<id>
+      const target = card.querySelector<HTMLElement>('[data-field="target"]');
+      if (target) target.textContent = ruleHighlightText(item);
+      const ruleLine = card.querySelector<HTMLElement>('[data-field="rules"]');
+      if (ruleLine) ruleLine.textContent = rulesLineText(item);
+      const rulesLink = card.querySelector<HTMLAnchorElement>('[data-field="rules-link"]');
+      if (rulesLink) rulesLink.href = `/rules?watch=${encodeURIComponent(item.watch_id)}`;
 
       applyStatus(card, item.status);
       return wrap;

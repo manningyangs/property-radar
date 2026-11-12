@@ -31,6 +31,7 @@ const PRIVATE_TABLES = [
   "users",
   "watch_item_groups",
   "watch_items",
+  "watch_rule_settings",
   "watch_rules",
 ];
 
@@ -221,7 +222,7 @@ describe("Public D1（radar_public）", () => {
 });
 
 describe("Private D1（radar_private）", () => {
-  it("up 建出全部 15 张表，且重复执行（幂等）不报错", () => {
+  it("up 建出全部 16 张表，且重复执行（幂等）不报错", () => {
     const db = createDb();
     applyMigrations(db, "private", "up");
     expect(tablesOf(db).sort()).toEqual(PRIVATE_TABLES);
@@ -371,6 +372,85 @@ describe("Private D1（radar_private）", () => {
       .prepare("SELECT watch_id FROM watch_item_groups WHERE watch_id = 'w_g'")
       .all();
     expect(rows).toEqual([]);
+    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+  });
+
+  it("watch_rule_settings（TASK-03B）：日期/布尔 CHECK 生效，删规则与删对象均级联", () => {
+    const db = createDb();
+    applyMigrations(db, "private", "up");
+    db.prepare(
+      "INSERT INTO users (user_id, email_normalized) VALUES ('usr_r', 'r@example.com')",
+    ).run();
+    db.prepare(
+      "INSERT INTO watch_items (watch_id, user_id, object_type, object_id, display_name_snapshot) VALUES ('w_r', 'usr_r', 'community', 'com_r', 'x')",
+    ).run();
+    db.prepare(
+      `INSERT INTO watch_rules (rule_id, watch_id, user_id, rule_type, metric_code, price_type, target_value, unit)
+       VALUES ('r_r', 'w_r', 'usr_r', 'community_unit_price_lte', 'community_ask_median_unit', 'listing_ask', 20000, '元/㎡')`,
+    ).run();
+    // 默认三渠道全开、有效期可空
+    db.prepare(
+      "INSERT INTO watch_rule_settings (rule_id, user_id) VALUES ('r_r', 'usr_r')",
+    ).run();
+    const row = db
+      .prepare(
+        "SELECT valid_until, notify_email, notify_digest, notify_inapp FROM watch_rule_settings WHERE rule_id = 'r_r'",
+      )
+      .get() as {
+      valid_until: string | null;
+      notify_email: number;
+      notify_digest: number;
+      notify_inapp: number;
+    };
+    expect(row).toEqual({
+      valid_until: null,
+      notify_email: 1,
+      notify_digest: 1,
+      notify_inapp: 1,
+    });
+    // 有效期格式与布尔值受 CHECK 约束
+    expect(() =>
+      db
+        .prepare(
+          "UPDATE watch_rule_settings SET valid_until = '2027/01/01' WHERE rule_id = 'r_r'",
+        )
+        .run(),
+    ).toThrow();
+    expect(() =>
+      db
+        .prepare(
+          "UPDATE watch_rule_settings SET notify_email = 2 WHERE rule_id = 'r_r'",
+        )
+        .run(),
+    ).toThrow();
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO watch_rule_settings (rule_id, user_id, valid_until) VALUES ('r_missing', 'usr_r', '2027-01-01')",
+        )
+        .run(),
+    ).toThrow(); // rule_id FK
+    // 删除规则 → 设置行级联消失
+    db.prepare("DELETE FROM watch_rules WHERE rule_id = 'r_r'").run();
+    expect(
+      db
+        .prepare(
+          "SELECT rule_id FROM watch_rule_settings WHERE rule_id = 'r_r'",
+        )
+        .all(),
+    ).toEqual([]);
+    // 删除监控对象 → 其下规则及设置行全部级联消失（03A 验收约定）
+    db.prepare(
+      `INSERT INTO watch_rules (rule_id, watch_id, user_id, rule_type, metric_code, price_type, target_value, unit)
+       VALUES ('r_r2', 'w_r', 'usr_r', 'community_unit_price_lte', 'community_ask_median_unit', 'listing_ask', 19000, '元/㎡')`,
+    ).run();
+    db.prepare(
+      "INSERT INTO watch_rule_settings (rule_id, user_id) VALUES ('r_r2', 'usr_r')",
+    ).run();
+    db.prepare("DELETE FROM watch_items WHERE watch_id = 'w_r'").run();
+    expect(db.prepare("SELECT rule_id FROM watch_rule_settings").all()).toEqual(
+      [],
+    );
     expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   });
 

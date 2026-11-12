@@ -12,6 +12,7 @@
     "test": "echo \"(web) 无单元测试，UI 门禁见 TASK-01B 截图验收\""
   },
   "dependencies": {
+    "@property-radar/shared": "workspace:*",
     "astro": "^5.7.0"
   },
   "devDependencies": {

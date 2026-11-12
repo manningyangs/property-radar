@@ -1,5 +1,7 @@
 // TASK-02B：写接口 JSON Schema（PRD §10 统一 JSON Schema 校验）
 // 枚举值与 db/migrations 的 CHECK 约束保持一致；PRD 未定义取值的字段用长度约束。
+// TASK-03B：rule_type 收紧为 PRD §4.6 五枚举，新增有效期与每规则通知渠道字段。
+import { RULE_TYPES } from "@property-radar/shared";
 import type { JsonSchema } from "./validation";
 
 export const createWatchItemSchema: JsonSchema = {
@@ -35,7 +37,8 @@ export const patchWatchItemSchema: JsonSchema = {
 };
 
 const RULE_PROPERTIES = {
-  rule_type: { type: "string", minLength: 1, maxLength: 64 },
+  // TASK-03B：规则类型枚举（PRD §4.6 五种），语义绑定由 shared.validateRuleBinding 交叉校验
+  rule_type: { type: "string", enum: [...RULE_TYPES] },
   metric_code: { type: "string", minLength: 1, maxLength: 64 },
   price_type: {
     type: "string",
@@ -47,13 +50,21 @@ const RULE_PROPERTIES = {
       "model_estimate",
     ],
   },
-  target_value: { type: "number" },
+  // 可空：PATCH 允许清空（如 lte → 跌幅规则时置 null），语义层校验必填/禁止
+  target_value: { type: ["number", "null"], minimum: 0 },
   currency: { type: "string", minLength: 3, maxLength: 8 },
-  unit: { type: "string", maxLength: 32 },
-  window_days: { type: "integer", minimum: 1, maximum: 3650 },
-  threshold_pct: { type: "number" },
-  hysteresis_pct: { type: "number" },
+  unit: { type: ["string", "null"], maxLength: 32 },
+  window_days: { type: ["integer", "null"], minimum: 1, maximum: 3650 },
+  threshold_pct: { type: ["number", "null"], minimum: 0, maximum: 100 },
+  // re-arm 缓冲幅度（§4.6-5：价格回到目标上方超过该幅度才重新武装）
+  hysteresis_pct: { type: ["number", "null"], minimum: 0, maximum: 100 },
   is_enabled: { type: "boolean" },
+  // TASK-03B：有效期（YYYY-MM-DD / null=长期有效）
+  valid_until: { type: ["string", "null"], pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+  // TASK-03B：每规则独立通知渠道（与用户级 notification_preferences 并存）
+  notify_email: { type: "boolean" },
+  notify_digest: { type: "boolean" },
+  notify_inapp: { type: "boolean" },
 };
 
 export const createRuleSchema: JsonSchema = {

@@ -48,9 +48,88 @@ async function createWatch(
   return body.item.watch_id;
 }
 
+/** TASK-03B：创建 community 类型的 watch item（规则只允许挂在 community/listing 上） */
+async function createCommunityWatch(
+  appInstance: ReturnType<typeof createApp>,
+  env: TestContext["env"],
+  token: string,
+): Promise<string> {
+  const res = await appInstance.request(
+    "/api/v1/me/watch-items",
+    {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({
+        object_type: "community",
+        object_id: "cmt_TEST-shared",
+        display_name_snapshot: "TEST-共享小区",
+      }),
+    },
+    env,
+  );
+  expect(res.status).toBe(201);
+  const body = (await res.json()) as { item: { watch_id: string } };
+  return body.item.watch_id;
+}
+
+/** TASK-03B：合法的目标单价规则 payload（community_unit_price_lte 主绑定） */
+function validCommunityRule(): Record<string, unknown> {
+  return {
+    rule_type: "community_unit_price_lte",
+    metric_code: "community_ask_median_unit",
+    price_type: "listing_ask",
+    target_value: 20000,
+    unit: "元/㎡",
+  };
+}
+
+/** POST /me/watch-items/:id/rules（原样返回 Response，供状态码断言） */
+async function postRule(
+  token: string,
+  watchId: string,
+  payload: Record<string, unknown>,
+): Promise<Response> {
+  return await app.request(
+    `/api/v1/me/watch-items/${watchId}/rules`,
+    {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify(payload),
+    },
+    ctx.env,
+  );
+}
+
+/** PATCH /me/rules/:id（原样返回 Response，供状态码断言） */
+async function patchRule(
+  token: string,
+  ruleId: string,
+  payload: Record<string, unknown>,
+): Promise<Response> {
+  return await app.request(
+    `/api/v1/me/rules/${ruleId}`,
+    {
+      method: "PATCH",
+      headers: jsonHeaders(token),
+      body: JSON.stringify(payload),
+    },
+    ctx.env,
+  );
+}
+
+/** 解析错误信封 { error_code, details }，返回全部 message */
+async function errorMessages(res: Response): Promise<string[]> {
+  const parsed = (await res.json()) as {
+    error_code: string;
+    details?: Array<{ message: string }>;
+  };
+  expect(parsed.error_code).toBe("validation_failed");
+  return (parsed.details ?? []).map((d) => d.message);
+}
+
 // ---------------- TASK-03A：测试辅助（item 响应/POST/PATCH/GET 列表） ----------------
 
-/** watch-items item 响应结构（含本任务新增的 group_name / auto_monitoring） */
+/** watch-items item 响应结构（03A：group_name/auto_monitoring；03B：规则摘要） */
 interface WatchItemJson {
   watch_id: string;
   object_type: string;
@@ -60,6 +139,16 @@ interface WatchItemJson {
   status: string;
   group_name: string | null;
   auto_monitoring: boolean;
+  enabled_rule_count: number;
+  rule_highlight: {
+    rule_id: string;
+    rule_type: string;
+    metric_code: string;
+    price_type: string | null;
+    target_value: number | null;
+    unit: string | null;
+    threshold_pct: number | null;
+  } | null;
   created_at: string;
   updated_at: string;
 }
@@ -253,34 +342,14 @@ describe("用户 A 无法读取/更新用户 B 的数据", () => {
   });
 
   it("B 无法向 A 的 watch item 下发规则，也不能改 A 的规则", async () => {
-    const watchId = await createWatch(app, ctx.env, TOK_A);
-    const aRule = await app.request(
-      `/api/v1/me/watch-items/${watchId}/rules`,
-      {
-        method: "POST",
-        headers: jsonHeaders(TOK_A),
-        body: JSON.stringify({
-          rule_type: "price_below",
-          metric_code: "median_unit_price",
-          target_value: 20000,
-          unit: "yuan_sqm",
-        }),
-      },
-      ctx.env,
-    );
+    const watchId = await createCommunityWatch(app, ctx.env, TOK_A);
+    const aRule = await postRule(TOK_A, watchId, validCommunityRule());
     expect(aRule.status).toBe(201);
     const ruleId = ((await aRule.json()) as { item: { rule_id: string } }).item
       .rule_id;
 
-    const bRule = await app.request(
-      `/api/v1/me/watch-items/${watchId}/rules`,
-      {
-        method: "POST",
-        headers: jsonHeaders(TOK_B),
-        body: JSON.stringify({ rule_type: "price_below", metric_code: "m" }),
-      },
-      ctx.env,
-    );
+    // B 挂规则：loadOwnWatch 先于 schema 校验 → 跨用户一律 404
+    const bRule = await postRule(TOK_B, watchId, validCommunityRule());
     expect(bRule.status).toBe(404);
 
     const bPatchRule = await app.request(
@@ -846,29 +915,22 @@ describe("auto_monitoring 读取时批量计算", () => {
 });
 
 describe("删除级联", () => {
-  it("删除带规则与分组的对象后 watch_rules/watch_item_groups 全部消失", async () => {
+  it("删除带规则与分组的对象后 watch_rules/watch_item_groups/watch_rule_settings 全部消失", async () => {
     const created = await postItem(TOK_A, {
-      object_type: "region",
-      object_id: `rgn_${TOK_A}`,
+      object_type: "community",
+      object_id: "cmt_TEST-shared",
       display_name_snapshot: "带规则与分组",
       group_name: "待删除组",
     });
     const item = ((await created.json()) as { item: WatchItemJson }).item;
-    const ruleRes = await app.request(
-      `/api/v1/me/watch-items/${item.watch_id}/rules`,
-      {
-        method: "POST",
-        headers: jsonHeaders(TOK_A),
-        body: JSON.stringify({
-          rule_type: "price_below",
-          metric_code: "median_unit_price",
-          target_value: 20000,
-          unit: "yuan_sqm",
-        }),
-      },
-      ctx.env,
-    );
+    const ruleRes = await postRule(TOK_A, item.watch_id, {
+      ...validCommunityRule(),
+      valid_until: "2027-06-30",
+      notify_digest: false,
+    });
     expect(ruleRes.status).toBe(201);
+    const ruleId = ((await ruleRes.json()) as { item: { rule_id: string } })
+      .item.rule_id;
 
     const countRows = (table: string): number => {
       const row = ctx.priv
@@ -878,6 +940,13 @@ describe("删除级联", () => {
     };
     expect(countRows("watch_rules")).toBe(1);
     expect(countRows("watch_item_groups")).toBe(1);
+    expect(
+      ctx.priv
+        .prepare(
+          "SELECT COUNT(*) AS n FROM watch_rule_settings WHERE rule_id = ?",
+        )
+        .get(ruleId),
+    ).toEqual({ n: 1 });
 
     const del = await app.request(
       `/api/v1/me/watch-items/${item.watch_id}`,
@@ -887,6 +956,14 @@ describe("删除级联", () => {
     expect(del.status).toBe(200);
     expect(countRows("watch_rules")).toBe(0);
     expect(countRows("watch_item_groups")).toBe(0);
+    // 设置行随 FK 级联消失（无孤儿）
+    expect(
+      ctx.priv
+        .prepare(
+          "SELECT COUNT(*) AS n FROM watch_rule_settings WHERE rule_id = ?",
+        )
+        .get(ruleId),
+    ).toEqual({ n: 0 });
     expect((await listWatch(TOK_A)).count).toBe(0);
   });
 });
@@ -985,5 +1062,396 @@ describe("多对象混合交叉用例", () => {
     expect((await listWatch(TOK_A)).count).toBe(2);
     // B 的对象不受 A 删除影响
     expect((await listWatch(TOK_B)).count).toBe(1);
+  });
+});
+
+// ============================ TASK-03B：规则编辑器 ============================
+
+describe("TASK-03B 规则绑定校验（验收场景）", () => {
+  it("验收 1：listing 对象不能挂小区单价规则 / community 不能挂房源总价规则", async () => {
+    // listing watch item（API 不做 listing 目录校验，03A 约定）
+    const lst = await postItem(TOK_A, {
+      object_type: "listing",
+      object_id: "lst_TEST-0001",
+      display_name_snapshot: "TEST-房源",
+    });
+    expect(lst.status).toBe(201);
+    const lstItem = ((await lst.json()) as { item: WatchItemJson }).item;
+
+    const cross1 = await postRule(TOK_A, lstItem.watch_id, {
+      rule_type: "community_unit_price_lte",
+      metric_code: "community_ask_median_unit",
+      price_type: "listing_ask",
+      target_value: 20000,
+      unit: "元/㎡",
+    });
+    expect(cross1.status).toBe(400);
+    expect((await errorMessages(cross1))[0]).toContain("仅适用于 community");
+
+    const cmt = await createCommunityWatch(app, ctx.env, TOK_A);
+    const cross2 = await postRule(TOK_A, cmt, {
+      rule_type: "listing_total_price_lte",
+      metric_code: "listing_ask_total",
+      price_type: "listing_ask",
+      target_value: 3000000,
+      unit: "元",
+    });
+    expect(cross2.status).toBe(400);
+
+    // listing 对象 + 小区中位价指标（价格_drop 场景）→ 专属文案
+    const cross3 = await postRule(TOK_A, lstItem.watch_id, {
+      rule_type: "price_drop_pct",
+      metric_code: "community_ask_median_unit",
+      price_type: "listing_ask",
+      unit: "元/㎡",
+      threshold_pct: 5,
+      window_days: 30,
+    });
+    expect(cross3.status).toBe(400);
+    expect((await errorMessages(cross3))[0]).toContain(
+      "不能把小区挂牌中位价与具体房源比较",
+    );
+  });
+
+  it("验收 2：官方指数不能作为元/㎡目标价", async () => {
+    const cmt = await createCommunityWatch(app, ctx.env, TOK_A);
+    const res = await postRule(TOK_A, cmt, {
+      rule_type: "community_unit_price_lte",
+      metric_code: "official_price_index",
+      price_type: "official_index",
+      target_value: 100,
+      unit: "元/㎡",
+    });
+    expect(res.status).toBe(400);
+    expect((await errorMessages(res))[0]).toContain(
+      "官方指数不能作为元/㎡目标价",
+    );
+  });
+
+  it("单位与指标口径必须一致；缺 price_type 拒绝；未知 rule_type 拒绝", async () => {
+    const cmt = await createCommunityWatch(app, ctx.env, TOK_A);
+    const badUnit = await postRule(TOK_A, cmt, {
+      rule_type: "community_unit_price_lte",
+      metric_code: "community_ask_median_unit",
+      price_type: "listing_ask",
+      target_value: 20000,
+      unit: "元", // 总价单位错配
+    });
+    expect(badUnit.status).toBe(400);
+    expect((await errorMessages(badUnit))[0]).toContain("单位必须是「元/㎡」");
+
+    const noPriceType = await postRule(TOK_A, cmt, {
+      rule_type: "community_unit_price_lte",
+      metric_code: "community_ask_median_unit",
+      target_value: 20000,
+      unit: "元/㎡",
+    });
+    expect(noPriceType.status).toBe(400);
+
+    const unknownType = await postRule(TOK_A, cmt, {
+      rule_type: "price_below",
+      metric_code: "community_ask_median_unit",
+      price_type: "listing_ask",
+      target_value: 20000,
+      unit: "元/㎡",
+    });
+    expect(unknownType.status).toBe(400);
+  });
+
+  it("字段策略：lte 缺目标价 400、跌幅带 target_value 400、region 对象 400", async () => {
+    const cmt = await createCommunityWatch(app, ctx.env, TOK_A);
+    const missingTarget = await postRule(TOK_A, cmt, {
+      rule_type: "community_unit_price_lte",
+      metric_code: "community_ask_median_unit",
+      price_type: "listing_ask",
+      unit: "元/㎡",
+    });
+    expect(missingTarget.status).toBe(400);
+    expect((await errorMessages(missingTarget))[0]).toContain(
+      "缺少必需字段 target_value",
+    );
+
+    const dropWithTarget = await postRule(TOK_A, cmt, {
+      rule_type: "price_drop_pct",
+      metric_code: "community_ask_median_unit",
+      price_type: "listing_ask",
+      unit: "元/㎡",
+      threshold_pct: 5,
+      window_days: 30,
+      target_value: 20000,
+    });
+    expect(dropWithTarget.status).toBe(400);
+
+    // 合法跌幅规则通过
+    const dropOk = await postRule(TOK_A, cmt, {
+      rule_type: "price_drop_pct",
+      metric_code: "community_ask_median_unit",
+      price_type: "listing_ask",
+      unit: "元/㎡",
+      threshold_pct: 5,
+      window_days: 30,
+    });
+    expect(dropOk.status).toBe(201);
+
+    const regionWatch = await createWatch(app, ctx.env, TOK_A);
+    const regionRule = await postRule(TOK_A, regionWatch, validCommunityRule());
+    expect(regionRule.status).toBe(400);
+    expect((await errorMessages(regionRule))[0]).toContain("区域对象暂不支持");
+  });
+});
+
+describe("TASK-03B 有效期与通知渠道", () => {
+  it("valid_until/渠道往返，is_expired 两态，非法日期 400", async () => {
+    const cmt = await createCommunityWatch(app, ctx.env, TOK_A);
+    const created = await postRule(TOK_A, cmt, {
+      ...validCommunityRule(),
+      valid_until: "2099-12-31",
+      notify_email: true,
+      notify_digest: false,
+      notify_inapp: true,
+    });
+    expect(created.status).toBe(201);
+    const item = (await created.json()) as { item: Record<string, unknown> };
+    expect(item.item.valid_until).toBe("2099-12-31");
+    expect(item.item.notify_email).toBe(true);
+    expect(item.item.notify_digest).toBe(false);
+    expect(item.item.notify_inapp).toBe(true);
+    expect(item.item.is_expired).toBe(false);
+
+    // GET 列表一致
+    const listRes = await app.request(
+      `/api/v1/me/watch-items/${cmt}/rules`,
+      { headers: jsonHeaders(TOK_A) },
+      ctx.env,
+    );
+    expect(listRes.status).toBe(200);
+    const list = (await listRes.json()) as {
+      items: Array<Record<string, unknown>>;
+    };
+    expect(list.items[0]!.valid_until).toBe("2099-12-31");
+    expect(list.items[0]!.is_expired).toBe(false);
+
+    const ruleId = item.item.rule_id as string;
+    // 过去日期 → is_expired=true
+    const past = await patchRule(TOK_A, ruleId, { valid_until: "2020-01-01" });
+    expect(past.status).toBe(200);
+    expect(
+      ((await past.json()) as { item: { is_expired: boolean } }).item
+        .is_expired,
+    ).toBe(true);
+    // 清除有效期 → 长期有效
+    const cleared = await patchRule(TOK_A, ruleId, { valid_until: null });
+    expect(cleared.status).toBe(200);
+    const clearedItem = (await cleared.json()) as {
+      item: { valid_until: string | null; is_expired: boolean };
+    };
+    expect(clearedItem.item.valid_until).toBeNull();
+    expect(clearedItem.item.is_expired).toBe(false);
+    // 非法日期格式 → schema 400
+    const badDate = await patchRule(TOK_A, ruleId, {
+      valid_until: "2027/06/30",
+    });
+    expect(badDate.status).toBe(400);
+  });
+
+  it("渠道至少保留一个；POST 显式全关也拒绝", async () => {
+    const cmt = await createCommunityWatch(app, ctx.env, TOK_A);
+    const created = await postRule(TOK_A, cmt, validCommunityRule());
+    expect(created.status).toBe(201);
+    const ruleId = ((await created.json()) as { item: { rule_id: string } })
+      .item.rule_id;
+
+    const allOff = await patchRule(TOK_A, ruleId, {
+      notify_email: false,
+      notify_digest: false,
+      notify_inapp: false,
+    });
+    expect(allOff.status).toBe(400);
+    expect((await errorMessages(allOff))[0]).toContain("至少保留一个通知渠道");
+
+    const postAllOff = await postRule(TOK_A, cmt, {
+      ...validCommunityRule(),
+      notify_email: false,
+      notify_digest: false,
+      notify_inapp: false,
+    });
+    expect(postAllOff.status).toBe(400);
+
+    // 关掉一个渠道再补开另一个：先只关 email（仍剩两个）→ 200
+    const oneOff = await patchRule(TOK_A, ruleId, { notify_email: false });
+    expect(oneOff.status).toBe(200);
+    const afterOne = (await oneOff.json()) as {
+      item: { notify_email: boolean };
+    };
+    expect(afterOne.item.notify_email).toBe(false);
+  });
+
+  it("缺 settings 行的旧规则按渠道全开、无有效期返回", async () => {
+    const cmt = await createCommunityWatch(app, ctx.env, TOK_A);
+    const created = await postRule(TOK_A, cmt, validCommunityRule());
+    const ruleId = ((await created.json()) as { item: { rule_id: string } })
+      .item.rule_id;
+    // 模拟 03B 之前的规则：直接删掉 settings 行
+    ctx.priv
+      .prepare("DELETE FROM watch_rule_settings WHERE rule_id = ?")
+      .run(ruleId);
+    const listRes = await app.request(
+      `/api/v1/me/watch-items/${cmt}/rules`,
+      { headers: jsonHeaders(TOK_A) },
+      ctx.env,
+    );
+    const list = (await listRes.json()) as {
+      items: Array<Record<string, unknown>>;
+    };
+    expect(list.items[0]!.notify_email).toBe(true);
+    expect(list.items[0]!.notify_digest).toBe(true);
+    expect(list.items[0]!.notify_inapp).toBe(true);
+    expect(list.items[0]!.valid_until).toBeNull();
+    expect(list.items[0]!.is_expired).toBe(false);
+    // 对旧规则做渠道 PATCH → 侧表行被补建（upsert）
+    const patched = await patchRule(TOK_A, ruleId, {
+      valid_until: "2030-01-01",
+    });
+    expect(patched.status).toBe(200);
+    expect(
+      ctx.priv
+        .prepare(
+          "SELECT COUNT(*) AS n FROM watch_rule_settings WHERE rule_id = ?",
+        )
+        .get(ruleId),
+    ).toEqual({ n: 1 });
+  });
+});
+
+describe("TASK-03B 触发状态、re-arm 与版本", () => {
+  it("启用即重新布防 armed_state，启停不递增 version，改目标价 version+1", async () => {
+    const cmt = await createCommunityWatch(app, ctx.env, TOK_A);
+    const created = await postRule(TOK_A, cmt, validCommunityRule());
+    const item0 = (await created.json()) as {
+      item: { rule_id: string; version: number; armed_state: string };
+    };
+    const ruleId = item0.item.rule_id;
+    expect(item0.item.version).toBe(1);
+    expect(item0.item.armed_state).toBe("armed");
+
+    // 模拟 03C 触发后的状态
+    ctx.priv
+      .prepare(
+        "UPDATE watch_rules SET armed_state = 'triggered' WHERE rule_id = ?",
+      )
+      .run(ruleId);
+
+    // 停用 → armed_state 不变、version 不变
+    const off = await patchRule(TOK_A, ruleId, { is_enabled: false });
+    expect(off.status).toBe(200);
+    const offItem = (await off.json()) as {
+      item: { armed_state: string; version: number; is_enabled: number };
+    };
+    expect(offItem.item.armed_state).toBe("triggered");
+    expect(offItem.item.version).toBe(1);
+    expect(offItem.item.is_enabled).toBe(0);
+
+    // 再启用 → armed_state 回到 armed（重新布防），version 仍不变
+    const on = await patchRule(TOK_A, ruleId, { is_enabled: true });
+    const onItem = (await on.json()) as {
+      item: { armed_state: string; version: number; is_enabled: number };
+    };
+    expect(onItem.item.armed_state).toBe("armed");
+    expect(onItem.item.version).toBe(1);
+    expect(onItem.item.is_enabled).toBe(1);
+
+    // 改目标价 → version+1
+    const bump = await patchRule(TOK_A, ruleId, { target_value: 19500 });
+    const bumpItem = (await bump.json()) as {
+      item: { version: number; target_value: number };
+    };
+    expect(bumpItem.item.version).toBe(2);
+    expect(bumpItem.item.target_value).toBe(19500);
+
+    // 改有效期/渠道 → version 不变
+    const settings = await patchRule(TOK_A, ruleId, {
+      valid_until: "2031-01-01",
+      notify_inapp: false,
+    });
+    const settingsItem = (await settings.json()) as {
+      item: { version: number };
+    };
+    expect(settingsItem.item.version).toBe(2);
+
+    // 相同目标价再次提交 → 内容无变化，version 不变
+    const noop = await patchRule(TOK_A, ruleId, { target_value: 19500 });
+    expect(
+      ((await noop.json()) as { item: { version: number } }).item.version,
+    ).toBe(2);
+
+    // armed_state 不接受客户端直写（schema additionalProperties=false → 400）
+    const direct = await patchRule(TOK_A, ruleId, {
+      armed_state: "disarmed",
+    } as never);
+    expect(direct.status).toBe(400);
+    // version 也不可直写
+    const directVersion = await patchRule(TOK_A, ruleId, {
+      version: 99,
+    } as never);
+    expect(directVersion.status).toBe(400);
+  });
+});
+
+describe("TASK-03B watch 卡片规则摘要", () => {
+  it("enabled_rule_count/rule_highlight 批量聚合正确（含无规则与全停用）", async () => {
+    const cmt = await createCommunityWatch(app, ctx.env, TOK_A);
+    const regionWatch = await createWatch(app, ctx.env, TOK_A);
+
+    // 无规则：0 / null；region 同样 0 / null（不可能有规则）
+    let items = (await listWatch(TOK_A)).items;
+    let byId = new Map(items.map((i) => [i.watch_id, i]));
+    expect(byId.get(cmt)!.enabled_rule_count).toBe(0);
+    expect(byId.get(cmt)!.rule_highlight).toBeNull();
+    expect(byId.get(regionWatch)!.enabled_rule_count).toBe(0);
+
+    // 建 1 条启用规则
+    const r1 = await postRule(TOK_A, cmt, validCommunityRule());
+    const r1Id = ((await r1.json()) as { item: { rule_id: string } }).item
+      .rule_id;
+    items = (await listWatch(TOK_A)).items;
+    byId = new Map(items.map((i) => [i.watch_id, i]));
+    expect(byId.get(cmt)!.enabled_rule_count).toBe(1);
+    const hl = byId.get(cmt)!.rule_highlight as {
+      rule_id: string;
+      target_value: number;
+      unit: string;
+    };
+    expect(hl.rule_id).toBe(r1Id);
+    expect(hl.target_value).toBe(20000);
+    expect(hl.unit).toBe("元/㎡");
+
+    // 再建 1 条停用规则 → count 仍 1，高亮仍指向启用那条
+    const r2 = await postRule(TOK_A, cmt, {
+      ...validCommunityRule(),
+      is_enabled: false,
+      target_value: 18000,
+    });
+    expect(r2.status).toBe(201);
+    items = (await listWatch(TOK_A)).items;
+    byId = new Map(items.map((i) => [i.watch_id, i]));
+    expect(byId.get(cmt)!.enabled_rule_count).toBe(1);
+    expect(
+      (byId.get(cmt)!.rule_highlight as { target_value: number }).target_value,
+    ).toBe(20000);
+
+    // 唯一启用规则停用 → 0 / null
+    await patchRule(TOK_A, r1Id, { is_enabled: false });
+    items = (await listWatch(TOK_A)).items;
+    byId = new Map(items.map((i) => [i.watch_id, i]));
+    expect(byId.get(cmt)!.enabled_rule_count).toBe(0);
+    expect(byId.get(cmt)!.rule_highlight).toBeNull();
+
+    // PATCH watch item 响应同样携带摘要（前端卡片重渲染依赖）
+    const patched = await patchItem(TOK_A, cmt, { priority: 9 });
+    const body = (await patched.json()) as {
+      item: { enabled_rule_count: number; rule_highlight: unknown };
+    };
+    expect(body.item.enabled_rule_count).toBe(0);
+    expect(body.item.rule_highlight).toBeNull();
   });
 });

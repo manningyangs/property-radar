@@ -1,6 +1,11 @@
 // TASK-02B：用户 API（PRD §10.3 /me/*）——强制登录，所有读写按 user_id 隔离。
 // 跨用户访问一律返回 404（不泄露他人资源是否存在，PRD §12.0-5/验收）。
 import { Hono, type Context } from "hono";
+import {
+  validateRuleBinding,
+  type RuleBindingInput,
+  type RuleObjectType,
+} from "@property-radar/shared";
 import { requireSession } from "../auth";
 import { errors } from "../errors";
 import { type AppEnv } from "../env";
@@ -51,8 +56,23 @@ const WATCH_COLUMNS = `watch_id, object_type, object_id, display_name_snapshot,
 /** item 响应行：LEFT JOIN 分组表得到 group_name（未分组为 null） */
 type WatchItemRow = Omit<WatchRow, "user_id"> & { group_name: string | null };
 
-/** item 最终响应：在行基础上附加读取时计算的 auto_monitoring */
-type WatchItem = WatchItemRow & { auto_monitoring: boolean };
+/** 规则摘要高亮行（03B 卡片“目标值/规则状态”渲染用） */
+interface RuleHighlight {
+  rule_id: string;
+  rule_type: string;
+  metric_code: string;
+  price_type: string | null;
+  target_value: number | null;
+  unit: string | null;
+  threshold_pct: number | null;
+}
+
+/** item 最终响应：读取时计算的 auto_monitoring + 规则摘要 */
+type WatchItem = WatchItemRow & {
+  auto_monitoring: boolean;
+  enabled_rule_count: number;
+  rule_highlight: RuleHighlight | null;
+};
 
 /** 带分组名的查询（LEFT JOIN watch_item_groups，联接条件同时限定 user_id） */
 const ITEM_SELECT = `SELECT w.watch_id, w.object_type, w.object_id,
@@ -142,15 +162,74 @@ async function attachAutoMonitoring<
   }));
 }
 
-/** 单个 item 响应：读取本人对象（含 group_name）+ 附加 auto_monitoring */
+/**
+ * 批量附加规则摘要（03B）：1 条聚合 SQL 查出全部已启用规则（按 created_at
+ * 倒序），JS 分组得到每对象的 enabled_rule_count 与最新规则高亮，禁止 N+1。
+ */
+async function attachRuleSummary<T extends { watch_id: string }>(
+  c: Context<AppEnv>,
+  userId: string,
+  items: T[],
+): Promise<
+  Array<
+    T & { enabled_rule_count: number; rule_highlight: RuleHighlight | null }
+  >
+> {
+  if (items.length === 0) return [];
+  const marks = items.map(() => "?").join(", ");
+  const res = await c.env.DB_PRIVATE.prepare(
+    `SELECT rule_id, watch_id, rule_type, metric_code, price_type,
+       target_value, unit, threshold_pct
+     FROM watch_rules
+     WHERE user_id = ? AND is_enabled = 1 AND watch_id IN (${marks})
+     ORDER BY created_at DESC, rule_id DESC`,
+  )
+    .bind(userId, ...items.map((i) => i.watch_id))
+    .all<RuleHighlight & { watch_id: string }>();
+  const byWatch = new Map<
+    string,
+    { count: number; highlight: RuleHighlight | null }
+  >();
+  for (const row of res.results) {
+    let entry = byWatch.get(row.watch_id);
+    if (!entry) {
+      entry = { count: 0, highlight: null };
+      byWatch.set(row.watch_id, entry);
+    }
+    entry.count += 1;
+    // 倒序第一条即最新规则（ORDER BY created_at DESC）
+    if (!entry.highlight) {
+      entry.highlight = {
+        rule_id: row.rule_id,
+        rule_type: row.rule_type,
+        metric_code: row.metric_code,
+        price_type: row.price_type,
+        target_value: row.target_value,
+        unit: row.unit,
+        threshold_pct: row.threshold_pct,
+      };
+    }
+  }
+  return items.map((item) => {
+    const entry = byWatch.get(item.watch_id);
+    return {
+      ...item,
+      enabled_rule_count: entry?.count ?? 0,
+      rule_highlight: entry?.highlight ?? null,
+    };
+  });
+}
+
+/** 单个 item 响应：读取本人对象（含 group_name）+ auto_monitoring + 规则摘要 */
 async function loadRespondItem(
   c: Context<AppEnv>,
   userId: string,
   watchId: string,
 ): Promise<WatchItem> {
   const row = await loadOwnWatchItem(c, userId, watchId);
-  const [item] = await attachAutoMonitoring(c, [row]);
-  return item as WatchItem;
+  const withAuto = (await attachAutoMonitoring(c, [row]))[0]!;
+  const item = (await attachRuleSummary(c, userId, [withAuto]))[0]!;
+  return item;
 }
 
 // GET /me/watch-items?status=&object_type=&group_name=&sort=&order=
@@ -220,7 +299,8 @@ meRoutes.get("/watch-items", async (c) => {
   )
     .bind(...params)
     .all<WatchItemRow>();
-  const items = await attachAutoMonitoring(c, res.results);
+  const withAuto = await attachAutoMonitoring(c, res.results);
+  const items = await attachRuleSummary(c, c.get("userId"), withAuto);
   return c.json({ items, count: items.length });
 });
 
@@ -358,7 +438,7 @@ meRoutes.delete("/watch-items/:id", async (c) => {
   return c.json({ deleted: true });
 });
 
-// ---------------- 监控规则 ----------------
+// ---------------- 监控规则（TASK-03B：绑定校验 / 有效期 / 每规则渠道 / 版本与 re-arm） ----------------
 
 interface RuleRow {
   rule_id: string;
@@ -383,39 +463,163 @@ const RULE_COLUMNS = `rule_id, watch_id, rule_type, metric_code, price_type,
   target_value, currency, unit, window_days, threshold_pct, hysteresis_pct,
   is_enabled, armed_state, version, created_at, updated_at`;
 
+/** 侧表列（LEFT JOIN 后缺行为 null，合并时按默认渠道全开处理） */
+interface RuleSettingsCols {
+  valid_until: string | null;
+  notify_email: number | null;
+  notify_digest: number | null;
+  notify_inapp: number | null;
+}
+
+/** 规则响应 item：规则行 + 有效期/渠道 + 读取时计算的 is_expired */
+type RuleItem = RuleRow & {
+  valid_until: string | null;
+  notify_email: boolean;
+  notify_digest: boolean;
+  notify_inapp: boolean;
+  is_expired: boolean;
+};
+
+/** 规则行 + 父对象 object_type + 侧表列（绑定校验与合并态 PATCH 用） */
+type RuleContext = RuleRow &
+  Partial<RuleSettingsCols> & { object_type: string };
+
+/** 带父对象与侧表的统一查询（GET 列表 / 单条响应 / PATCH 上下文共用） */
+const RULE_SELECT_CTX = `SELECT ${RULE_COLUMNS.split(/,\s*/)
+  .map((col) => `r.${col}`)
+  .join(", ")}, w.object_type,
+    s.valid_until, s.notify_email, s.notify_digest, s.notify_inapp
+  FROM watch_rules r
+  JOIN watch_items w ON w.watch_id = r.watch_id
+  LEFT JOIN watch_rule_settings s ON s.rule_id = r.rule_id`;
+
+/** 内容字段（PATCH 出现 → 重跑绑定校验；值有变化 → version+1） */
+const RULE_CONTENT_FIELDS = [
+  "rule_type",
+  "metric_code",
+  "price_type",
+  "target_value",
+  "currency",
+  "unit",
+  "window_days",
+  "threshold_pct",
+  "hysteresis_pct",
+] as const;
+
+/** 设置字段（写侧表，不递增 version） */
+const RULE_SETTING_FIELDS = [
+  "valid_until",
+  "notify_email",
+  "notify_digest",
+  "notify_inapp",
+] as const;
+
+function todayStr(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** 侧表行合并为响应 item：缺行 → 渠道默认全开、有效期 null；计算 is_expired */
+function toRuleItem(row: RuleRow & Partial<RuleSettingsCols>): RuleItem {
+  const validUntil = row.valid_until ?? null;
+  const flag = (v: number | null | undefined): boolean =>
+    v == null ? true : v === 1;
+  return {
+    ...row,
+    valid_until: validUntil,
+    notify_email: flag(row.notify_email),
+    notify_digest: flag(row.notify_digest),
+    notify_inapp: flag(row.notify_inapp),
+    is_expired: validUntil !== null && validUntil < todayStr(),
+  };
+}
+
+/** 语义绑定校验失败 → 400 errors.validation（文案来自 shared 矩阵，前后端一致） */
+function assertRuleBinding(input: RuleBindingInput, objectType: string): void {
+  const problems = validateRuleBinding(input, objectType as RuleObjectType);
+  if (problems.length > 0) {
+    throw errors.validation(
+      problems.map((message) => ({ field: "/", message })),
+    );
+  }
+}
+
+/** 通知渠道至少保留一个（PRD 演示 UI 同规则） */
+function assertNotifyChannels(
+  email: boolean,
+  digest: boolean,
+  inapp: boolean,
+): void {
+  if (!email && !digest && !inapp) {
+    throw errors.validation([
+      {
+        field: "/",
+        message: "至少保留一个通知渠道（触发邮件 / 每日摘要 / 站内事件）",
+      },
+    ]);
+  }
+}
+
+/** 读取本人规则（含侧表与父对象），不存在（含他人资源）→ 404 */
+async function loadRuleContext(
+  c: Context<AppEnv>,
+  userId: string,
+  ruleId: string,
+): Promise<RuleContext> {
+  const row = await c.env.DB_PRIVATE.prepare(
+    `${RULE_SELECT_CTX} WHERE r.rule_id = ? AND r.user_id = ?`,
+  )
+    .bind(ruleId, userId)
+    .first<RuleContext>();
+  if (!row) throw errors.notFound("规则不存在");
+  return row;
+}
+
 // GET /me/watch-items/:id/rules
 meRoutes.get("/watch-items/:id/rules", async (c) => {
   const userId = c.get("userId");
   await loadOwnWatch(c, userId, c.req.param("id"));
   const res = await c.env.DB_PRIVATE.prepare(
-    `SELECT ${RULE_COLUMNS} FROM watch_rules
-     WHERE watch_id = ? AND user_id = ?
-     ORDER BY created_at DESC LIMIT 50`,
+    `${RULE_SELECT_CTX}
+     WHERE r.watch_id = ? AND r.user_id = ?
+     ORDER BY r.created_at DESC LIMIT 50`,
   )
     .bind(c.req.param("id"), userId)
-    .all<RuleRow>();
-  return c.json({ items: res.results, count: res.results.length });
+    .all<RuleContext>();
+  const items = res.results.map(toRuleItem);
+  return c.json({ items, count: items.length });
 });
 
 // POST /me/watch-items/:id/rules
 meRoutes.post("/watch-items/:id/rules", async (c) => {
   const userId = c.get("userId");
   const watchId = c.req.param("id");
-  await loadOwnWatch(c, userId, watchId);
+  const watch = await loadOwnWatch(c, userId, watchId);
   const body = await jsonBody(c);
   validateOrThrow(createRuleSchema, body);
   const input = body as {
     rule_type: string;
     metric_code: string;
     price_type?: string;
-    target_value?: number;
+    target_value?: number | null;
     currency?: string;
-    unit?: string;
-    window_days?: number;
-    threshold_pct?: number;
-    hysteresis_pct?: number;
+    unit?: string | null;
+    window_days?: number | null;
+    threshold_pct?: number | null;
+    hysteresis_pct?: number | null;
     is_enabled?: boolean;
+    valid_until?: string | null;
+    notify_email?: boolean;
+    notify_digest?: boolean;
+    notify_inapp?: boolean;
   };
+  // 绑定交叉校验：rule_type × 父对象 object_type × metric/price_type/unit × 字段策略
+  assertRuleBinding(input, watch.object_type);
+  const channels = {
+    email: input.notify_email ?? true,
+    digest: input.notify_digest ?? true,
+    inapp: input.notify_inapp ?? true,
+  };
+  assertNotifyChannels(channels.email, channels.digest, channels.inapp);
   const ruleId = crypto.randomUUID();
   try {
     await c.env.DB_PRIVATE.prepare(
@@ -441,30 +645,27 @@ meRoutes.post("/watch-items/:id/rules", async (c) => {
         input.is_enabled === false ? 0 : 1,
       )
       .run();
+    // 03B：每规则设置行（有效期 + 渠道），删除规则/对象时随 FK 级联清理
+    await c.env.DB_PRIVATE.prepare(
+      `INSERT INTO watch_rule_settings
+         (rule_id, user_id, valid_until, notify_email, notify_digest, notify_inapp, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+    )
+      .bind(
+        ruleId,
+        userId,
+        input.valid_until ?? null,
+        channels.email ? 1 : 0,
+        channels.digest ? 1 : 0,
+        channels.inapp ? 1 : 0,
+      )
+      .run();
   } catch (e) {
     mapDbError(e);
   }
-  const item = await c.env.DB_PRIVATE.prepare(
-    `SELECT ${RULE_COLUMNS} FROM watch_rules WHERE rule_id = ? AND user_id = ?`,
-  )
-    .bind(ruleId, userId)
-    .first<RuleRow>();
-  return c.json({ item }, 201);
+  const item = await loadRuleContext(c, userId, ruleId);
+  return c.json({ item: toRuleItem(item) }, 201);
 });
-
-async function loadOwnRule(
-  c: Context<AppEnv>,
-  userId: string,
-  ruleId: string,
-): Promise<RuleRow> {
-  const row = await c.env.DB_PRIVATE.prepare(
-    `SELECT ${RULE_COLUMNS} FROM watch_rules WHERE rule_id = ? AND user_id = ?`,
-  )
-    .bind(ruleId, userId)
-    .first<RuleRow>();
-  if (!row) throw errors.notFound("规则不存在");
-  return row;
-}
 
 // PATCH /me/rules/:id
 meRoutes.patch("/rules/:id", async (c) => {
@@ -472,31 +673,111 @@ meRoutes.patch("/rules/:id", async (c) => {
   const ruleId = c.req.param("id");
   const body = await jsonBody(c);
   validateOrThrow(patchRuleSchema, body);
-  const patch = body as Record<string, unknown>;
-  await loadOwnRule(c, userId, ruleId);
+  const patch = body as Partial<{
+    rule_type: string;
+    metric_code: string;
+    price_type: string;
+    target_value: number | null;
+    currency: string;
+    unit: string | null;
+    window_days: number | null;
+    threshold_pct: number | null;
+    hysteresis_pct: number | null;
+    is_enabled: boolean;
+    valid_until: string | null;
+    notify_email: boolean;
+    notify_digest: boolean;
+    notify_inapp: boolean;
+  }>;
+  const stored = await loadRuleContext(c, userId, ruleId);
+
+  // 1) 内容字段出现 → 按合并态（存储 + patch）重跑绑定校验，先于任何写入
+  let contentChanged = false;
+  for (const key of RULE_CONTENT_FIELDS) {
+    if (key in patch && patch[key] !== stored[key]) contentChanged = true;
+  }
+  if (RULE_CONTENT_FIELDS.some((key) => key in patch)) {
+    const merged: RuleBindingInput = {
+      rule_type: "rule_type" in patch ? patch.rule_type : stored.rule_type,
+      metric_code:
+        "metric_code" in patch ? patch.metric_code : stored.metric_code,
+      price_type: "price_type" in patch ? patch.price_type : stored.price_type,
+      unit: "unit" in patch ? patch.unit : stored.unit,
+      target_value:
+        "target_value" in patch ? patch.target_value : stored.target_value,
+      threshold_pct:
+        "threshold_pct" in patch ? patch.threshold_pct : stored.threshold_pct,
+      window_days:
+        "window_days" in patch ? patch.window_days : stored.window_days,
+    };
+    assertRuleBinding(merged, stored.object_type);
+  }
+
+  // 2) 渠道合并后至少保留一个（仅在本次触及渠道字段时校验）
+  const channelsTouched = RULE_SETTING_FIELDS.slice(1).some(
+    (key) => key in patch,
+  );
+  const channel = {
+    email:
+      patch.notify_email ??
+      (stored.notify_email == null ? true : stored.notify_email === 1),
+    digest:
+      patch.notify_digest ??
+      (stored.notify_digest == null ? true : stored.notify_digest === 1),
+    inapp:
+      patch.notify_inapp ??
+      (stored.notify_inapp == null ? true : stored.notify_inapp === 1),
+  };
+  if (channelsTouched) {
+    assertNotifyChannels(channel.email, channel.digest, channel.inapp);
+  }
+
+  // 3) 有效期/渠道 → 侧表 upsert（不递增 version）
+  if (RULE_SETTING_FIELDS.some((key) => key in patch)) {
+    const validUntil =
+      "valid_until" in patch
+        ? (patch.valid_until ?? null)
+        : (stored.valid_until ?? null);
+    await c.env.DB_PRIVATE.prepare(
+      `INSERT INTO watch_rule_settings
+         (rule_id, user_id, valid_until, notify_email, notify_digest, notify_inapp, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(rule_id) DO UPDATE SET
+         valid_until = excluded.valid_until,
+         notify_email = excluded.notify_email,
+         notify_digest = excluded.notify_digest,
+         notify_inapp = excluded.notify_inapp,
+         updated_at = datetime('now')`,
+    )
+      .bind(
+        ruleId,
+        userId,
+        validUntil,
+        channel.email ? 1 : 0,
+        channel.digest ? 1 : 0,
+        channel.inapp ? 1 : 0,
+      )
+      .run();
+  }
+
+  // 4) 规则行更新：内容字段 → version+1；启用（0→1）→ armed_state 重新布防
   const sets: string[] = ["updated_at = datetime('now')"];
   const params: Array<string | number | null> = [];
-  const columns = new Set([
-    "rule_type",
-    "metric_code",
-    "price_type",
-    "target_value",
-    "currency",
-    "unit",
-    "window_days",
-    "threshold_pct",
-    "hysteresis_pct",
-  ]);
-  for (const [key, value] of Object.entries(patch)) {
-    if (key === "is_enabled") {
-      sets.push("is_enabled = ?");
-      params.push(value ? 1 : 0);
-      continue;
-    }
-    if (columns.has(key)) {
+  for (const key of RULE_CONTENT_FIELDS) {
+    if (key in patch) {
       sets.push(`${key} = ?`);
-      params.push(value as string | number | null);
+      params.push(patch[key] as string | number | null);
     }
+  }
+  if ("is_enabled" in patch) {
+    sets.push("is_enabled = ?");
+    params.push(patch.is_enabled ? 1 : 0);
+    if (patch.is_enabled === true && stored.is_enabled === 0) {
+      sets.push("armed_state = 'armed'"); // 启用即重新布防（状态机本体属 03C）
+    }
+  }
+  if (contentChanged) {
+    sets.push("version = version + 1");
   }
   params.push(ruleId, userId);
   await c.env.DB_PRIVATE.prepare(
@@ -504,14 +785,15 @@ meRoutes.patch("/rules/:id", async (c) => {
   )
     .bind(...params)
     .run();
-  return c.json({ item: await loadOwnRule(c, userId, ruleId) });
+  const item = await loadRuleContext(c, userId, ruleId);
+  return c.json({ item: toRuleItem(item) });
 });
 
-// DELETE /me/rules/:id
+// DELETE /me/rules/:id（watch_rule_settings 随 FK 级联删除）
 meRoutes.delete("/rules/:id", async (c) => {
   const userId = c.get("userId");
   const ruleId = c.req.param("id");
-  await loadOwnRule(c, userId, ruleId);
+  await loadRuleContext(c, userId, ruleId);
   await c.env.DB_PRIVATE.prepare(
     "DELETE FROM watch_rules WHERE rule_id = ? AND user_id = ?",
   )

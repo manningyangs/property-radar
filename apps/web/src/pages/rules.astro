@@ -1,8 +1,10 @@
 ---
 /**
  * 规则编辑 `/rules`（PRD 2.7 编辑目标价与事件规则）：
- * 规则列表（启停 / 编辑 / 删除确认）+ 规则编辑表单（校验 + 本地保存）。
- * 支持 ?id=（监控/规则）与 ?target=（小区）参数预填。
+ * 演示分支（PUBLIC_DEMO_DATA=1）：规则列表（启停/编辑/删除确认）+ 本地表单校验，保持 01B 行为。
+ * 真实分支：选监控对象 → 按 object_type 过滤规则类型（RULE_TEMPLATES 绑定只读）→
+ *   按字段策略显隐目标价/跌幅阈值/窗口 → 有效期/每规则通知渠道/re-arm 缓冲 →
+ *   创建/编辑/启停/删除全部走 API（401 统一跳登录）。支持 ?watch=/?id= 预选对象。
  */
 import AppShell from "../layouts/AppShell.astro";
 import EmptyState from "../components/EmptyState.astro";
@@ -195,12 +197,158 @@ const targetJson = JSON.stringify(targets);
         />
       </div>
     ) : (
-      <div class="page">
-        <EmptyState
-          title="暂未覆盖，可提交覆盖申请"
-          description="没有可配置的监控对象时无法编辑价格规则。"
-          actionText="登录后提交覆盖申请"
-          actionHref="/login"
+      <div class="page" data-real-rules>
+        {/* 选择监控对象（规则挂在具体对象上，?watch= 预选） */}
+        <section class="card real-toolbar" aria-label="选择监控对象">
+          <label class="field real-field">
+            <span class="field-label">监控对象</span>
+            <select class="input real-select" data-rr-watch disabled>
+              <option value="">正在加载…</option>
+            </select>
+          </label>
+          <p class="meta" data-rr-loading>正在加载监控对象与规则…</p>
+          <p class="meta is-hidden" data-rr-region-note>
+            区域对象暂不支持配置规则（区域指标待接入），规则类型已禁用。
+          </p>
+        </section>
+
+        <div class="is-hidden" data-rr-empty>
+          <EmptyState
+            title="暂无监控对象"
+            description="添加区域或小区监控后，即可在此为其配置目标价与跌幅规则。"
+            actionText="去添加监控"
+            actionHref="/watch/add"
+          />
+        </div>
+
+        {/* 规则列表（当前对象） */}
+        <section aria-label="现有规则" data-rr-rules-section>
+          <div class="section-head">
+            <h2 class="section-title">现有规则</h2>
+            <span class="meta">启停与删除立即生效</span>
+          </div>
+          <div class="stack-sm is-hidden" data-rr-list></div>
+          <p class="meta is-hidden" data-rr-list-hint></p>
+        </section>
+
+        {/* 规则编辑表单（真实 API） */}
+        <section class="card rule-form" aria-label="规则编辑" data-rr-form-section>
+          <div class="section-head rule-form-head">
+            <h2 class="section-title" data-rr-title>新建规则</h2>
+          </div>
+
+          <form class="stack" data-rr-form novalidate>
+            <div class="field">
+              <label class="field-label" for="rr-type">规则类型</label>
+              <select id="rr-type" class="input" data-rr-type disabled>
+                <option value="">请先选择监控对象</option>
+              </select>
+              <p class="meta" data-rr-binding>
+                指标、口径与单位由所选类型自动绑定，不可修改。
+              </p>
+            </div>
+
+            <div class="field is-hidden" data-rr-target-field>
+              <label class="field-label" for="rr-target" data-rr-target-label>目标价</label>
+              <input
+                type="number"
+                id="rr-target"
+                class="input"
+                min="1"
+                step="any"
+                inputmode="decimal"
+                placeholder="如：20500"
+                data-rr-target
+              />
+              <p class="field-error" data-error="target">目标价必须大于 0</p>
+            </div>
+
+            <div class="field is-hidden" data-rr-threshold-field>
+              <label class="field-label" for="rr-threshold">跌幅阈值（%）</label>
+              <input
+                type="number"
+                id="rr-threshold"
+                class="input"
+                min="0"
+                max="100"
+                step="0.1"
+                placeholder="如：5"
+                data-rr-threshold
+              />
+              <p class="field-error" data-error="threshold">阈值需大于 0 且不超过 100</p>
+            </div>
+
+            <div class="field is-hidden" data-rr-window-field>
+              <label class="field-label" for="rr-window">统计窗口（天）</label>
+              <input
+                type="number"
+                id="rr-window"
+                class="input"
+                min="1"
+                max="3650"
+                step="1"
+                placeholder="如：30"
+                data-rr-window
+              />
+              <p class="field-error" data-error="window">窗口需为 1–3650 的整数天</p>
+            </div>
+
+            <div class="field">
+              <label class="field-label" for="rr-hyst">re-arm 缓冲（%）</label>
+              <input
+                type="number"
+                id="rr-hyst"
+                class="input"
+                min="0"
+                max="100"
+                step="0.1"
+                placeholder="如：1（留空不缓冲）"
+                data-rr-hyst
+              />
+              <p class="meta">触发后指标需朝反方向变动该幅度才重新布防（0–100，可留空）。</p>
+              <p class="field-error" data-error="hyst">缓冲需在 0–100 之间</p>
+            </div>
+
+            <div class="field">
+              <label class="field-label" for="rr-valid">有效期至</label>
+              <input type="date" id="rr-valid" class="input" data-rr-valid />
+              <p class="meta">格式 YYYY-MM-DD；留空表示长期有效，过期规则不再触发。</p>
+            </div>
+
+            <div class="field">
+              <span class="field-label">通知渠道（至少一项，按规则独立生效）</span>
+              <label class="rule-option">
+                <input type="checkbox" data-rr-ch="email" checked />
+                <span>触发邮件</span>
+              </label>
+              <label class="rule-option">
+                <input type="checkbox" data-rr-ch="digest" checked />
+                <span>每日摘要</span>
+              </label>
+              <label class="rule-option">
+                <input type="checkbox" data-rr-ch="inapp" checked />
+                <span>站内事件</span>
+              </label>
+              <p class="field-error" data-error="channels">请至少选择一种通知渠道</p>
+            </div>
+
+            <div class="btn-row">
+              <button type="submit" class="btn btn--primary btn--block" data-rr-submit>
+                创建规则
+              </button>
+              <button type="button" class="btn btn--secondary btn--block is-hidden" data-rr-cancel>
+                取消编辑
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <ConfirmDialog
+          id="rule-delete"
+          title="删除规则"
+          message="删除后该条件不再产生事件，历史事件仍保留在事件中心。此操作不可撤销。"
+          confirmText="确认删除"
+          danger
         />
       </div>
     )
@@ -208,189 +356,699 @@ const targetJson = JSON.stringify(targets);
 </AppShell>
 
 <script>
-  // 规则列表操作 + 表单校验保存（本地真实交互）
-  let pendingDeleteId = "";
-  let editingId = "";
-  let editingTarget = "";
+  import {
+    RULE_TEMPLATES,
+    RULE_TYPES,
+    type RuleMetricBinding,
+    type RuleObjectType,
+    type RuleTemplate,
+    type RuleType,
+  } from "@property-radar/shared";
+  import {
+    ApiError,
+    createRule,
+    deleteRule,
+    listRules,
+    listWatchItems,
+    patchRule,
+    type CreateRuleInput,
+    type Rule,
+    type WatchItem,
+  } from "../lib/api";
 
-  const targets = JSON.parse(
-    document.querySelector<HTMLElement>("[data-rule-targets]")?.dataset.ruleTargets ?? "[]",
-  ) as { id: string; name: string; label: string }[];
+  const realRoot = document.querySelector<HTMLElement>("[data-real-rules]");
 
-  const toast = (message: string) => {
-    window.dispatchEvent(new CustomEvent("app:toast", { detail: { message } }));
-  };
+  if (realRoot) {
+    initRealRules(realRoot);
+  } else {
+    // ===== 演示分支（01B 原样保留）：本地规则列表操作 + 表单校验保存 =====
+    let pendingDeleteId = "";
+    let editingId = "";
+    let editingTarget = "";
 
-  const setFormTarget = (name: string) => {
-    editingTarget = name;
-    const el = document.querySelector<HTMLElement>("[data-form-target]");
-    if (el) el.textContent = name;
-    const title = document.querySelector<HTMLElement>("[data-form-title]");
-    if (title) title.textContent = `编辑规则 · ${name}`;
-  };
+    const targets = JSON.parse(
+      document.querySelector<HTMLElement>("[data-rule-targets]")?.dataset.ruleTargets ?? "[]",
+    ) as { id: string; name: string; label: string }[];
 
-  const showError = (key: string, show: boolean) => {
-    document
-      .querySelector<HTMLElement>(`[data-error="${key}"]`)
-      ?.classList.toggle("is-shown", show);
-  };
+    const toast = (message: string) => {
+      window.dispatchEvent(new CustomEvent("app:toast", { detail: { message } }));
+    };
 
-  const readForm = () => {
-    const price = document.querySelector<HTMLInputElement>("[data-form-price]")?.value ?? "";
-    const rate = document.querySelector<HTMLInputElement>("[data-form-rate]")?.value ?? "";
-    const condition =
-      document.querySelector<HTMLInputElement>("[data-form-condition]:checked")?.value ?? "";
-    const metricSelect = document.querySelector<HTMLSelectElement>("[data-form-metric]");
-    const metricLabel = metricSelect?.selectedOptions[0]?.textContent ?? "";
-    const channels = Array.from(
-      document.querySelectorAll<HTMLInputElement>("[data-form-channel]"),
-    )
-      .filter((input) => input.checked)
-      .map((input) => input.value);
-    return { price, rate, condition, metricLabel, channels };
-  };
+    const setFormTarget = (name: string) => {
+      editingTarget = name;
+      const el = document.querySelector<HTMLElement>("[data-form-target]");
+      if (el) el.textContent = name;
+      const title = document.querySelector<HTMLElement>("[data-form-title]");
+      if (title) title.textContent = `编辑规则 · ${name}`;
+    };
 
-  const validateForm = (): boolean => {
-    const { price, rate, condition, channels } = readForm();
-    let ok = true;
-    const needPrice = condition !== "drop";
-    if (needPrice && !(Number(price) > 0)) {
-      showError("price", true);
-      ok = false;
-    } else showError("price", false);
+    const showError = (key: string, show: boolean) => {
+      document
+        .querySelector<HTMLElement>(`[data-error="${key}"]`)
+        ?.classList.toggle("is-shown", show);
+    };
 
-    if (!(Number(rate) >= 0 && Number(rate) <= 100)) {
-      showError("rate", true);
-      ok = false;
-    } else showError("rate", false);
+    const readForm = () => {
+      const price = document.querySelector<HTMLInputElement>("[data-form-price]")?.value ?? "";
+      const rate = document.querySelector<HTMLInputElement>("[data-form-rate]")?.value ?? "";
+      const condition =
+        document.querySelector<HTMLInputElement>("[data-form-condition]:checked")?.value ?? "";
+      const metricSelect = document.querySelector<HTMLSelectElement>("[data-form-metric]");
+      const metricLabel = metricSelect?.selectedOptions[0]?.textContent ?? "";
+      const channels = Array.from(
+        document.querySelectorAll<HTMLInputElement>("[data-form-channel]"),
+      )
+        .filter((input) => input.checked)
+        .map((input) => input.value);
+      return { price, rate, condition, metricLabel, channels };
+    };
 
-    if (channels.length === 0) {
-      showError("channels", true);
-      ok = false;
-    } else showError("channels", false);
-    return ok;
-  };
+    const validateForm = (): boolean => {
+      const { price, rate, condition, channels } = readForm();
+      let ok = true;
+      const needPrice = condition !== "drop";
+      if (needPrice && !(Number(price) > 0)) {
+        showError("price", true);
+        ok = false;
+      } else showError("price", false);
 
-  document.addEventListener("click", (event) => {
-    const target = event.target as HTMLElement;
+      if (!(Number(rate) >= 0 && Number(rate) <= 100)) {
+        showError("rate", true);
+        ok = false;
+      } else showError("rate", false);
 
-    const edit = target.closest<HTMLElement>("[data-rule-edit]");
-    if (edit) {
-      const id = edit.dataset.ruleEdit ?? "";
-      const card = document.querySelector<HTMLElement>(`[data-rule="${id}"]`);
-      if (!card) return;
-      editingId = id;
-      setFormTarget(card.querySelector<HTMLElement>(".rule-target")?.textContent ?? "");
-      const conditionText = card.querySelector<HTMLElement>("[data-rule-condition]")?.textContent ?? "";
-      const priceMatch = conditionText.match(/([\d,]+)\s*元\/㎡/);
-      const rateMatch = conditionText.match(/≥\s*([\d.]+)%/);
-      const priceInput = document.querySelector<HTMLInputElement>("[data-form-price]");
-      const rateInput = document.querySelector<HTMLInputElement>("[data-form-rate]");
-      if (priceInput) priceInput.value = priceMatch?.[1]?.replace(/,/g, "") ?? "";
-      if (rateInput && rateMatch?.[1]) rateInput.value = rateMatch[1];
-      const dropCondition = document.querySelector<HTMLInputElement>(
-        '[data-form-condition][value="drop"]',
-      );
-      if (dropCondition) dropCondition.checked = conditionText.includes("跌幅");
-      document.querySelector<HTMLElement>("[data-rule-form]")?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-      return;
-    }
+      if (channels.length === 0) {
+        showError("channels", true);
+        ok = false;
+      } else showError("channels", false);
+      return ok;
+    };
 
-    const toggle = target.closest<HTMLElement>("[data-rule-toggle]");
-    if (toggle) {
-      const id = toggle.dataset.ruleToggle ?? "";
-      const card = document.querySelector<HTMLElement>(`[data-rule="${id}"]`);
-      if (!card) return;
-      const nowEnabled = card.dataset.enabled !== "true";
-      card.dataset.enabled = nowEnabled ? "true" : "false";
-      const badge = card.querySelector<HTMLElement>("[data-rule-status]");
-      if (badge) {
-        badge.textContent = nowEnabled ? "● 启用中" : "已停用";
-        badge.className = `badge ${nowEnabled ? "badge--down" : "badge--neutral"}`;
+    document.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement;
+
+      const edit = target.closest<HTMLElement>("[data-rule-edit]");
+      if (edit) {
+        const id = edit.dataset.ruleEdit ?? "";
+        const card = document.querySelector<HTMLElement>(`[data-rule="${id}"]`);
+        if (!card) return;
+        editingId = id;
+        setFormTarget(card.querySelector<HTMLElement>(".rule-target")?.textContent ?? "");
+        const conditionText =
+          card.querySelector<HTMLElement>("[data-rule-condition]")?.textContent ?? "";
+        const priceMatch = conditionText.match(/([\d,]+)\s*元\/㎡/);
+        const rateMatch = conditionText.match(/≥\s*([\d.]+)%/);
+        const priceInput = document.querySelector<HTMLInputElement>("[data-form-price]");
+        const rateInput = document.querySelector<HTMLInputElement>("[data-form-rate]");
+        if (priceInput) priceInput.value = priceMatch?.[1]?.replace(/,/g, "") ?? "";
+        if (rateInput && rateMatch?.[1]) rateInput.value = rateMatch[1];
+        const dropCondition = document.querySelector<HTMLInputElement>(
+          '[data-form-condition][value="drop"]',
+        );
+        if (dropCondition) dropCondition.checked = conditionText.includes("跌幅");
+        document.querySelector<HTMLElement>("[data-rule-form]")?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+        return;
       }
-      toggle.textContent = nowEnabled ? "停用" : "启用";
-      toast(nowEnabled ? "规则已启用" : "规则已停用（不再产生事件）");
-      return;
-    }
 
-    const remove = target.closest<HTMLElement>("[data-rule-delete]");
-    if (remove) pendingDeleteId = remove.dataset.ruleDelete ?? "";
+      const toggle = target.closest<HTMLElement>("[data-rule-toggle]");
+      if (toggle) {
+        const id = toggle.dataset.ruleToggle ?? "";
+        const card = document.querySelector<HTMLElement>(`[data-rule="${id}"]`);
+        if (!card) return;
+        const nowEnabled = card.dataset.enabled !== "true";
+        card.dataset.enabled = nowEnabled ? "true" : "false";
+        const badge = card.querySelector<HTMLElement>("[data-rule-status]");
+        if (badge) {
+          badge.textContent = nowEnabled ? "● 启用中" : "已停用";
+          badge.className = `badge ${nowEnabled ? "badge--down" : "badge--neutral"}`;
+        }
+        toggle.textContent = nowEnabled ? "停用" : "启用";
+        toast(nowEnabled ? "规则已启用" : "规则已停用（不再产生事件）");
+        return;
+      }
 
-    const soon = target.closest<HTMLElement>("[data-soon]");
-    if (soon) {
-      toast(`「${soon.dataset.soon ?? ""}」暂未开放，将在后续任务实现`);
-    }
-  });
+      const remove = target.closest<HTMLElement>("[data-rule-delete]");
+      if (remove) pendingDeleteId = remove.dataset.ruleDelete ?? "";
 
-  window.addEventListener("app:confirm", (event) => {
-    const detail = (event as CustomEvent<{ id: string }>).detail;
+      const soon = target.closest<HTMLElement>("[data-soon]");
+      if (soon) {
+        toast(`「${soon.dataset.soon ?? ""}」暂未开放，将在后续任务实现`);
+      }
+    });
 
-    if (detail.id === "rule-delete" && pendingDeleteId) {
-      document.querySelector<HTMLElement>(`[data-rule="${pendingDeleteId}"]`)?.remove();
-      pendingDeleteId = "";
-      toast("规则已删除");
-      return;
-    }
+    window.addEventListener("app:confirm", (event) => {
+      const detail = (event as CustomEvent<{ id: string }>).detail;
 
-    if (detail.id === "rule-save-confirm") {
+      if (detail.id === "rule-delete" && pendingDeleteId) {
+        document.querySelector<HTMLElement>(`[data-rule="${pendingDeleteId}"]`)?.remove();
+        pendingDeleteId = "";
+        toast("规则已删除");
+        return;
+      }
+
+      if (detail.id === "rule-save-confirm") {
+        saveRule();
+      }
+    });
+
+    const saveRule = () => {
+      const { price, rate, condition, metricLabel, channels } = readForm();
+      const conditionText =
+        condition === "drop"
+          ? `较上期跌幅 ≥ ${rate}%（阈值可随时调整）`
+          : `单价 ≤ ${Number(price).toLocaleString("zh-CN")} 元/㎡（当前口径：${metricLabel}）`;
+
+      if (editingId) {
+        const card = document.querySelector<HTMLElement>(`[data-rule="${editingId}"]`);
+        const conditionEl = card?.querySelector<HTMLElement>("[data-rule-condition]");
+        if (conditionEl) conditionEl.textContent = conditionText;
+        const channelsEl = card?.querySelector<HTMLElement>(".rule-channels");
+        if (channelsEl) {
+          channelsEl.innerHTML = channels
+            .map((channel) => `<span class="badge badge--primary">${channel}</span>`)
+            .join("");
+        }
+        toast(`已保存规则 · ${editingTarget}`);
+      } else {
+        toast("已保存新规则草稿（本地会话）");
+      }
+    };
+
+    const form = document.querySelector<HTMLFormElement>("[data-rule-form]");
+    form?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (!validateForm()) return;
+      if (!editingTarget) {
+        toast("请先从规则列表选择要编辑的对象");
+        return;
+      }
       saveRule();
-    }
-  });
+    });
 
-  const saveRule = () => {
-    const { price, rate, condition, metricLabel, channels } = readForm();
-    const conditionText =
-      condition === "drop"
-        ? `较上期跌幅 ≥ ${rate}%（阈值可随时调整）`
-        : `单价 ≤ ${Number(price).toLocaleString("zh-CN")} 元/㎡（当前口径：${metricLabel}）`;
-
-    if (editingId) {
-      const card = document.querySelector<HTMLElement>(`[data-rule="${editingId}"]`);
-      const conditionEl = card?.querySelector<HTMLElement>("[data-rule-condition]");
-      if (conditionEl) conditionEl.textContent = conditionText;
-      const channelsEl = card?.querySelector<HTMLElement>(".rule-channels");
-      if (channelsEl) {
-        channelsEl.innerHTML = channels
-          .map((channel) => `<span class="badge badge--primary">${channel}</span>`)
-          .join("");
-      }
-      toast(`已保存规则 · ${editingTarget}`);
-    } else {
-      toast("已保存新规则草稿（本地会话）");
-    }
-  };
-
-  const form = document.querySelector<HTMLFormElement>("[data-rule-form]");
-  form?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (!validateForm()) return;
-    if (!editingTarget) {
-      toast("请先从规则列表选择要编辑的对象");
-      return;
-    }
-    saveRule();
-  });
-
-  // 从详情页参数预填：?target=小区id 或 ?id=监控/规则id
-  const params = new URLSearchParams(window.location.search);
-  const targetParam = params.get("target");
-  const idParam = params.get("id");
-  if (targetParam) {
-    const found = targets.find((item) => item.id === targetParam);
-    if (found) setFormTarget(`${found.name} · ${found.label}`);
-    else toast("未找到对应对象：请从规则列表选择要编辑的对象");
-  } else if (idParam) {
-    const rule = document.querySelector<HTMLElement>(`[data-rule="${idParam}"]`);
-    if (rule) {
-      setFormTarget(rule.querySelector<HTMLElement>(".rule-target")?.textContent ?? "");
-    } else {
-      const found = targets.find((item) => item.id === idParam);
+    // 从详情页参数预填：?target=小区id 或 ?id=监控/规则id
+    const params = new URLSearchParams(window.location.search);
+    const targetParam = params.get("target");
+    const idParam = params.get("id");
+    if (targetParam) {
+      const found = targets.find((item) => item.id === targetParam);
       if (found) setFormTarget(`${found.name} · ${found.label}`);
       else toast("未找到对应对象：请从规则列表选择要编辑的对象");
+    } else if (idParam) {
+      const rule = document.querySelector<HTMLElement>(`[data-rule="${idParam}"]`);
+      if (rule) {
+        setFormTarget(rule.querySelector<HTMLElement>(".rule-target")?.textContent ?? "");
+      } else {
+        const found = targets.find((item) => item.id === idParam);
+        if (found) setFormTarget(`${found.name} · ${found.label}`);
+        else toast("未找到对应对象：请从规则列表选择要编辑的对象");
+      }
     }
+  }
+
+  // ====================== 真实分支（TASK-03B） ======================
+
+  /** 触发状态展示文案（armed_state 由后端维护，03B 只读） */
+  const ARMED_LABELS: Record<string, string> = {
+    armed: "● 已布防",
+    triggered: "● 已触发",
+    disarmed: "已撤防",
+  };
+
+  /** 从模板指标集合中挑与对象层级匹配的绑定（price_drop 同时含小区/房源指标） */
+  function pickBinding(tpl: RuleTemplate, objectType: string): RuleMetricBinding {
+    const scope =
+      objectType === "community" ? "community_" : objectType === "listing" ? "listing_" : "";
+    const hit = scope ? tpl.metrics.find((m) => m.metric_code.startsWith(scope)) : undefined;
+    return hit ?? tpl.metrics[0]!;
+  }
+
+  /** 规则卡片的条件文案（与 watch 卡片目标值形态一致） */
+  function conditionText(rule: Rule): string {
+    const tpl = RULE_TEMPLATES[rule.rule_type as RuleType];
+    if (!tpl) return rule.rule_type;
+    const fmt = (n: number | null) => (n === null ? "—" : n.toLocaleString("zh-CN"));
+    if (tpl.rule_type === "price_drop_pct") {
+      return `${rule.window_days ?? "—"} 天内跌幅 ≥ ${fmt(rule.threshold_pct)}%`;
+    }
+    if (tpl.rule_type === "below_comparable_median_pct") {
+      const windowText = rule.window_days ? `（近 ${rule.window_days} 天）` : "";
+      return `房源单价低于同组可比中位数 ≥ ${fmt(rule.threshold_pct)}%${windowText}`;
+    }
+    const kind = rule.unit === "元" ? "挂牌总价" : "挂牌单价";
+    return `${kind} ≤ ${fmt(rule.target_value)} ${rule.unit ?? ""}`.trim();
+  }
+
+  /** 真实分支：选对象 → 过滤规则类型 → 模板绑定只读 → 创建/编辑/启停/删除走 API */
+  function initRealRules(root: HTMLElement) {
+    const watchSelect = root.querySelector<HTMLSelectElement>("[data-rr-watch]");
+    const loadingEl = root.querySelector<HTMLElement>("[data-rr-loading]");
+    const emptyEl = root.querySelector<HTMLElement>("[data-rr-empty]");
+    const regionNote = root.querySelector<HTMLElement>("[data-rr-region-note]");
+    const listEl = root.querySelector<HTMLElement>("[data-rr-list]");
+    const listHint = root.querySelector<HTMLElement>("[data-rr-list-hint]");
+    const formSection = root.querySelector<HTMLElement>("[data-rr-form-section]");
+    const form = root.querySelector<HTMLFormElement>("[data-rr-form]");
+    const titleEl = root.querySelector<HTMLElement>("[data-rr-title]");
+    const typeSelect = root.querySelector<HTMLSelectElement>("[data-rr-type]");
+    const bindingEl = root.querySelector<HTMLElement>("[data-rr-binding]");
+    const targetField = root.querySelector<HTMLElement>("[data-rr-target-field]");
+    const targetLabel = root.querySelector<HTMLElement>("[data-rr-target-label]");
+    const targetInput = root.querySelector<HTMLInputElement>("[data-rr-target]");
+    const thresholdField = root.querySelector<HTMLElement>("[data-rr-threshold-field]");
+    const thresholdInput = root.querySelector<HTMLInputElement>("[data-rr-threshold]");
+    const windowField = root.querySelector<HTMLElement>("[data-rr-window-field]");
+    const windowInput = root.querySelector<HTMLInputElement>("[data-rr-window]");
+    const hystInput = root.querySelector<HTMLInputElement>("[data-rr-hyst]");
+    const validInput = root.querySelector<HTMLInputElement>("[data-rr-valid]");
+    const submitBtn = root.querySelector<HTMLButtonElement>("[data-rr-submit]");
+    const cancelBtn = root.querySelector<HTMLButtonElement>("[data-rr-cancel]");
+    const channelInputs = Array.from(root.querySelectorAll<HTMLInputElement>("[data-rr-ch]"));
+
+    let watches: WatchItem[] = [];
+    let currentWatch: WatchItem | null = null;
+    let rules: Rule[] = [];
+    let editingId: string | null = null;
+    let pendingDeleteId = "";
+
+    const toast = (message: string) => {
+      window.dispatchEvent(new CustomEvent("app:toast", { detail: { message } }));
+    };
+
+    const fail = (error: unknown, fallback: string) => {
+      // 401 已由 API 客户端统一跳转登录
+      if (error instanceof ApiError && error.status === 401) return;
+      toast(error instanceof ApiError ? error.message || fallback : fallback);
+    };
+
+    const typeLabel = (type: string) =>
+      type === "region" ? "区域" : type === "community" ? "小区" : type === "listing" ? "房源" : type;
+
+    const h = (tag: string, className?: string, text?: string): HTMLElement => {
+      const el = document.createElement(tag);
+      if (className) el.className = className;
+      if (text !== undefined) el.textContent = text;
+      return el;
+    };
+
+    const showError = (key: string, show: boolean) => {
+      root
+        .querySelector<HTMLElement>(`[data-error="${key}"]`)
+        ?.classList.toggle("is-shown", show);
+    };
+
+    const clearErrors = () => {
+      root
+        .querySelectorAll<HTMLElement>(".field-error.is-shown")
+        .forEach((el) => el.classList.remove("is-shown"));
+    };
+
+    /** 按当前对象类型与字段策略刷新表单可见性与绑定徽标 */
+    const applyTemplate = () => {
+      const type = typeSelect?.value ?? "";
+      const tpl = type ? RULE_TEMPLATES[type as RuleType] : null;
+      if (!tpl || !currentWatch) {
+        targetField?.classList.add("is-hidden");
+        thresholdField?.classList.add("is-hidden");
+        windowField?.classList.add("is-hidden");
+        return;
+      }
+      const binding = pickBinding(tpl, currentWatch.object_type);
+      if (bindingEl) {
+        bindingEl.textContent = `自动绑定：指标 ${binding.metric_code} · 口径 ${binding.price_type} · 单位 ${binding.unit ?? "无"}（不可修改）`;
+      }
+      targetField?.classList.toggle("is-hidden", tpl.target === "forbidden");
+      if (targetLabel) {
+        targetLabel.textContent =
+          binding.unit === "元" ? "目标总价（元）" : "目标单价（元/㎡）";
+      }
+      thresholdField?.classList.toggle("is-hidden", tpl.threshold === "forbidden");
+      windowField?.classList.toggle("is-hidden", tpl.window === "forbidden");
+    };
+
+    const resetForm = () => {
+      editingId = null;
+      form?.reset();
+      if (typeSelect && typeSelect.options.length > 0 && !typeSelect.disabled) {
+        typeSelect.selectedIndex = 0;
+      }
+      applyTemplate();
+      if (titleEl) titleEl.textContent = "新建规则";
+      if (submitBtn) submitBtn.textContent = "创建规则";
+      cancelBtn?.classList.add("is-hidden");
+      clearErrors();
+    };
+
+    /** 规则卡片（运行时创建，无 Astro 作用域属性 → 样式 :global） */
+    const renderRuleCard = (rule: Rule): HTMLElement => {
+      const card = h("article", "card rule-card");
+      card.dataset.rule = rule.rule_id;
+      card.dataset.enabled = rule.is_enabled ? "true" : "false";
+
+      const head = h("div", "rule-head");
+      head.append(h("span", "rule-target", currentWatch?.display_name_snapshot ?? rule.rule_id));
+      head.append(
+        h(
+          "span",
+          `badge ${rule.is_enabled ? "badge--down" : "badge--neutral"}`,
+          rule.is_enabled ? "● 启用中" : "已停用",
+        ),
+      );
+      if (rule.is_expired) head.append(h("span", "badge badge--neutral", "已过期"));
+      const armedClass =
+        rule.armed_state === "triggered"
+          ? "badge--down"
+          : rule.armed_state === "armed"
+            ? "badge--primary"
+            : "badge--neutral";
+      head.append(
+        h("span", `badge ${armedClass}`, ARMED_LABELS[rule.armed_state] ?? rule.armed_state),
+      );
+      card.append(head);
+
+      const meta = h("p", "meta");
+      meta.textContent = `指标 ${rule.metric_code} · 口径 ${rule.price_type ?? "—"} · 单位 ${rule.unit ?? "无"} · 有效期 ${rule.valid_until ? `至 ${rule.valid_until}` : "长期"} · 版本 v${rule.version}`;
+      card.append(meta);
+
+      card.append(h("p", "rule-condition", conditionText(rule)));
+
+      const channels = h("div", "rule-channels");
+      const active: string[] = [];
+      if (rule.notify_email) active.push("触发邮件");
+      if (rule.notify_digest) active.push("每日摘要");
+      if (rule.notify_inapp) active.push("站内事件");
+      for (const label of active) channels.append(h("span", "badge badge--primary", label));
+      card.append(channels);
+
+      const btnRow = h("div", "btn-row");
+      const makeBtn = (text: string, extraClass?: string) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = `btn btn--secondary btn--sm${extraClass ? ` ${extraClass}` : ""}`;
+        btn.textContent = text;
+        return btn;
+      };
+      const editBtn = makeBtn("编辑规则");
+      editBtn.dataset.rrEdit = rule.rule_id;
+      const toggleBtn = makeBtn(rule.is_enabled ? "停用" : "启用");
+      toggleBtn.dataset.rrToggle = rule.rule_id;
+      const deleteBtn = makeBtn("删除", "rule-delete");
+      deleteBtn.dataset.rrDelete = rule.rule_id;
+      deleteBtn.setAttribute("data-dialog-open", "rule-delete");
+      btnRow.append(editBtn, toggleBtn, deleteBtn);
+      card.append(btnRow);
+      return card;
+    };
+
+    const renderRules = () => {
+      if (!listEl) return;
+      const fragment = document.createDocumentFragment();
+      for (const rule of rules) fragment.append(renderRuleCard(rule));
+      listEl.replaceChildren(fragment);
+      const has = rules.length > 0;
+      listEl.classList.toggle("is-hidden", !has);
+      if (listHint) {
+        listHint.classList.toggle("is-hidden", has);
+        listHint.textContent =
+          currentWatch?.object_type === "region"
+            ? "区域对象暂不支持配置规则（区域指标待接入）。"
+            : "该对象暂无规则，可在下方表单创建。";
+      }
+    };
+
+    const loadRules = async () => {
+      if (!currentWatch) {
+        rules = [];
+        renderRules();
+        return;
+      }
+      loadingEl?.classList.remove("is-hidden");
+      try {
+        const result = await listRules(currentWatch.watch_id);
+        rules = result.items;
+        renderRules();
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) return;
+        rules = [];
+        renderRules();
+        fail(error, "规则加载失败，请稍后重试");
+      } finally {
+        loadingEl?.classList.add("is-hidden");
+      }
+    };
+
+    /** 对象切换：重建规则类型选项（region 全禁用）→ 重置表单 → 拉取规则 */
+    const onWatchChanged = async () => {
+      currentWatch = watches.find((w) => w.watch_id === watchSelect?.value) ?? null;
+      const isRegion = currentWatch?.object_type === "region";
+      regionNote?.classList.toggle("is-hidden", !isRegion);
+
+      const options: HTMLOptionElement[] = [];
+      if (isRegion) {
+        options.push(new Option("区域规则待指标接入", ""));
+      } else if (currentWatch) {
+        for (const ruleType of RULE_TYPES) {
+          const tpl = RULE_TEMPLATES[ruleType];
+          if (tpl.object_types.includes(currentWatch.object_type as RuleObjectType)) {
+            options.push(new Option(tpl.label, ruleType));
+          }
+        }
+      }
+      if (typeSelect) {
+        typeSelect.replaceChildren(...options);
+        typeSelect.disabled = options.length === 0;
+      }
+      resetForm();
+      if (submitBtn) submitBtn.disabled = isRegion || options.length === 0;
+      await loadRules();
+    };
+
+    const startEdit = (rule: Rule) => {
+      editingId = rule.rule_id;
+      if (typeSelect) typeSelect.value = rule.rule_type;
+      applyTemplate();
+      if (targetInput) targetInput.value = rule.target_value === null ? "" : String(rule.target_value);
+      if (thresholdInput)
+        thresholdInput.value = rule.threshold_pct === null ? "" : String(rule.threshold_pct);
+      if (windowInput) windowInput.value = rule.window_days === null ? "" : String(rule.window_days);
+      if (hystInput) hystInput.value = rule.hysteresis_pct === null ? "" : String(rule.hysteresis_pct);
+      if (validInput) validInput.value = rule.valid_until ?? "";
+      channelInputs.forEach((input) => {
+        const key = input.dataset.rrCh;
+        input.checked =
+          key === "email" ? rule.notify_email : key === "digest" ? rule.notify_digest : rule.notify_inapp;
+      });
+      if (titleEl) titleEl.textContent = `编辑规则 · ${currentWatch?.display_name_snapshot ?? ""}`;
+      if (submitBtn) submitBtn.textContent = "保存修改";
+      cancelBtn?.classList.remove("is-hidden");
+      clearErrors();
+      formSection?.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+
+    const validateForm = (): boolean => {
+      clearErrors();
+      const type = typeSelect?.value ?? "";
+      const tpl = type ? RULE_TEMPLATES[type as RuleType] : null;
+      if (!tpl || !currentWatch) {
+        toast("请先选择监控对象与规则类型");
+        return false;
+      }
+      if (currentWatch.object_type === "region") {
+        toast("区域对象暂不支持配置规则（区域指标待接入）");
+        return false;
+      }
+      let ok = true;
+      if (tpl.target !== "forbidden") {
+        const value = Number(targetInput?.value ?? "");
+        if (!targetInput?.value || !(value > 0)) {
+          showError("target", true);
+          ok = false;
+        }
+      }
+      if (tpl.threshold !== "forbidden") {
+        const raw = thresholdInput?.value ?? "";
+        const value = Number(raw);
+        if (raw === "") {
+          if (tpl.threshold === "required") {
+            showError("threshold", true);
+            ok = false;
+          }
+        } else if (!(value > 0 && value <= 100)) {
+          showError("threshold", true);
+          ok = false;
+        }
+      }
+      if (tpl.window !== "forbidden") {
+        const raw = windowInput?.value ?? "";
+        const value = Number(raw);
+        if (raw === "") {
+          if (tpl.window === "required") {
+            showError("window", true);
+            ok = false;
+          }
+        } else if (!Number.isInteger(value) || value < 1 || value > 3650) {
+          showError("window", true);
+          ok = false;
+        }
+      }
+      const hystRaw = hystInput?.value ?? "";
+      if (hystRaw !== "" && !(Number(hystRaw) >= 0 && Number(hystRaw) <= 100)) {
+        showError("hyst", true);
+        ok = false;
+      }
+      if (!channelInputs.some((input) => input.checked)) {
+        showError("channels", true);
+        ok = false;
+      }
+      return ok;
+    };
+
+    form?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (!validateForm()) return;
+      const watch = currentWatch;
+      if (!watch) return;
+      const type = typeSelect?.value ?? "";
+      const tpl = RULE_TEMPLATES[type as RuleType];
+      const binding = pickBinding(tpl, watch.object_type);
+      const payload: CreateRuleInput = {
+        rule_type: type,
+        metric_code: binding.metric_code,
+        price_type: binding.price_type,
+        unit: binding.unit,
+        // forbidden 字段显式置 null：编辑时切换规则类型要清掉旧值（合并态校验按 null=缺省）
+        target_value: tpl.target === "forbidden" ? null : Number(targetInput?.value ?? ""),
+        threshold_pct:
+          tpl.threshold === "forbidden" || thresholdInput?.value === ""
+            ? null
+            : Number(thresholdInput?.value ?? ""),
+        window_days:
+          tpl.window === "forbidden" || windowInput?.value === ""
+            ? null
+            : Number(windowInput?.value ?? ""),
+        hysteresis_pct: hystInput?.value === "" ? null : Number(hystInput?.value ?? ""),
+        valid_until: validInput?.value || null,
+        notify_email: channelInputs.find((i) => i.dataset.rrCh === "email")?.checked ?? true,
+        notify_digest: channelInputs.find((i) => i.dataset.rrCh === "digest")?.checked ?? true,
+        notify_inapp: channelInputs.find((i) => i.dataset.rrCh === "inapp")?.checked ?? true,
+      };
+      if (submitBtn) submitBtn.disabled = true;
+      void (async () => {
+        try {
+          if (editingId) {
+            await patchRule(editingId, payload);
+            toast("已保存规则修改");
+          } else {
+            await createRule(watch.watch_id, payload);
+            toast("规则已创建");
+          }
+          resetForm();
+          await loadRules();
+        } catch (error) {
+          fail(error, "保存失败，请稍后重试");
+        } finally {
+          if (submitBtn) submitBtn.disabled = watch.object_type === "region";
+        }
+      })();
+    });
+
+    root.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement;
+
+      const edit = target.closest<HTMLElement>("[data-rr-edit]");
+      if (edit) {
+        const rule = rules.find((r) => r.rule_id === edit.dataset.rrEdit);
+        if (rule) startEdit(rule);
+        return;
+      }
+
+      const toggle = target.closest<HTMLButtonElement>("[data-rr-toggle]");
+      if (toggle) {
+        const id = toggle.dataset.rrToggle ?? "";
+        const rule = rules.find((r) => r.rule_id === id);
+        if (!rule || toggle.disabled) return;
+        const nextEnabled = !rule.is_enabled;
+        toggle.disabled = true;
+        void (async () => {
+          try {
+            const result = await patchRule(id, { is_enabled: nextEnabled });
+            rules = rules.map((r) => (r.rule_id === id ? result.item : r));
+            renderRules();
+            toast(nextEnabled ? "规则已启用（已重新布防）" : "规则已停用（不再产生事件）");
+          } catch (error) {
+            fail(error, "操作失败，请稍后重试");
+            toggle.disabled = false;
+          }
+        })();
+        return;
+      }
+
+      const remove = target.closest<HTMLElement>("[data-rr-delete]");
+      if (remove) {
+        pendingDeleteId = remove.dataset.rrDelete ?? "";
+        return;
+      }
+
+      const cancel = target.closest<HTMLElement>("[data-rr-cancel]");
+      if (cancel) resetForm();
+    });
+
+    window.addEventListener("app:confirm", (event) => {
+      const detail = (event as CustomEvent<{ id: string }>).detail;
+      if (detail.id !== "rule-delete" || !pendingDeleteId) return;
+      const id = pendingDeleteId;
+      pendingDeleteId = "";
+      void (async () => {
+        try {
+          await deleteRule(id);
+          rules = rules.filter((r) => r.rule_id !== id);
+          if (editingId === id) resetForm();
+          renderRules();
+          toast("规则已删除");
+        } catch (error) {
+          fail(error, "删除失败，请稍后重试");
+        }
+      })();
+    });
+
+    typeSelect?.addEventListener("change", () => {
+      clearErrors();
+      applyTemplate();
+    });
+    watchSelect?.addEventListener("change", () => void onWatchChanged());
+
+    void (async () => {
+      const params = new URLSearchParams(window.location.search);
+      const preselect = params.get("watch") ?? params.get("id") ?? params.get("target");
+      try {
+        const result = await listWatchItems();
+        watches = result.items;
+      } catch (error) {
+        fail(error, "监控对象加载失败，请刷新重试");
+        if (loadingEl) loadingEl.textContent = "监控对象加载失败，请刷新重试。";
+        return;
+      }
+      loadingEl?.classList.add("is-hidden");
+      if (watches.length === 0) {
+        emptyEl?.classList.remove("is-hidden");
+        watchSelect?.replaceChildren(new Option("暂无监控对象", ""));
+        root.querySelector<HTMLElement>("[data-rr-rules-section]")?.classList.add("is-hidden");
+        formSection?.classList.add("is-hidden");
+        return;
+      }
+      const match = watches.find((w) => w.watch_id === preselect || w.object_id === preselect);
+      const options = watches.map(
+        (w) => new Option(`${w.display_name_snapshot}（${typeLabel(w.object_type)}）`, w.watch_id),
+      );
+      watchSelect?.replaceChildren(...options);
+      if (watchSelect) {
+        watchSelect.value = (match ?? watches[0]!)!.watch_id;
+        watchSelect.disabled = false;
+      }
+      await onWatchChanged();
+    })();
   }
 </script>
 
@@ -478,5 +1136,68 @@ const targetJson = JSON.stringify(targets);
     width: 18px;
     height: 18px;
     accent-color: var(--color-primary);
+  }
+
+  /* ===== 真实分支（运行时克隆的规则卡片无 Astro 作用域属性，需 :global 命中） ===== */
+  :global(.rule-card) {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  :global(.rule-card[data-enabled="false"]) {
+    background: var(--color-bg);
+    border-style: dashed;
+  }
+
+  :global(.rule-head) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+
+  :global(.rule-target) {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  :global(.rule-condition) {
+    font-size: var(--text-sm);
+    color: var(--color-text);
+    background: var(--color-primary-soft);
+    border-radius: var(--radius-input);
+    padding: 8px 10px;
+  }
+
+  :global(.rule-channels) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  :global(.rule-delete) {
+    color: var(--color-danger);
+  }
+
+  .real-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-top: var(--space-2);
+  }
+
+  .real-field {
+    width: 100%;
+  }
+
+  .real-select {
+    width: 100%;
   }
 </style>
