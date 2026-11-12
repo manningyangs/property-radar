@@ -6,6 +6,8 @@ import { logAccess, logError } from "./log";
 import { clientIp, FixedWindowRateLimiter } from "./rate-limit";
 import { authRoutes } from "./routes/auth";
 import { meRoutes } from "./routes/me";
+import { adminRoutes } from "./routes/admin";
+import { internalRoutes } from "./routes/internal";
 import { publicRoutes } from "./routes/public";
 
 const RATE_DEFAULT_MAX = 120;
@@ -95,6 +97,9 @@ export function createApp(): Hono<AppEnv> {
   // PRD §10 统一前缀 /api/v1
   app.route("/api/v1/public", publicRoutes);
   app.route("/api/v1/me", meRoutes);
+  // TASK-04A：管理端（会话+admin_roles）与 internal 批次端点（HMAC）
+  app.route("/api/v1/admin", adminRoutes);
+  app.route("/api/v1/internal", internalRoutes);
   app.route("/api/v1/auth", authRoutes);
 
   app.notFound((c) =>

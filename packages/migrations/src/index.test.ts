@@ -14,6 +14,7 @@ const PUBLIC_TABLES = [
   "price_snapshots",
   "regions",
   "source_city_coverage",
+  "source_license_state",
 ];
 
 const PRIVATE_TABLES = [
@@ -23,9 +24,12 @@ const PRIVATE_TABLES = [
   "city_coverage_requests",
   "email_otps",
   "email_send_ledger",
+  "ingest_batches",
+  "ingest_nonces",
   "notification_deliveries",
   "notification_preferences",
   "sessions",
+  "source_approvals",
   "user_cities",
   "user_consents",
   "users",
@@ -104,7 +108,7 @@ describe("迁移文件加载", () => {
 });
 
 describe("Public D1（radar_public）", () => {
-  it("up 建出全部 8 张表，且重复执行（幂等）不报错", () => {
+  it("up 建出全部 9 张表，且重复执行（幂等）不报错", () => {
     const db = createDb();
     applyMigrations(db, "public", "up");
     expect(tablesOf(db).sort()).toEqual(PUBLIC_TABLES);
@@ -169,6 +173,56 @@ describe("Public D1（radar_public）", () => {
     expect(() => db.prepare(snap).run("snap_test_2")).toThrow();
   });
 
+  it("source_license_state（TASK-04A）：七态 CHECK、日期格式与 source FK 生效", () => {
+    const db = createDb();
+    applyMigrations(db, "public", "up");
+    // 无父行引用被外键拒绝
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO source_license_state (source_id, status) VALUES ('src_missing', 'discovered')",
+        )
+        .run(),
+    ).toThrow();
+    db.prepare(
+      "INSERT INTO data_sources_public (source_id, name, source_type) VALUES ('src_local', '本地来源（虚构）', 'manual')",
+    ).run();
+    // 默认 discovered 可插入；非法状态被 CHECK 拒绝
+    db.prepare(
+      "INSERT INTO source_license_state (source_id) VALUES ('src_local')",
+    ).run();
+    expect(
+      (
+        db
+          .prepare(
+            "SELECT status FROM source_license_state WHERE source_id = 'src_local'",
+          )
+          .get() as {
+          status: string;
+        }
+      ).status,
+    ).toBe("discovered");
+    expect(() =>
+      db
+        .prepare(
+          "UPDATE source_license_state SET status = 'maybe_ok' WHERE source_id = 'src_local'",
+        )
+        .run(),
+    ).toThrow();
+    // 到期日格式受 GLOB CHECK 约束
+    db.prepare(
+      "UPDATE source_license_state SET status = 'approved_open', valid_until = '2027-01-01' WHERE source_id = 'src_local'",
+    ).run();
+    expect(() =>
+      db
+        .prepare(
+          "UPDATE source_license_state SET valid_until = '2027/01/01' WHERE source_id = 'src_local'",
+        )
+        .run(),
+    ).toThrow();
+    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+  });
+
   it("Public 库任何表都不含个人信息字段（§9.4 验收）", () => {
     const db = createDb();
     applyMigrations(db, "public", "up");
@@ -222,7 +276,7 @@ describe("Public D1（radar_public）", () => {
 });
 
 describe("Private D1（radar_private）", () => {
-  it("up 建出全部 16 张表，且重复执行（幂等）不报错", () => {
+  it("up 建出全部 19 张表，且重复执行（幂等）不报错", () => {
     const db = createDb();
     applyMigrations(db, "private", "up");
     expect(tablesOf(db).sort()).toEqual(PRIVATE_TABLES);
@@ -454,6 +508,67 @@ describe("Private D1（radar_private）", () => {
     expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   });
 
+  it("source_approvals / ingest_*（TASK-04A）：审批记录 FK 与 CHECK、批次对象层级、nonce 主键", () => {
+    const db = createDb();
+    applyMigrations(db, "private", "up");
+    db.prepare(
+      "INSERT INTO users (user_id, email_normalized) VALUES ('usr_sa', 'sa@example.com')",
+    ).run();
+    // 审批人必须存在（users FK）
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO source_approvals (approval_id, source_id, approver_user_id, evidence_ref, frequency, retention_period, status_after)
+           VALUES ('ap_1', 'src_local', 'usr_missing', 'contract-1', 'daily', '90d', 'approved_open')`,
+        )
+        .run(),
+    ).toThrow();
+    db.prepare(
+      `INSERT INTO source_approvals (approval_id, source_id, approver_user_id, evidence_ref, frequency, retention_period, status_after, valid_until)
+       VALUES ('ap_1', 'src_local', 'usr_sa', 'contract-1', 'daily', '90d', 'approved_open', '2027-06-30')`,
+    ).run();
+    // 审批后状态只能是两种 approved；action 只允许 approve（append-only，无其他动作）
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO source_approvals (approval_id, source_id, approver_user_id, evidence_ref, frequency, retention_period, status_after)
+           VALUES ('ap_2', 'src_local', 'usr_sa', 'c', 'daily', '90d', 'pending_review')`,
+        )
+        .run(),
+    ).toThrow();
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO source_approvals (approval_id, source_id, approver_user_id, evidence_ref, frequency, retention_period, status_after, action)
+           VALUES ('ap_3', 'src_local', 'usr_sa', 'c', 'daily', '90d', 'approved_open', 'delete')`,
+        )
+        .run(),
+    ).toThrow();
+    // 批次受理记录：对象层级 CHECK
+    db.prepare(
+      "INSERT INTO ingest_batches (batch_id, source_id, city_code, object_level) VALUES ('b_1', 'src_local', 'TEST-0000', 'community')",
+    ).run();
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO ingest_batches (batch_id, source_id, city_code, object_level) VALUES ('b_2', 'src_local', 'TEST-0000', 'galaxy')",
+        )
+        .run(),
+    ).toThrow();
+    // 防重放：同一 nonce 二次插入被主键拒绝
+    db.prepare(
+      "INSERT INTO ingest_nonces (nonce, expires_at) VALUES ('n_1', datetime('now', '+1 hour'))",
+    ).run();
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO ingest_nonces (nonce, expires_at) VALUES ('n_1', datetime('now', '+1 hour'))",
+        )
+        .run(),
+    ).toThrow();
+    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+  });
+
   it("所有 user-owned 表都带 user_id（email_otps/email_send_ledger/audit_logs 为设计例外）", () => {
     const db = createDb();
     applyMigrations(db, "private", "up");
@@ -462,6 +577,10 @@ describe("Private D1（radar_private）", () => {
       "email_send_ledger",
       "audit_logs",
       "users",
+      // TASK-04A：审批记录归属审批人（approver_user_id）、批次与防重放台账为系统级数据
+      "source_approvals",
+      "ingest_batches",
+      "ingest_nonces",
     ]);
     for (const table of tablesOf(db)) {
       if (exceptions.has(table)) continue;

@@ -42,6 +42,16 @@ export function createFakeD1(sqlite: DatabaseSync): D1Database {
 
   const database = {
     prepare: (sql: string) => makeStmt(sql, []),
+    // D1Database.batch：顺序执行（真实 D1 在一个事务中执行；测试用内存库模拟）
+    batch: async <T>(
+      stmts: Array<{ run: () => Promise<unknown> }>,
+    ): Promise<T[]> => {
+      const out: T[] = [];
+      for (const stmt of stmts) {
+        out.push((await stmt.run()) as T);
+      }
+      return out;
+    },
   };
   return database as unknown as D1Database;
 }

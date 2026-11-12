@@ -223,12 +223,16 @@ publicRoutes.get("/communities/:id/prices", async (c) => {
 });
 
 // GET /public/methodology/sources —— 可公开的数据源说明（无合同/密钥字段）
+// TASK-04A：附许可状态与到期日（LEFT JOIN，缺行按 discovered）；不暴露审批私有材料。
 publicRoutes.get("/methodology/sources", async (c) => {
   const res = await c.env.DB_PUBLIC.prepare(
-    `SELECT source_id, name, source_type, official_url, data_scope,
-            license_note_url, display_scope, updated_at, last_verified_at
-     FROM data_sources_public
-     ORDER BY name
+    `SELECT p.source_id, p.name, p.source_type, p.official_url, p.data_scope,
+            p.license_note_url, p.display_scope, p.updated_at, p.last_verified_at,
+            COALESCE(s.status, 'discovered') AS license_status,
+            s.valid_until AS license_valid_until
+     FROM data_sources_public p
+     LEFT JOIN source_license_state s ON s.source_id = p.source_id
+     ORDER BY p.name
      LIMIT 100`,
   ).all();
   return c.json({ items: res.results, count: res.results.length });

@@ -29,6 +29,9 @@ const SUPPORTED_KEYWORDS = new Set([
   "minimum",
   "maximum",
   "minProperties",
+  // TASK-04A：approve 的 coverage 数组（元素对象 schema 递归 + 至少 1 项）
+  "items",
+  "minItems",
 ]);
 
 const SUPPORTED_TYPES = new Set([
@@ -176,6 +179,19 @@ function collect(
     }
     if (typeof schema.maximum === "number" && data > schema.maximum) {
       push(out, path, `不能大于 ${schema.maximum}`);
+    }
+  }
+
+  // 数组关键字（TASK-04A：minItems 约束 + items 元素 schema 递归校验）
+  if (Array.isArray(data)) {
+    if (typeof schema.minItems === "number" && data.length < schema.minItems) {
+      push(out, path, `至少需要 ${schema.minItems} 个元素`);
+    }
+    if (isPlainObject(schema.items)) {
+      const itemSchema = schema.items as JsonSchema;
+      data.forEach((item, i) => {
+        collect(itemSchema, item, `${path}/${i}`, out);
+      });
     }
   }
 

@@ -20,6 +20,8 @@ export interface Env {
   APPS_SCRIPT_WEB_APP_URL?: string;
   /** 与 Apps Script Script Properties 一致的共享签名密钥（Secret） */
   APPS_SCRIPT_HMAC_SECRET?: string;
+  /** TASK-04A：internal 批次端点 HMAC 签名密钥（Secret；缺省 = 端点整体禁用 ingest_disabled） */
+  INGEST_HMAC_SECRET?: string;
   /** 邮件服务商实现名，V1 仅 google_apps_script_mail（非敏感 vars） */
   EMAIL_PROVIDER?: string;
   /** 邮件总硬上限（收件人/滚动24小时，缺省 80） */

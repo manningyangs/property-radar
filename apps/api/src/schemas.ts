@@ -124,3 +124,121 @@ export const verifyCodeSchema: JsonSchema = {
     code: { type: "string", pattern: "^[0-9]{6}$" },
   },
 };
+
+// ---------------- TASK-04A：数据源登记与审批（PRD 任务行 1280–1286 / §10.4 / §10.5） ----------------
+
+/** YYYY-MM-DD 日期形态（与 0002/0005 迁移 GLOB CHECK 一致） */
+const DATE_PATTERN = "^\\d{4}-\\d{2}-\\d{2}$";
+
+/** 监控对象层级（与 source_city_coverage.object_level CHECK 一致） */
+const OBJECT_LEVELS = ["city", "district", "community", "listing"];
+
+/** 登记数据源（状态一律落 discovered，状态只能走 approve/suspend 端点） */
+export const createSourceSchema: JsonSchema = {
+  type: "object",
+  required: ["source_id", "name", "source_type"],
+  additionalProperties: false,
+  properties: {
+    source_id: { type: "string", pattern: "^[a-z][a-z0-9_]{2,63}$" },
+    name: { type: "string", minLength: 1, maxLength: 100 },
+    source_type: { type: "string", minLength: 1, maxLength: 32 },
+    official_url: { type: "string", minLength: 1, maxLength: 500 },
+    data_scope: { type: "string", minLength: 1, maxLength: 500 },
+    license_note_url: { type: "string", minLength: 1, maxLength: 500 },
+    display_scope: { type: "string", minLength: 1, maxLength: 500 },
+  },
+};
+
+/** 仅元数据编辑：不含 status（状态只能经审批/停用端点变更），可空字段用 null 清除 */
+export const patchSourceSchema: JsonSchema = {
+  type: "object",
+  minProperties: 1,
+  additionalProperties: false,
+  properties: {
+    name: { type: "string", minLength: 1, maxLength: 100 },
+    source_type: { type: "string", minLength: 1, maxLength: 32 },
+    official_url: { type: ["string", "null"], maxLength: 500 },
+    data_scope: { type: ["string", "null"], maxLength: 500 },
+    license_note_url: { type: ["string", "null"], maxLength: 500 },
+    display_scope: { type: ["string", "null"], maxLength: 500 },
+  },
+};
+
+/**
+ * 审批（PRD §5.3-2/450：不能仅勾选"已授权"，必须附审批人证据、范围、字段、用途、频率与保存期限；
+ * coverage=授权覆盖的城市/层级/指标范围，approve 时 upsert source_city_coverage）。
+ */
+export const approveSourceSchema: JsonSchema = {
+  type: "object",
+  required: [
+    "status",
+    "evidence_ref",
+    "permitted_fields",
+    "permitted_purposes",
+    "frequency",
+    "retention_period",
+    "coverage",
+  ],
+  additionalProperties: false,
+  properties: {
+    status: { type: "string", enum: ["approved_open", "approved_licensed"] },
+    evidence_ref: { type: "string", minLength: 3, maxLength: 500 },
+    permitted_fields: {
+      type: "array",
+      minItems: 1,
+      items: { type: "string", minLength: 1, maxLength: 64 },
+    },
+    permitted_purposes: {
+      type: "array",
+      minItems: 1,
+      items: { type: "string", minLength: 1, maxLength: 64 },
+    },
+    frequency: { type: "string", minLength: 1, maxLength: 100 },
+    retention_period: { type: "string", minLength: 1, maxLength: 100 },
+    coverage: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "object",
+        required: ["city_code", "object_level", "metric_codes"],
+        additionalProperties: false,
+        properties: {
+          city_code: { type: "string", minLength: 1, maxLength: 32 },
+          object_level: { type: "string", enum: OBJECT_LEVELS },
+          metric_codes: {
+            type: "array",
+            minItems: 1,
+            items: { type: "string", minLength: 1, maxLength: 64 },
+          },
+        },
+      },
+    },
+    // 授权到期日（到期后由门禁惰性自动 suspend）；缺省 null=不设到期
+    valid_until: { type: ["string", "null"], pattern: DATE_PATTERN },
+    note: { type: "string", maxLength: 500 },
+  },
+};
+
+/** 停用数据源（reason 必填，写 audit_logs；coverage 全量同步 suspended） */
+export const suspendSourceSchema: JsonSchema = {
+  type: "object",
+  required: ["reason"],
+  additionalProperties: false,
+  properties: {
+    reason: { type: "string", minLength: 1, maxLength: 500 },
+  },
+};
+
+/** internal 批次受理（04A 只做门禁与受理记录，不解析观测明细——清洗属 04E） */
+export const ingestBatchSchema: JsonSchema = {
+  type: "object",
+  required: ["batch_id", "source_id", "city_code", "object_level"],
+  additionalProperties: false,
+  properties: {
+    batch_id: { type: "string", minLength: 1, maxLength: 128 },
+    source_id: { type: "string", minLength: 1, maxLength: 64 },
+    city_code: { type: "string", minLength: 1, maxLength: 32 },
+    object_level: { type: "string", enum: OBJECT_LEVELS },
+    observed_count: { type: "integer", minimum: 0 },
+  },
+};
