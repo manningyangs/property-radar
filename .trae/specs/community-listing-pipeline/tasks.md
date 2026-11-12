@@ -27,8 +27,8 @@
   - [x] SubTask 7.2: 生产 e2e：真实爬取打生产 API 一次（exit=1 如实 failed/all_communities_failed + health down）→ 生产 fixture 回放（10 批/24 观测/幂等复跑不变）→ 生产 coverage API 冒烟（16 项：10 六字段 + 6 null）
 - [x] Task 8: 验收报告、提交与收尾
   - [x] SubTask 8.1: `docs/TASK-04D-小区级数据接入验收报告.md`——逐小区六字段表（DB 查询生成）+ 覆盖复查路径 + 授权依据与风险
-  - [ ] SubTask 8.2: 中文 commit `TASK-04D: …`（UTF-8 git commit -F）→ push → CI 绿
-  - [ ] SubTask 8.3: §12.0 收尾报告 → checklist 勾选入库 → 更新记忆 topics.md / project_memory.md
+  - [x] SubTask 8.2: 中文 commit `TASK-04D: …`（UTF-8 git commit -F）→ push → CI 绿（eb4064a → run 43203713166 collectors+quality 全绿）
+  - [x] SubTask 8.3: §12.0 收尾报告 → checklist 勾选入库 → 更新记忆 topics.md / project_memory.md
 
 # Task Dependencies
 
