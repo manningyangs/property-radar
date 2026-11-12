@@ -242,3 +242,54 @@ export const ingestBatchSchema: JsonSchema = {
     observed_count: { type: "integer", minimum: 0 },
   },
 };
+
+/**
+ * internal 任务开始（04B / §10.4 / §11.1-2）：object_level 供 source-gate 门禁校验，
+ * 未 approved 来源连任务都起不来；任务本身不携带观测明细。
+ */
+export const ingestJobStartSchema: JsonSchema = {
+  type: "object",
+  required: ["job_id", "source_id", "city_code", "object_level"],
+  additionalProperties: false,
+  properties: {
+    job_id: { type: "string", minLength: 1, maxLength: 128 },
+    source_id: { type: "string", minLength: 1, maxLength: 64 },
+    city_code: { type: "string", minLength: 1, maxLength: 32 },
+    object_level: { type: "string", enum: OBJECT_LEVELS },
+  },
+};
+
+/** internal 任务完成：status 只允许成败二态；重复 finish 由端点幂等处理 */
+export const ingestJobFinishSchema: JsonSchema = {
+  type: "object",
+  required: ["status"],
+  additionalProperties: false,
+  properties: {
+    status: { type: "string", enum: ["succeeded", "failed"] },
+    error_code: { type: "string", minLength: 1, maxLength: 64 },
+    note: { type: "string", maxLength: 500 },
+  },
+};
+
+/** internal 来源健康上报：不设资格门禁（down/degraded 恰恰要能记录） */
+export const sourceHealthSchema: JsonSchema = {
+  type: "object",
+  required: ["source_id", "status"],
+  additionalProperties: false,
+  properties: {
+    source_id: { type: "string", minLength: 1, maxLength: 64 },
+    status: { type: "string", enum: ["ok", "degraded", "down"] },
+    latency_ms: { type: "integer", minimum: 0 },
+    detail: { type: "string", maxLength: 500 },
+  },
+};
+
+/** internal 资格预检：city_code/object_level 必须同给同缺（由端点校验），仅 source_id = 只查许可状态 */
+export const sourceEligibilitySchema: JsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    city_code: { type: "string", minLength: 1, maxLength: 32 },
+    object_level: { type: "string", enum: OBJECT_LEVELS },
+  },
+};

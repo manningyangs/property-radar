@@ -25,11 +25,13 @@ const PRIVATE_TABLES = [
   "email_otps",
   "email_send_ledger",
   "ingest_batches",
+  "ingest_jobs",
   "ingest_nonces",
   "notification_deliveries",
   "notification_preferences",
   "sessions",
   "source_approvals",
+  "source_health_reports",
   "user_cities",
   "user_consents",
   "users",
@@ -276,7 +278,7 @@ describe("Public D1（radar_public）", () => {
 });
 
 describe("Private D1（radar_private）", () => {
-  it("up 建出全部 19 张表，且重复执行（幂等）不报错", () => {
+  it("up 建出全部 21 张表，且重复执行（幂等）不报错", () => {
     const db = createDb();
     applyMigrations(db, "private", "up");
     expect(tablesOf(db).sort()).toEqual(PRIVATE_TABLES);
@@ -569,6 +571,49 @@ describe("Private D1（radar_private）", () => {
     expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   });
 
+  it("ingest_jobs / source_health_reports（TASK-04B）：任务状态与健康状态 CHECK、finish 语义可存储", () => {
+    const db = createDb();
+    applyMigrations(db, "private", "up");
+    // 任务：默认 running，非法状态被 CHECK 拒绝
+    db.prepare(
+      "INSERT INTO ingest_jobs (job_id, source_id, city_code) VALUES ('job_1', 'src_local', 'TEST-0000')",
+    ).run();
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO ingest_jobs (job_id, source_id, city_code, status) VALUES ('job_2', 'src_local', 'TEST-0000', 'paused')",
+        )
+        .run(),
+    ).toThrow();
+    db.prepare(
+      "UPDATE ingest_jobs SET status = 'failed', finished_at = datetime('now'), error_code = 'parse_error' WHERE job_id = 'job_1'",
+    ).run();
+    expect(() =>
+      db
+        .prepare("UPDATE ingest_jobs SET status = 'ok' WHERE job_id = 'job_1'")
+        .run(),
+    ).toThrow();
+    // 健康上报：ok/degraded/down 之外被拒；latency 不能为负
+    db.prepare(
+      "INSERT INTO source_health_reports (report_id, source_id, status, latency_ms) VALUES ('hr_1', 'src_local', 'degraded', 820)",
+    ).run();
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO source_health_reports (report_id, source_id, status) VALUES ('hr_2', 'src_local', 'healthy')",
+        )
+        .run(),
+    ).toThrow();
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO source_health_reports (report_id, source_id, status, latency_ms) VALUES ('hr_3', 'src_local', 'ok', -1)",
+        )
+        .run(),
+    ).toThrow();
+    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+  });
+
   it("所有 user-owned 表都带 user_id（email_otps/email_send_ledger/audit_logs 为设计例外）", () => {
     const db = createDb();
     applyMigrations(db, "private", "up");
@@ -581,6 +626,9 @@ describe("Private D1（radar_private）", () => {
       "source_approvals",
       "ingest_batches",
       "ingest_nonces",
+      // TASK-04B：任务与来源健康为系统级采集数据
+      "ingest_jobs",
+      "source_health_reports",
     ]);
     for (const table of tablesOf(db)) {
       if (exceptions.has(table)) continue;

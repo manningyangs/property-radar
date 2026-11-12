@@ -21,7 +21,9 @@ export type ErrorCode =
   | "ingest_disabled"
   | "signature_invalid"
   | "stale_timestamp"
-  | "replay_detected";
+  | "replay_detected"
+  // ---- TASK-04B：任务与健康记录 ----
+  | "job_not_found";
 
 /** 业务/协议错误：携带 HTTP 状态与稳定 error_code，绝不携带内部结构（SQL、表名等） */
 export class AppError extends Error {
@@ -83,6 +85,10 @@ export const errors = {
   /** nonce 已使用（防重放） */
   replayDetected: (message = "检测到重复请求（nonce 已使用）") =>
     new AppError(403, "replay_detected", message),
+  // ---- TASK-04B：任务与健康记录 ----
+  /** finish 的 job_id 在 ingest_jobs 中不存在 */
+  jobNotFound: (message = "采集任务不存在") =>
+    new AppError(404, "job_not_found", message),
 };
 
 /** 统一错误响应信封（不含任何私有 DB 结构信息） */

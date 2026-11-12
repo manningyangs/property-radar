@@ -1,14 +1,23 @@
-// TASK-04A：internal 数据导入端点（PRD 任务行 1285 / §10.4：HMAC 签名、时间戳、nonce 防重放、固定来源 ID 与批次 ID）
+// TASK-04A/04B：internal 数据导入端点（PRD 任务行 1285 / §10.4：HMAC 签名、时间戳、nonce 防重放、固定来源 ID 与批次 ID）
 // 校验顺序（04A spec）：密钥就绪 → 时间戳（±300s）→ nonce 落库（冲突即重放）→ HMAC 签名 → body schema → 门禁 → 受理。
 // 04A 只做门禁与受理记录（ingest_batches），不解析观测明细——清洗/去重落库属 TASK-04E，04B connector 复用同一门禁。
+// 04B 新增：共享签名链（verifySignedRequest，行为与 04A 逐字节一致）+ 任务开始/完成 + 来源健康 + 资格预检四端点。
 // 签名口径：HMAC-SHA256(INGEST_HMAC_SECRET, `${timestamp}.${nonce}.${rawBody}`) 的小写 hex；
 // 任何失败只回稳定 error_code，绝不回显 secret 或内部细节。
 import { Hono } from "hono";
+import type { Context } from "hono";
+import { AUTOMATION_ALLOWED_STATUSES } from "@property-radar/shared";
 import { errors } from "../errors";
 import { type AppEnv } from "../env";
 import { validateOrThrow } from "../validation";
-import { ingestBatchSchema } from "../schemas";
-import { assertIngestAllowed } from "../source-gate";
+import {
+  ingestBatchSchema,
+  ingestJobFinishSchema,
+  ingestJobStartSchema,
+  sourceEligibilitySchema,
+  sourceHealthSchema,
+} from "../schemas";
+import { assertIngestAllowed, resolveLicense } from "../source-gate";
 
 /** 时间戳允许偏差（秒）——覆盖人工时钟漂移，同时限定重放窗口 */
 const TIMESTAMP_MAX_SKEW_SEC = 300;
@@ -44,8 +53,13 @@ function equalHex(a: string, b: string): boolean {
   return diff === 0;
 }
 
-// POST /internal/ingest/batch —— 批次受理（签名 → 门禁 → 记录）
-internalRoutes.post("/ingest/batch", async (c) => {
+/**
+ * 共享签名校验链（04A 提取，全部 /internal/* 端点复用）：
+ * 密钥就绪 → 读原始 body → 时间戳 ±300s → nonce 防重放（INSERT 冲突即重放）→ HMAC 定长比较。
+ * 错误码与顺序和 04A ingest/batch 完全一致；任何失败不回显 secret。
+ * @returns 原始请求体（供调用方 JSON.parse + schema 校验）
+ */
+async function verifySignedRequest(c: Context<AppEnv>): Promise<string> {
   const secret = c.env.INGEST_HMAC_SECRET?.trim();
   if (!secret) throw errors.ingestDisabled();
 
@@ -84,14 +98,22 @@ internalRoutes.post("/ingest/batch", async (c) => {
   if (!/^[0-9a-f]{64}$/.test(signature) || !equalHex(expected, signature)) {
     throw errors.signatureInvalid();
   }
+  return raw;
+}
 
-  // 4) 请求体（签名校验通过后再解析；格式错 → 400）
-  let body: unknown;
+/** 签名校验通过后再解析 body（格式错 → 400；schema 校验由调用方按端点执行） */
+function parseJsonBody(raw: string): unknown {
   try {
-    body = JSON.parse(raw);
+    return JSON.parse(raw);
   } catch {
     throw errors.badRequest("请求体不是合法 JSON");
   }
+}
+
+// POST /internal/ingest/batch —— 批次受理（签名 → 门禁 → 记录）
+internalRoutes.post("/ingest/batch", async (c) => {
+  const raw = await verifySignedRequest(c);
+  const body = parseJsonBody(raw);
   validateOrThrow(ingestBatchSchema, body);
   const input = body as {
     batch_id: string;
@@ -100,10 +122,10 @@ internalRoutes.post("/ingest/batch", async (c) => {
     object_level: string;
   };
 
-  // 5) 门禁（pending_review/suspended/超范围等一律拒绝，PRD 04A 验收）
+  // 门禁（pending_review/suspended/超范围等一律拒绝，PRD 04A 验收）
   await assertIngestAllowed(c.env, input);
 
-  // 6) 受理记录（同 batch_id 重复提交 → 幂等确认，不重复写入，§11.3）
+  // 受理记录（同 batch_id 重复提交 → 幂等确认，不重复写入，§11.3）
   try {
     await c.env.DB_PRIVATE.prepare(
       `INSERT INTO ingest_batches (batch_id, source_id, city_code, object_level)
@@ -123,4 +145,161 @@ internalRoutes.post("/ingest/batch", async (c) => {
     throw e;
   }
   return c.json({ batch_id: input.batch_id, status: "accepted" }, 202);
+});
+
+// POST /internal/jobs/start —— 任务开始（04B / §10.4；过 source-gate 门禁，未 approved 来源起不了任务）
+internalRoutes.post("/jobs/start", async (c) => {
+  const raw = await verifySignedRequest(c);
+  const body = parseJsonBody(raw);
+  validateOrThrow(ingestJobStartSchema, body);
+  const input = body as {
+    job_id: string;
+    source_id: string;
+    city_code: string;
+    object_level: string;
+  };
+
+  await assertIngestAllowed(c.env, input);
+
+  try {
+    await c.env.DB_PRIVATE.prepare(
+      `INSERT INTO ingest_jobs (job_id, source_id, city_code)
+       VALUES (?, ?, ?)`,
+    )
+      .bind(input.job_id, input.source_id, input.city_code)
+      .run();
+  } catch (e) {
+    if (e instanceof Error && /UNIQUE constraint failed/i.test(e.message)) {
+      return c.json({ job_id: input.job_id, status: "duplicate" }, 202);
+    }
+    throw e;
+  }
+  return c.json({ job_id: input.job_id, status: "started" }, 202);
+});
+
+// POST /internal/jobs/:id/finish —— 任务完成（04B / §10.4-11；未知 job 404，重复 finish 幂等不改写）
+internalRoutes.post("/jobs/:id/finish", async (c) => {
+  const raw = await verifySignedRequest(c);
+  const body = parseJsonBody(raw);
+  validateOrThrow(ingestJobFinishSchema, body);
+  const input = body as {
+    status: "succeeded" | "failed";
+    error_code?: string;
+    note?: string;
+  };
+  const jobId = c.req.param("id");
+
+  const row = await c.env.DB_PRIVATE.prepare(
+    `SELECT status, finished_at FROM ingest_jobs WHERE job_id = ?`,
+  )
+    .bind(jobId)
+    .first<{ status: string; finished_at: string | null }>();
+  if (!row) throw errors.jobNotFound();
+  // 已完成的任务重复 finish：幂等返回当前状态，不改写留痕
+  if (row.finished_at !== null) {
+    return c.json({ job_id: jobId, status: row.status }, 202);
+  }
+
+  // finished_at IS NULL 条件守卫：并发 finish 时只有一个真正写入
+  const result = await c.env.DB_PRIVATE.prepare(
+    `UPDATE ingest_jobs
+        SET status = ?, finished_at = datetime('now'), error_code = ?, note = ?
+      WHERE job_id = ? AND finished_at IS NULL`,
+  )
+    .bind(input.status, input.error_code ?? null, input.note ?? null, jobId)
+    .run();
+  if (result.meta.changes === 0) {
+    const current = await c.env.DB_PRIVATE.prepare(
+      `SELECT status FROM ingest_jobs WHERE job_id = ?`,
+    )
+      .bind(jobId)
+      .first<{ status: string }>();
+    return c.json(
+      { job_id: jobId, status: current?.status ?? input.status },
+      202,
+    );
+  }
+  return c.json({ job_id: jobId, status: input.status }, 202);
+});
+
+// POST /internal/health/source —— 来源健康上报（04B / §10.4；不设资格门禁：down/degraded 恰恰要能记录）
+internalRoutes.post("/health/source", async (c) => {
+  const raw = await verifySignedRequest(c);
+  const body = parseJsonBody(raw);
+  validateOrThrow(sourceHealthSchema, body);
+  const input = body as {
+    source_id: string;
+    status: "ok" | "degraded" | "down";
+    latency_ms?: number;
+    detail?: string;
+  };
+
+  const reportId = crypto.randomUUID();
+  await c.env.DB_PRIVATE.prepare(
+    `INSERT INTO source_health_reports (report_id, source_id, status, latency_ms, detail)
+     VALUES (?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      reportId,
+      input.source_id,
+      input.status,
+      input.latency_ms ?? null,
+      input.detail ?? null,
+    )
+    .run();
+  return c.json({ report_id: reportId, status: "recorded" }, 202);
+});
+
+// POST /internal/sources/:id/eligibility —— 运行前资格预检（04B 验收二的裁决点）
+// 判定完全来自 source-gate（resolveLicense 含惰性过期；带 coverage 走 assertIngestAllowed 四段），
+// 端点不写任何自有状态查询（project_memory 红线：connector 复用 source-gate 门禁）。
+internalRoutes.post("/sources/:id/eligibility", async (c) => {
+  const raw = await verifySignedRequest(c);
+  const body = parseJsonBody(raw);
+  validateOrThrow(sourceEligibilitySchema, body);
+  const input = body as { city_code?: string; object_level?: string };
+  const sourceId = c.req.param("id");
+
+  const hasCity = input.city_code !== undefined;
+  const hasLevel = input.object_level !== undefined;
+  if (hasCity !== hasLevel) {
+    throw errors.badRequest("city_code 与 object_level 必须同时提供");
+  }
+
+  if (hasCity && hasLevel) {
+    // 覆盖范围模式：四段门禁全跑（存在 → 许可 → 覆盖 → 城市状态），失败透传稳定错误码
+    await assertIngestAllowed(c.env, {
+      source_id: sourceId,
+      city_code: input.city_code as string,
+      object_level: input.object_level as string,
+    });
+    const license = await resolveLicense(c.env, sourceId);
+    return c.json({
+      eligible: true,
+      source_id: sourceId,
+      status: license?.status ?? "discovered",
+      valid_until: license?.valid_until ?? null,
+    });
+  }
+
+  // 仅 source_id 模式：存在性（404）→ 许可状态（403，惰性过期在 resolveLicense 内处理）
+  const source = await c.env.DB_PUBLIC.prepare(
+    `SELECT source_id FROM data_sources_public WHERE source_id = ?`,
+  )
+    .bind(sourceId)
+    .first();
+  if (!source) throw errors.sourceNotFound();
+  const license = await resolveLicense(c.env, sourceId);
+  const status = license?.status ?? "discovered";
+  if (!(AUTOMATION_ALLOWED_STATUSES as readonly string[]).includes(status)) {
+    throw errors.sourceNotApproved(
+      `数据源当前状态不允许自动采集（status=${status}）`,
+    );
+  }
+  return c.json({
+    eligible: true,
+    source_id: sourceId,
+    status,
+    valid_until: license?.valid_until ?? null,
+  });
 });
