@@ -209,6 +209,56 @@ describe("公共查询端点", () => {
     expect(notFound.status).toBe(404);
   });
 
+  it("字段验证（TASK-04C）：未验证字段不进 verified_metrics，status 原样返回", async () => {
+    ctx.pub
+      .prepare(
+        `INSERT INTO source_field_verifications (source_id, field_code, field_label, metric_code, status, evidence, verified_at)
+         VALUES ('src_demo', 'new_build_yoy_index', '新建商品住宅-本月(上年同月=100)', 'new_house_price_index', 'verified', '2026-09 期样例 99.1', '2026-11-12')`,
+      )
+      .run();
+    ctx.pub
+      .prepare(
+        `INSERT INTO source_field_verifications (source_id, field_code, field_label, metric_code, status)
+         VALUES ('src_demo', 'transaction_price', '成交价字段', 'transaction_price', 'unverified')`,
+      )
+      .run();
+    ctx.pub
+      .prepare(
+        "INSERT INTO data_sources_public (source_id, name, source_type) VALUES ('src_plain', '无验证行来源（虚构）', 'manual')",
+      )
+      .run();
+
+    const res = await app.request(
+      "/api/v1/public/methodology/sources",
+      {},
+      ctx.env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      items: Array<{
+        source_id: string;
+        field_verifications: Array<{ field_code: string; status: string }>;
+        verified_metrics: string[];
+      }>;
+    };
+    const demo = body.items.find((s) => s.source_id === "src_demo");
+    expect(demo?.verified_metrics).toEqual(["new_house_price_index"]);
+    // unverified 字段（含其指标名）绝不计入已验证指标，且 status 原样返回
+    expect(demo?.verified_metrics).not.toContain("transaction_price");
+    const unverified = demo?.field_verifications.find(
+      (f) => f.field_code === "transaction_price",
+    );
+    expect(unverified?.status).toBe("unverified");
+    const verified = demo?.field_verifications.find(
+      (f) => f.field_code === "new_build_yoy_index",
+    );
+    expect(verified?.status).toBe("verified");
+    // 无验证行的来源返回空数组而非缺键
+    const plain = body.items.find((s) => s.source_id === "src_plain");
+    expect(plain?.field_verifications).toEqual([]);
+    expect(plain?.verified_metrics).toEqual([]);
+  });
+
   it("数据源说明与系统状态端点返回公开口径信息", async () => {
     const sources = await app.request(
       "/api/v1/public/methodology/sources",

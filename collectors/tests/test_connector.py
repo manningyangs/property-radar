@@ -91,8 +91,9 @@ def test_normalize_uses_connector_version() -> None:
                 "unit_price_yuan_sqm": 30000,
             },
         ),
-        price_type="official_index",
-        metric_code="city_official_avg_unit",
+        # 04C 起 official_index 为指数口径（禁金额）；此处测版本透传，用常规价格口径
+        price_type="listing_ask",
+        metric_code="city_avg_unit",
     )
     assert obs.connector_version == "1.2.3"
     assert obs.source_id == "src_dummy"

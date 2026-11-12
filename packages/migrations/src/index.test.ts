@@ -14,6 +14,7 @@ const PUBLIC_TABLES = [
   "price_snapshots",
   "regions",
   "source_city_coverage",
+  "source_field_verifications",
   "source_license_state",
 ];
 
@@ -110,7 +111,7 @@ describe("迁移文件加载", () => {
 });
 
 describe("Public D1（radar_public）", () => {
-  it("up 建出全部 9 张表，且重复执行（幂等）不报错", () => {
+  it("up 建出全部 10 张表，且重复执行（幂等）不报错", () => {
     const db = createDb();
     applyMigrations(db, "public", "up");
     expect(tablesOf(db).sort()).toEqual(PUBLIC_TABLES);
@@ -219,6 +220,60 @@ describe("Public D1（radar_public）", () => {
       db
         .prepare(
           "UPDATE source_license_state SET valid_until = '2027/01/01' WHERE source_id = 'src_local'",
+        )
+        .run(),
+    ).toThrow();
+    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+  });
+
+  it("source_field_verifications（TASK-04C）：状态/日期 CHECK、source FK、主键唯一生效", () => {
+    const db = createDb();
+    applyMigrations(db, "public", "up");
+    // 不存在的 source 引用被外键拒绝
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO source_field_verifications (source_id, field_code, field_label) VALUES ('src_missing', 'f1', '字段一')",
+        )
+        .run(),
+    ).toThrow();
+    db.prepare(
+      "INSERT INTO data_sources_public (source_id, name, source_type) VALUES ('src_local', '本地来源（虚构）', 'manual')",
+    ).run();
+    // 默认 unverified 可插入；非法状态被 CHECK 拒绝
+    db.prepare(
+      "INSERT INTO source_field_verifications (source_id, field_code, field_label, metric_code) VALUES ('src_local', 'f1', '字段一', 'new_house_price_index')",
+    ).run();
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO source_field_verifications (source_id, field_code, field_label, status) VALUES ('src_local', 'f2', '字段二', 'maybe')",
+        )
+        .run(),
+    ).toThrow();
+    // 空字段编码与非法核验日期被 CHECK 拒绝
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO source_field_verifications (source_id, field_code, field_label) VALUES ('src_local', '', '空编码')",
+        )
+        .run(),
+    ).toThrow();
+    expect(() =>
+      db
+        .prepare(
+          "UPDATE source_field_verifications SET status = 'verified', verified_at = '2026/11/12' WHERE source_id = 'src_local' AND field_code = 'f1'",
+        )
+        .run(),
+    ).toThrow();
+    db.prepare(
+      "UPDATE source_field_verifications SET status = 'verified', verified_at = '2026-11-12' WHERE source_id = 'src_local' AND field_code = 'f1'",
+    ).run();
+    // 同一 (source_id, field_code) 主键唯一
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO source_field_verifications (source_id, field_code, field_label, status) VALUES ('src_local', 'f1', '重复字段', 'verified')",
         )
         .run(),
     ).toThrow();

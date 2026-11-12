@@ -54,8 +54,8 @@
       "license_basis": "官网免费公开发布",
       "license_url": "http://qdtj.qingdao.gov.cn/tongjisj/tjsj_42452/tjj_tjsj_jgzs/zzjgzs/",
       "limitations": "全市口径指数（本月、环比），无绝对单价、无区县、无小区；不公布样本量",
-      "verified_at": "2026-11-11",
-      "notes": "核验样本城市青岛的市级指数源；connector 启用前须完成 §5.3 审批记录"
+      "verified_at": "2026-11-12",
+      "notes": "TASK-04C 连接器已接入（collectors/property_radar_collectors/qingdao_index.py）；对接前手工样例核对与五要素核验见 docs/TASK-04C-青岛市统计局住宅价格指数核验报告.md；全站 http（https 证书主机名不匹配），仅 qdtj.qingdao.gov.cn 允许 http 静态例外"
     },
     {
       "source_code": "qd_zjj_trade_platform",

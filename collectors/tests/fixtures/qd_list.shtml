@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<!-- TASK-04C 合成 fixture（结构复刻青岛市统计局栏目列表页实测标记，数值取自对接前手工样例核对；
+     非真实抓取页面全文（PRD §5.7 不存原始 HTML）。仅用于 pytest 与离线回放。 -->
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>住宅价格指数</title></head>
+<body>
+<div class="con_4">
+  <div class="listChangeDiv">
+    <ul>
+      <li trs-attr="chip">
+        <span class='fr'>2026-11-03</span>
+        <a href="http://qdtj.qingdao.gov.cn/tongjisj/tjsj_42452/tjj_tjsj_jgzs/zzjgzs/202611/t20261103_10767725.shtml" title="住宅销售价格指数2026年9月" target='_blank'>住宅销售价格指数2026年9月</a>
+      </li>
+      <li trs-attr="chip">
+        <span class='fr'>2026-09-30</span>
+        <a href="http://qdtj.qingdao.gov.cn/tongjisj/tjsj_42452/tjj_tjsj_jgzs/zzjgzs/202609/t20260930_10745222.shtml" title="住宅销售价格指数2026年8月" target='_blank'>住宅销售价格指数2026年8月</a>
+      </li>
+      <li trs-attr="chip">
+        <span class='fr'>2026-09-02</span>
+        <a href="http://qdtj.qingdao.gov.cn/tongjisj/tjsj_42452/tjj_tjsj_jgzs/zzjgzs/202609/t20260902_10720007.shtml" title="住宅销售价格指数2026年7月" target='_blank'>住宅销售价格指数2026年7月</a>
+      </li>
+      <li>
+        <a href="index.shtml?i=1" title="下一页">下一页</a>
+      </li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>

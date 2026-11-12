@@ -224,6 +224,8 @@ publicRoutes.get("/communities/:id/prices", async (c) => {
 
 // GET /public/methodology/sources —— 可公开的数据源说明（无合同/密钥字段）
 // TASK-04A：附许可状态与到期日（LEFT JOIN，缺行按 discovered）；不暴露审批私有材料。
+// TASK-04C：附逐字段验证状态（field_verifications 原样含 status）与 verified_metrics——
+// 仅 status='verified' 且 metric_code 非空的字段计入已验证指标，未验证字段绝不展示为已验证。
 publicRoutes.get("/methodology/sources", async (c) => {
   const res = await c.env.DB_PUBLIC.prepare(
     `SELECT p.source_id, p.name, p.source_type, p.official_url, p.data_scope,
@@ -234,8 +236,60 @@ publicRoutes.get("/methodology/sources", async (c) => {
      LEFT JOIN source_license_state s ON s.source_id = p.source_id
      ORDER BY p.name
      LIMIT 100`,
-  ).all();
-  return c.json({ items: res.results, count: res.results.length });
+  ).all<{
+    source_id: string;
+    name: string;
+    source_type: string;
+    official_url: string | null;
+    data_scope: string | null;
+    license_note_url: string | null;
+    display_scope: string | null;
+    updated_at: string;
+    last_verified_at: string | null;
+    license_status: string;
+    license_valid_until: string | null;
+  }>();
+  const ver = await c.env.DB_PUBLIC.prepare(
+    `SELECT source_id, field_code, field_label, metric_code, status, evidence, verified_at
+     FROM source_field_verifications
+     ORDER BY source_id, field_code`,
+  ).all<{
+    source_id: string;
+    field_code: string;
+    field_label: string;
+    metric_code: string | null;
+    status: string;
+    evidence: string | null;
+    verified_at: string | null;
+  }>();
+  const bySource = new Map<
+    string,
+    Array<{
+      field_code: string;
+      field_label: string;
+      metric_code: string | null;
+      status: string;
+      evidence: string | null;
+      verified_at: string | null;
+    }>
+  >();
+  for (const row of ver.results) {
+    const list = bySource.get(row.source_id) ?? [];
+    list.push(row);
+    bySource.set(row.source_id, list);
+  }
+  const items = res.results.map((src) => {
+    const field_verifications = bySource.get(src.source_id) ?? [];
+    const verified_metrics = [
+      ...new Set(
+        field_verifications
+          .filter((f) => f.status === "verified" && f.metric_code)
+          .map((f) => f.metric_code as string),
+      ),
+    ];
+    return { ...src, field_verifications, verified_metrics };
+  });
+  return c.json({ items, count: items.length });
 });
 
 // GET /public/system/status —— 数据更新时间与覆盖状态

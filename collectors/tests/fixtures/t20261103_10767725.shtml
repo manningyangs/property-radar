@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<!-- TASK-04C 合成 fixture：2026 年 9 月期详情页（结构复刻实测页面，四值 = 对接前手工样例核对原值
+     新建 99.1/100.2、二手 95.0/99.9；非真实抓取页面全文（PRD §5.7）。 -->
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>住宅销售价格指数2026年9月</title></head>
+<body>
+<div class="TRS_Editor">
+<p>来源：青岛市统计局　发布时间：2026-11-03</p>
+<table>
+  <tr><td colspan="3">住宅销售价格指数</td></tr>
+  <tr><td>报告期：2026年9月</td></tr>
+  <tr><th>指标名称</th><th>本月(上年同月=100)</th><th>环比(上月=100)</th></tr>
+  <tr><td>新建商品住宅销售价格指数</td><td>99.1</td><td>100.2</td></tr>
+  <tr><td>二手住宅销售价格指数</td><td>95.0</td><td>99.9</td></tr>
+  <tr><td colspan="3">注：数据来自国家统计局青岛调查队。</td></tr>
+</table>
+</div>
+</body>
+</html>

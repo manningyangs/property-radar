@@ -50,16 +50,19 @@ class _Retryable(Exception):
 
 
 class SafeHttpClient:
-    """带白名单与各项安全约束的 JSON GET 客户端。"""
+    """带白名单与各项安全约束的 GET 客户端（JSON / 文本）。"""
 
     def __init__(
         self,
         allowed_hosts: tuple[str, ...] | list[str],
         config: SafeHttpConfig | None = None,
         transport: httpx.BaseTransport | None = None,
+        allow_http_hosts: tuple[str, ...] | list[str] = (),
     ):
         self.config = config or SafeHttpConfig()
         self.allowed_hosts = tuple(allowed_hosts)
+        # TASK-04C：显式声明才允许明文 http 的主机（静态常量，白名单子集）
+        self.allow_http_hosts = tuple(allow_http_hosts)
         self._client = httpx.Client(
             timeout=httpx.Timeout(
                 self.config.connect_timeout, read=self.config.read_timeout
@@ -102,8 +105,30 @@ class SafeHttpClient:
         @raise AllowlistViolation/RateLimited/TimeoutExceeded/RetriesExhausted/
                 ResponseTooLarge/HttpStatusError/ParseError: 携带稳定 code。
         """
-        # 白名单校验在任何网络 I/O 之前（04B 验收一）
-        assert_url_allowed(url, self.allowed_hosts)
+        buf = self._get_bytes(url, headers)
+        try:
+            return json.loads(bytes(buf))
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise ParseError(
+                f"响应体不是合法 JSON（{type(exc).__name__}）"
+            ) from None
+
+    def get_text(self, url: str, headers: Mapping[str, str] | None = None) -> str:
+        """按白名单安全地 GET 一个文本/HTML 端点（解析用，不落盘，PRD §5.7）。
+
+        编码：先 utf-8，失败回退 gb18030（政府站点常见），再失败抛 ParseError。
+        """
+        buf = bytes(self._get_bytes(url, headers))
+        for enc in ("utf-8", "gb18030"):
+            try:
+                return buf.decode(enc)
+            except UnicodeDecodeError:
+                continue
+        raise ParseError("响应体不是可识别的文本编码（utf-8/gb18030 均失败）")
+
+    def _get_bytes(self, url: str, headers: Mapping[str, str] | None) -> bytes:
+        # 白名单校验在任何网络 I/O 之前（04B 验收一；04C http 例外仍为静态声明）
+        assert_url_allowed(url, self.allowed_hosts, allow_http_hosts=self.allow_http_hosts)
 
         attempts = self.config.max_retries + 1
         for attempt in range(attempts):
@@ -124,7 +149,7 @@ class SafeHttpClient:
 
     def _attempt_get(
         self, url: str, headers: Mapping[str, str] | None
-    ) -> Any:
+    ) -> bytes:
         with self._sem:
             started = time.monotonic()
             try:
@@ -153,12 +178,7 @@ class SafeHttpClient:
                                 f"响应体超过上限 {self.config.max_response_bytes} 字节，已中止读取"
                             )
                     self._log(url, status, elapsed_ms, len(buf))
-                    try:
-                        return json.loads(bytes(buf))
-                    except (ValueError, UnicodeDecodeError) as exc:
-                        raise ParseError(
-                            f"响应体不是合法 JSON（{type(exc).__name__}）"
-                        ) from None
+                    return bytes(buf)
             except _Retryable:
                 raise
             except (HttpStatusError, ResponseTooLarge, ParseError):

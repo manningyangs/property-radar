@@ -46,10 +46,16 @@ class SourceConnector(ABC):
     connector_version: ClassVar[str] = "0.0.0"
     #: 是否具备社区级授权/字段（False 时 fetch_community_data 返回 unsupported）
     supports_community: ClassVar[bool] = False
+    #: TASK-04C：显式声明才允许明文 http 的主机（须为 allowed_hosts 子集，静态常量）
+    allowed_insecure_hosts: ClassVar[tuple[str, ...]] = ()
 
     def __init__(self, http: SafeHttpClient | None = None):
-        # 兜底：即使调用方忘记注入，也只允许该连接器白名单内的主机
-        self.http = http or SafeHttpClient(self.allowed_hosts)
+        # 兜底：即使调用方忘记注入，也只允许该连接器白名单内的主机；
+        # http 例外仅限 allowed_insecure_hosts 静态声明（仍为白名单子集，fail closed）
+        self.http = http or SafeHttpClient(
+            self.allowed_hosts,
+            allow_http_hosts=self.allowed_insecure_hosts,
+        )
 
     @abstractmethod
     def health_check(self) -> SourceHealth:
