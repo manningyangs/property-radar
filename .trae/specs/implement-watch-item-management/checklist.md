@@ -29,5 +29,5 @@
 
 - [x] 产物中无真实 token/验证码/邮箱；`.gitignore` 已含 `.dev.vars`；`.env.example` 只列变量名
 - [x] 四门禁全绿：typecheck / lint / test / build
-- [ ] 中文 commit `TASK-03A: …` → push → CI 绿
-- [ ] §12.0 收尾报告输出（改动摘要/文件/测试/风险/回滚），记忆 topics.md 已更新
+- [x] 中文 commit `TASK-03A: …` → push → CI 绿
+- [x] §12.0 收尾报告输出（改动摘要/文件/测试/风险/回滚），记忆 topics.md 已更新

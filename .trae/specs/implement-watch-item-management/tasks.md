@@ -34,9 +34,9 @@
 - [x] Task 9: 四门禁与浏览器验证
   - [x] SubTask 9.1: `pnpm typecheck` / `pnpm lint` / `pnpm test` / `pnpm -r build` 全绿
   - [x] SubTask 9.2: 浏览器验证：演示模式行为与 01B 一致；真实模式未登录跳登录、sitekey 缺失禁用提示、add→列表全流程（受限时至少验证 request-code 错误路径）
-- [ ] Task 10: 提交与 CI
-  - [ ] SubTask 10.1: 中文 commit `TASK-03A: …` → push → 盯 CI 至绿
-  - [ ] SubTask 10.2: §12.0 收尾报告（改动摘要/文件/测试/风险/回滚）→ 更新记忆 topics.md
+- [x] Task 10: 提交与 CI
+  - [x] SubTask 10.1: 中文 commit `TASK-03A: …` → push → 盯 CI 至绿
+  - [x] SubTask 10.2: §12.0 收尾报告（改动摘要/文件/测试/风险/回滚）→ 更新记忆 topics.md
 
 # Task Dependencies
 
