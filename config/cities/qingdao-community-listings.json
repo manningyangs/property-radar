@@ -1,0 +1,29 @@
+{
+  "meta": {
+    "purpose": "TASK-04D 房天下挂牌列表页 URL 映射（青岛 16 个已核验小区，仅验证管线用）",
+    "source_id": "fang_com",
+    "city_code": "370200",
+    "url_pattern": "https://qd.esf.fang.com/loupan/<loupan_id>/chushou/list/ （房天下青岛小区出售列表首页）",
+    "id_derivation": "loupan_id 取自 00B 核验清单 qingdao-community-verification.json 中的房天下来源链接（/loupan/<id>/ 或 m.fang.com/xiaoqu/qd/<id>.html）",
+    "boundaries": "每小区仅取列表首页 ≤30 套；限速 ≥1s；不存原始 HTML；不入定时任务（spec §0-1 负责人 2026-11-12 裁决）",
+    "created_at": "2026-11-12"
+  },
+  "communities": [
+    { "community_id": "cmt_qd_01", "name": "新贵都", "district": "市南区", "loupan_id": "2411012856", "listing_url": "https://qd.esf.fang.com/loupan/2411012856/chushou/list/" },
+    { "community_id": "cmt_qd_02", "name": "中海银海一号", "district": "市南区", "loupan_id": "2411267823", "listing_url": "https://qd.esf.fang.com/loupan/2411267823/chushou/list/" },
+    { "community_id": "cmt_qd_03", "name": "城市花园", "district": "市北区", "loupan_id": "2411657227", "listing_url": "https://qd.esf.fang.com/loupan/2411657227/chushou/list/" },
+    { "community_id": "cmt_qd_04", "name": "浮山后四小区", "district": "市北区", "loupan_id": null, "listing_url": null },
+    { "community_id": "cmt_qd_05", "name": "幸福花园", "district": "市北区", "loupan_id": null, "listing_url": null },
+    { "community_id": "cmt_qd_06", "name": "鲁信长春花园", "district": "崂山区", "loupan_id": "2411096980", "listing_url": "https://qd.esf.fang.com/loupan/2411096980/chushou/list/" },
+    { "community_id": "cmt_qd_07", "name": "鲁信未央花园", "district": "崂山区", "loupan_id": "2411683019", "listing_url": "https://qd.esf.fang.com/loupan/2411683019/chushou/list/" },
+    { "community_id": "cmt_qd_08", "name": "百通馨苑", "district": "李沧区", "loupan_id": "2411593943", "listing_url": "https://qd.esf.fang.com/loupan/2411593943/chushou/list/" },
+    { "community_id": "cmt_qd_09", "name": "中海国际社区", "district": "李沧区", "loupan_id": "2411688817", "listing_url": "https://qd.esf.fang.com/loupan/2411688817/chushou/list/" },
+    { "community_id": "cmt_qd_10", "name": "卓越蔚蓝群岛", "district": "城阳区", "loupan_id": "2411736239", "listing_url": "https://qd.esf.fang.com/loupan/2411736239/chushou/list/" },
+    { "community_id": "cmt_qd_11", "name": "万科城市花园", "district": "城阳区", "loupan_id": "2411546623", "listing_url": "https://qd.esf.fang.com/loupan/2411546623/chushou/list/" },
+    { "community_id": "cmt_qd_12", "name": "千禧龙花园", "district": "黄岛区", "loupan_id": null, "listing_url": null },
+    { "community_id": "cmt_qd_13", "name": "福瀛天麓湖", "district": "黄岛区", "loupan_id": "2411677513", "listing_url": "https://qd.esf.fang.com/loupan/2411677513/chushou/list/" },
+    { "community_id": "cmt_qd_14", "name": "德馨珑湖", "district": "即墨区", "loupan_id": null, "listing_url": null },
+    { "community_id": "cmt_qd_15", "name": "绿城春晓苑", "district": "胶州市", "loupan_id": null, "listing_url": null },
+    { "community_id": "cmt_qd_16", "name": "宏远金田花园", "district": "莱西市", "loupan_id": null, "listing_url": null }
+  ]
+}

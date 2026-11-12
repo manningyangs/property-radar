@@ -229,7 +229,45 @@ export const suspendSourceSchema: JsonSchema = {
   },
 };
 
-/** internal 批次受理（04A 只做门禁与受理记录，不解析观测明细——清洗属 04E） */
+/**
+ * TASK-04D：单条价格观测（spec R2；字段与 price_observations CHECK 对齐）。
+ * 口径约束由端点语义校验：总价与单价至少一项非空、area_sqm > 0。
+ */
+const OBSERVATION_ITEM_SCHEMA: JsonSchema = {
+  type: "object",
+  required: ["object_id", "price_type", "metric_code", "stat_date"],
+  additionalProperties: false,
+  properties: {
+    object_id: { type: "string", minLength: 1, maxLength: 128 },
+    property_type: {
+      type: ["string", "null"],
+      enum: ["new_build", "resale", null],
+    },
+    price_type: {
+      type: "string",
+      enum: [
+        "listing_ask",
+        "closed_transaction",
+        "official_index",
+        "user_reported",
+        "model_estimate",
+      ],
+    },
+    metric_code: { type: "string", minLength: 1, maxLength: 64 },
+    price_total_fen: { type: ["integer", "null"], minimum: 0 },
+    unit_price_yuan_sqm: { type: ["integer", "null"], minimum: 0 },
+    area_sqm: { type: ["number", "null"], minimum: 0 },
+    sample_count: { type: "integer", minimum: 0 },
+    stat_date: { type: "string", pattern: DATE_PATTERN },
+    quality_status: {
+      type: "string",
+      enum: ["valid", "low_sample", "stale", "outlier", "rejected"],
+    },
+    connector_version: { type: ["string", "null"], maxLength: 32 },
+  },
+};
+
+/** internal 批次受理（04A 门禁与受理记录；04D 增 observations 明细落库，清洗仍属 04E） */
 export const ingestBatchSchema: JsonSchema = {
   type: "object",
   required: ["batch_id", "source_id", "city_code", "object_level"],
@@ -240,6 +278,12 @@ export const ingestBatchSchema: JsonSchema = {
     city_code: { type: "string", minLength: 1, maxLength: 32 },
     object_level: { type: "string", enum: OBJECT_LEVELS },
     observed_count: { type: "integer", minimum: 0 },
+    // TASK-04D：批内观测明细（可选；存在时 observed_count 必须等于其长度，由端点交叉校验）
+    observations: {
+      type: "array",
+      maxItems: 500,
+      items: OBSERVATION_ITEM_SCHEMA,
+    },
   },
 };
 
@@ -291,5 +335,26 @@ export const sourceEligibilitySchema: JsonSchema = {
   properties: {
     city_code: { type: "string", minLength: 1, maxLength: 32 },
     object_level: { type: "string", enum: OBJECT_LEVELS },
+  },
+};
+
+/**
+ * TASK-04D：admin 手工补录单条观测（spec R2）——观测字段 + source_id；
+ * price_type 限手工核验两类（user_reported / listing_ask），其余口径复用 OBSERVATION_ITEM_SCHEMA。
+ */
+export const createObservationSchema: JsonSchema = {
+  type: "object",
+  required: [
+    "source_id",
+    "object_id",
+    "price_type",
+    "metric_code",
+    "stat_date",
+  ],
+  additionalProperties: false,
+  properties: {
+    source_id: { type: "string", minLength: 1, maxLength: 64 },
+    ...(OBSERVATION_ITEM_SCHEMA.properties as Record<string, JsonSchema>),
+    price_type: { type: "string", enum: ["user_reported", "listing_ask"] },
   },
 };

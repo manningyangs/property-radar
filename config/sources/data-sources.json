@@ -3,7 +3,7 @@
     "purpose": "数据源登记册（PRD §5.2 状态机 + §5.3 审核清单的结构化登记）",
     "status_enum": ["discovered", "pending_review", "manual_only", "approved_open", "approved_licensed", "suspended", "blocked"],
     "rule": "只有 approved_open / approved_licensed 可启动自动采集；管理员启用前须补全 §5.3 审批记录（审批人、证据链接、许可字段、保留期限、复核日期）",
-    "updated_at": "2026-11-11"
+    "updated_at": "2026-11-12"
   },
   "sources": [
     {
@@ -147,17 +147,17 @@
       "name": "房天下",
       "operator": "房天下控股",
       "official_url": "https://www.fang.com/",
-      "status": "manual_only",
-      "allowed_automatic": false,
-      "object_levels": [],
-      "metrics": [],
+      "status": "approved_licensed",
+      "allowed_automatic": true,
+      "object_levels": ["community", "listing"],
+      "metrics": ["community_ask_median_unit", "listing_ask_unit"],
       "price_type": "listing",
-      "frequency": "",
-      "license_basis": "robots.txt Disallow 二手房列表页路径",
+      "frequency": "低频验证（手工触发，不入定时任务）",
+      "license_basis": "负责人 2026-11-12 裁决：任务书 04D『不实现自动爬虫』红线更正为允许（仅验证用途、公开列表页、不绕过验证码/登录/访问控制、不存原始 HTML）。原 robots.txt Disallow 二手房列表页路径的风险由该裁决承担并如实留痕",
       "license_url": "https://www.fang.com/robots.txt",
-      "limitations": "原站跳转 + 用户手工记录",
-      "verified_at": "2026-11-11",
-      "notes": ""
+      "limitations": "仅青岛 16 个已核验小区的公开挂牌列表首页；每小区 ≤30 套样本；请求限速 ≥1s；不存原始 HTML；不入 cron/workflow；仅验证管线用途",
+      "verified_at": "2026-11-12",
+      "notes": "TASK-04D 授权依据：.trae/specs/community-listing-pipeline/spec.md §0-1 负责人裁决；风险与执行边界见 docs/TASK-04D-小区级数据接入验收报告.md 授权章节"
     },
     {
       "source_code": "user_manual_record",
@@ -168,11 +168,11 @@
       "allowed_automatic": false,
       "object_levels": ["listing", "community"],
       "metrics": ["manual_price"],
-      "price_type": "manual_verified",
+      "price_type": "user_reported",
       "frequency": "用户触发",
       "license_basis": "PRD §5.4：允许用户保存来源平台、原始 URL、备注、手工核验价格和时间；系统不自动抓取、不保存原页面 HTML/图片/联系方式",
       "license_url": "",
-      "limitations": "永远标记为 manual_verified 口径，不与自动采集数据混同展示",
+      "limitations": "永远标记为 user_reported 口径（DB price_type CHECK 枚举为真源，TASK-04D 校正原 manual_verified 笔误），不与自动采集数据混同展示",
       "verified_at": "2026-11-11",
       "notes": "未获授权期间小区级价格监控的唯一合规路径（配合原站跳转）"
     }

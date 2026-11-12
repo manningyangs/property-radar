@@ -24,6 +24,12 @@ from .errors import (
     ValidationError,
     redact,
 )
+from .fang_community import (
+    FangCommunityConnector,
+    is_challenge_page,
+    load_communities,
+    parse_listing_cards,
+)
 from .http import SafeHttpClient, SafeHttpConfig
 from .internal_client import InternalApiClient
 from .qingdao_index import (
@@ -46,6 +52,7 @@ __version__ = "0.3.0"
 __all__ = [
     "AllowlistViolation",
     "ConnectorError",
+    "FangCommunityConnector",
     "HEALTH_STATUSES",
     "HttpStatusError",
     "IndexEntry",
@@ -69,8 +76,11 @@ __all__ = [
     "ValidationError",
     "assert_url_allowed",
     "index_observations",
+    "is_challenge_page",
+    "load_communities",
     "normalize_record",
     "parse_detail_page",
+    "parse_listing_cards",
     "parse_list_page",
     "redact",
     "run_guard",

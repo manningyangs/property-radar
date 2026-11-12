@@ -571,3 +571,147 @@ describe("公开来源页（GET /public/methodology/sources）", () => {
     expect(item!["license_valid_until"]).toBeNull();
   });
 });
+
+// ===================== TASK-04D：admin 手工补录观测（spec R2 / SubTask 3.3） =====================
+
+describe("POST /admin/observations（手工补录单条观测）", () => {
+  const SRC = "src_manual";
+
+  function obsPayload(overrides: Record<string, unknown> = {}) {
+    return {
+      source_id: SRC,
+      object_id: "cmt_qd_01",
+      price_type: "user_reported",
+      metric_code: "listing_ask_unit",
+      price_total_fen: 350000000,
+      unit_price_yuan_sqm: 32000,
+      area_sqm: 109,
+      sample_count: 1,
+      stat_date: "2026-11-12",
+      quality_status: "valid",
+      ...overrides,
+    };
+  }
+
+  function obsCount(): number {
+    return (
+      ctx.pub.prepare("SELECT COUNT(*) AS n FROM price_observations").get() as {
+        n: number;
+      }
+    ).n;
+  }
+
+  it("未登录 401 / 普通用户 403 admin_required", async () => {
+    expect((await req("POST", "/api/v1/admin/observations")).status).toBe(401);
+    const res = await req(
+      "POST",
+      "/api/v1/admin/observations",
+      TOK_USER,
+      obsPayload(),
+    );
+    expect(res.status).toBe(403);
+    expect((await body(res)).error_code).toBe("admin_required");
+    expect(obsCount()).toBe(0);
+  });
+
+  it("admin 补录 → 201：观测落库 + 快照重算 + audit_logs 留痕；重交幂等", async () => {
+    seedSource(SRC);
+    const res = await req(
+      "POST",
+      "/api/v1/admin/observations",
+      TOK_ADMIN,
+      obsPayload(),
+    );
+    expect(res.status).toBe(201);
+    const b = (await res.json()) as {
+      observation_id: string;
+      observations_written: number;
+      snapshots_upserted: number;
+    };
+    expect(b.observation_id).toHaveLength(32);
+    expect(b.observations_written).toBe(1);
+    expect(b.snapshots_upserted).toBe(1);
+    expect(obsCount()).toBe(1);
+
+    const snap = ctx.pub
+      .prepare(
+        `SELECT price_type, metric_code, median, sample_count, quality_status, source_id
+         FROM price_snapshots WHERE object_id = 'cmt_qd_01'`,
+      )
+      .get() as Record<string, unknown>;
+    expect(snap).toMatchObject({
+      price_type: "user_reported",
+      metric_code: "community_ask_median_unit",
+      median: 32000,
+      sample_count: 1,
+      quality_status: "low_sample", // 单样本 <5，如实降级
+      source_id: SRC,
+    });
+
+    const audit = ctx.priv
+      .prepare(
+        `SELECT actor_user_id, actor_role, action, resource_type, resource_id
+         FROM audit_logs WHERE action = 'observation.create'`,
+      )
+      .get() as Record<string, unknown>;
+    expect(audit).toMatchObject({
+      actor_user_id: ADMIN,
+      actor_role: "admin",
+      action: "observation.create",
+      resource_type: "price_observation",
+      resource_id: b.observation_id,
+    });
+
+    // 同观测重交：确定性 ID 幂等，行数不变（仍 1），快照重算不重复
+    const again = await req(
+      "POST",
+      "/api/v1/admin/observations",
+      TOK_ADMIN,
+      obsPayload(),
+    );
+    expect(again.status).toBe(201);
+    expect(obsCount()).toBe(1);
+    expect(
+      (
+        ctx.pub.prepare("SELECT COUNT(*) AS n FROM price_snapshots").get() as {
+          n: number;
+        }
+      ).n,
+    ).toBe(1);
+  });
+
+  it("price_type 不在手工核验枚举（closed_transaction）→ 400", async () => {
+    seedSource(SRC);
+    const res = await req(
+      "POST",
+      "/api/v1/admin/observations",
+      TOK_ADMIN,
+      obsPayload({ price_type: "closed_transaction" }),
+    );
+    expect(res.status).toBe(400);
+    expect((await body(res)).error_code).toBe("validation_failed");
+    expect(obsCount()).toBe(0);
+  });
+
+  it("未知 source → 404 source_not_found；价格全空 → 400", async () => {
+    const ghost = await req(
+      "POST",
+      "/api/v1/admin/observations",
+      TOK_ADMIN,
+      obsPayload({ source_id: "src_ghost_04d" }),
+    );
+    expect(ghost.status).toBe(404);
+    expect((await body(ghost)).error_code).toBe("source_not_found");
+
+    seedSource(SRC);
+    const empty = await req(
+      "POST",
+      "/api/v1/admin/observations",
+      TOK_ADMIN,
+      obsPayload({ price_total_fen: null, unit_price_yuan_sqm: null }),
+    );
+    expect(empty.status).toBe(400);
+    expect((await body(empty)).error_code).toBe("validation_failed");
+    expect(obsCount()).toBe(0);
+  });
+});

@@ -293,6 +293,7 @@ describe("隔离验收：公共响应不暴露私有结构", () => {
       "/api/v1/public/communities?region_id=rgn1",
       "/api/v1/public/communities/com1",
       "/api/v1/public/communities/com1/prices",
+      "/api/v1/public/communities/coverage?city_code=C100000",
       "/api/v1/public/methodology/sources",
       "/api/v1/public/system/status",
       "/api/v1/public/unknown",
@@ -319,5 +320,77 @@ describe("隔离验收：公共响应不暴露私有结构", () => {
       "request_id",
     ]);
     expect(JSON.stringify(body)).not.toMatch(/SELECT|sqlite|WHERE/i);
+  });
+});
+
+// ===================== TASK-04D：覆盖结论可复查（spec R3 / SubTask 4.2） =====================
+
+describe("TASK-04D：GET /public/communities/coverage 与验收字段", () => {
+  it("逐小区六字段覆盖结论；无快照小区 snapshot:null 不造数；缺 city_code → 400", async () => {
+    ctx.pub
+      .prepare(
+        `INSERT INTO communities (community_id, city_code, region_id, name, status)
+         VALUES ('com2', 'C100000', 'rgn1', '无数据小区', 'active')`,
+      )
+      .run();
+
+    const res = await app.request(
+      "/api/v1/public/communities/coverage?city_code=C100000",
+      {},
+      ctx.env,
+    );
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as {
+      city_code: string;
+      items: Array<{
+        community_id: string;
+        name: string;
+        district: string | null;
+        snapshot: Record<string, unknown> | null;
+      }>;
+      count: number;
+    };
+    expect(b.city_code).toBe("C100000");
+    expect(b.count).toBe(2);
+
+    const com1 = b.items.find((i) => i.community_id === "com1");
+    expect(com1?.name).toBe("测试小区");
+    expect(com1?.district).toBe("测试区");
+    // 验收六字段：source / price_type / sample_count / stat_date / collected_at / quality_status
+    expect(com1?.snapshot).toMatchObject({
+      source_id: "src_demo",
+      price_type: "listing_ask",
+      metric_code: "median_unit_price",
+      sample_count: 5,
+      stat_date: "2026-11-01",
+      quality_status: "valid",
+    });
+    expect(com1?.snapshot?.["collected_at"]).toBeTruthy();
+
+    const com2 = b.items.find((i) => i.community_id === "com2");
+    expect(com2?.snapshot).toBeNull();
+
+    const missing = await app.request(
+      "/api/v1/public/communities/coverage",
+      {},
+      ctx.env,
+    );
+    expect(missing.status).toBe(400);
+    expect(((await missing.json()) as { error_code: string }).error_code).toBe(
+      "validation_failed",
+    );
+  });
+
+  it("prices 端点返回 collected_at（逐小区复查字段）", async () => {
+    const res = await app.request(
+      "/api/v1/public/communities/com1/prices",
+      {},
+      ctx.env,
+    );
+    const b = (await res.json()) as {
+      items: Array<Record<string, unknown>>;
+    };
+    expect(b.items[0]?.["median"]).toBe(20000);
+    expect(b.items[0]?.["collected_at"]).toBeTruthy();
   });
 });

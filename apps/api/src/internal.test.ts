@@ -392,3 +392,226 @@ describe("HMAC 签名与防重放", () => {
     expect(batchCount()).toBe(0);
   });
 });
+
+// ===================== TASK-04D：批内 observations 落库与快照聚合（spec R2） =====================
+
+describe("TASK-04D：批次携带观测明细落库与聚合", () => {
+  const STAT_DATE = "2026-11-12";
+  const CMT = "cmt_qd_01";
+
+  function obs(overrides: Record<string, unknown> = {}) {
+    return {
+      object_id: CMT,
+      property_type: "resale",
+      price_type: "listing_ask",
+      metric_code: "listing_ask_unit",
+      price_total_fen: 300000000,
+      unit_price_yuan_sqm: 30000,
+      area_sqm: 100,
+      sample_count: 1,
+      stat_date: STAT_DATE,
+      quality_status: "valid",
+      connector_version: "fang_community/0.1.0",
+      ...overrides,
+    };
+  }
+
+  function obsPayload(
+    observations: unknown[],
+    overrides: Record<string, unknown> = {},
+  ) {
+    return defaultPayload({
+      observed_count: observations.length,
+      observations,
+      ...overrides,
+    });
+  }
+
+  function obsRowCount(): number {
+    return (
+      ctx.pub.prepare("SELECT COUNT(*) AS n FROM price_observations").get() as {
+        n: number;
+      }
+    ).n;
+  }
+
+  beforeEach(() => {
+    seedSource("approved_open");
+    seedCoverage();
+  });
+
+  it("5 套样本落库 + 聚合 valid：median/p25/p75/mean 线性插值、响应附计数", async () => {
+    const units = [28000, 29000, 30000, 31000, 32000];
+    const res = await postBatch(
+      obsPayload(
+        units.map((u) => obs({ unit_price_yuan_sqm: u })),
+        {
+          batch_id: "b_04d_001",
+        },
+      ),
+    );
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({
+      batch_id: "b_04d_001",
+      status: "accepted",
+      observations_written: 5,
+      snapshots_upserted: 1,
+    });
+    expect(obsRowCount()).toBe(5);
+
+    const snap = ctx.pub
+      .prepare(
+        `SELECT price_type, metric_code, median, mean, p25, p75,
+                sample_count, stat_date, quality_status, source_id, collected_at
+         FROM price_snapshots WHERE object_id = ?`,
+      )
+      .get(CMT) as Record<string, unknown>;
+    expect(snap).toMatchObject({
+      price_type: "listing_ask",
+      metric_code: "community_ask_median_unit",
+      median: 30000,
+      mean: 30000,
+      p25: 29000,
+      p75: 31000,
+      sample_count: 5,
+      stat_date: STAT_DATE,
+      quality_status: "valid",
+      source_id: SOURCE,
+    });
+    expect(snap["collected_at"]).toBeTruthy();
+  });
+
+  it("少于 5 套 → low_sample 降级但 median 仍留痕（PRD §4.4）", async () => {
+    const res = await postBatch(
+      obsPayload(
+        [
+          obs({ unit_price_yuan_sqm: 30000 }),
+          obs({ unit_price_yuan_sqm: 34000 }),
+        ],
+        { batch_id: "b_04d_002" },
+      ),
+    );
+    expect(res.status).toBe(202);
+    const snap = ctx.pub
+      .prepare(
+        "SELECT median, sample_count, quality_status FROM price_snapshots WHERE object_id = ?",
+      )
+      .get(CMT) as Record<string, unknown>;
+    expect(snap).toMatchObject({
+      median: 32000, // 两样本线性插值 = 均值
+      sample_count: 2,
+      quality_status: "low_sample",
+    });
+  });
+
+  it("同观测换 batch_id 重交幂等不重复行；同 batch_id 再交 202 duplicate 不重写", async () => {
+    const observations = [
+      obs({ unit_price_yuan_sqm: 31000, area_sqm: 89 }),
+      obs({ unit_price_yuan_sqm: 33000, area_sqm: 95 }),
+    ];
+    const payload = obsPayload(observations, { batch_id: "b_04d_003" });
+    const first = await postBatch(payload);
+    expect(first.status).toBe(202);
+    expect(obsRowCount()).toBe(2);
+    const idBefore = (
+      ctx.pub
+        .prepare(
+          "SELECT observation_id FROM price_observations ORDER BY observation_id",
+        )
+        .all() as Array<{ observation_id: string }>
+    ).map((r) => r.observation_id);
+
+    // 换 batch_id、同观测内容：确定性 observation_id → 幂等，行数不变
+    const second = await postBatch(
+      obsPayload(observations, { batch_id: "b_04d_004" }),
+    );
+    expect(second.status).toBe(202);
+    expect(obsRowCount()).toBe(2);
+    const idAfter = (
+      ctx.pub
+        .prepare(
+          "SELECT observation_id FROM price_observations ORDER BY observation_id",
+        )
+        .all() as Array<{ observation_id: string }>
+    ).map((r) => r.observation_id);
+    expect(idAfter).toEqual(idBefore);
+
+    // 同 batch_id 再交 → duplicate，不重写（observations 不再计数）
+    const dup = await postBatch(payload);
+    expect(dup.status).toBe(202);
+    expect(await dup.json()).toEqual({
+      batch_id: "b_04d_003",
+      status: "duplicate",
+    });
+    expect(obsRowCount()).toBe(2);
+  });
+
+  it("observed_count 与 observations 长度不一致 → 400，零受理零落库", async () => {
+    const res = await postBatch(
+      obsPayload([obs()], {
+        batch_id: "b_04d_005",
+        observed_count: 9,
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(await errCode(res)).toBe("validation_failed");
+    expect(batchCount()).toBe(0);
+    expect(obsRowCount()).toBe(0);
+  });
+
+  it("总价与单价均为空 → 400；observations 超 maxItems 500 → 400", async () => {
+    const empty = await postBatch(
+      obsPayload([obs({ price_total_fen: null, unit_price_yuan_sqm: null })], {
+        batch_id: "b_04d_006",
+      }),
+    );
+    expect(empty.status).toBe(400);
+    expect(await errCode(empty)).toBe("validation_failed");
+
+    const tooMany = await postBatch(
+      obsPayload(
+        Array.from({ length: 501 }, (_, i) => obs({ object_id: `cmt_${i}` })),
+        {
+          batch_id: "b_04d_007",
+        },
+      ),
+    );
+    expect(tooMany.status).toBe(400);
+    expect(await errCode(tooMany)).toBe("validation_failed");
+    expect(obsRowCount()).toBe(0);
+    expect(batchCount()).toBe(0);
+  });
+
+  it("门禁回归：pending_review 来源带 observations → 403，零落库", async () => {
+    ctx.pub
+      .prepare(
+        "UPDATE source_license_state SET status = 'pending_review' WHERE source_id = ?",
+      )
+      .run(SOURCE);
+    const res = await postBatch(obsPayload([obs()], { batch_id: "b_04d_008" }));
+    expect(res.status).toBe(403);
+    expect(await errCode(res)).toBe("source_not_approved");
+    expect(batchCount()).toBe(0);
+    expect(obsRowCount()).toBe(0);
+  });
+});
+
+describe("computeStats（纯函数直测：线性插值边界）", () => {
+  it("奇/偶样本 median、单样本、分位边界", async () => {
+    const { computeStats } = await import("./observations");
+    expect(computeStats([30000])).toMatchObject({
+      median: 30000,
+      p25: 30000,
+      p75: 30000,
+      mean: 30000,
+      sample_count: 1,
+    });
+    // 偶数样本：median = 中间两数均值（numpy linear）
+    expect(computeStats([10, 20, 30, 40]).median).toBe(25);
+    // p25/p75 插值位置 = (n-1)*p
+    const s = computeStats([10, 20, 30, 40]);
+    expect(s.p25).toBeCloseTo(17.5, 10);
+    expect(s.p75).toBeCloseTo(32.5, 10);
+    expect(() => computeStats([])).toThrow();
+  });
+});

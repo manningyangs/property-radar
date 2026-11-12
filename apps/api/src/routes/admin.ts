@@ -13,11 +13,17 @@ import { type AppEnv } from "../env";
 import { readJsonBody, validateOrThrow } from "../validation";
 import {
   approveSourceSchema,
+  createObservationSchema,
   createSourceSchema,
   patchSourceSchema,
   suspendSourceSchema,
 } from "../schemas";
 import { adminLicenseOf } from "../source-gate";
+import {
+  assertObservationSemantics,
+  writeObservations,
+  type ObservationInput,
+} from "../observations";
 
 export const adminRoutes = new Hono<AppEnv>();
 
@@ -415,4 +421,44 @@ adminRoutes.post("/sources/:id/suspend", async (c) => {
     source: await sourceItem(c, sourceId),
     previous_status: fromStatus,
   });
+});
+
+// POST /admin/observations —— TASK-04D 手工补录单条观测（spec R2：admin 会话+角色门禁已由上方中间件保证；
+// body = source_id + 单条观测，复用 observations 模块落明细并重算该组快照；每条写 audit_logs 可追溯）
+adminRoutes.post("/observations", async (c) => {
+  const body = await jsonBody(c);
+  validateOrThrow(createObservationSchema, body);
+  const input = body as ObservationInput & { source_id: string };
+
+  // 来源必须已登记（price_observations 外键；未登记一律 404，不区分）
+  const source = await c.env.DB_PUBLIC.prepare(
+    "SELECT source_id FROM data_sources_public WHERE source_id = ?",
+  )
+    .bind(input.source_id)
+    .first();
+  if (!source) throw errors.sourceNotFound();
+
+  assertObservationSemantics([input], "");
+  const result = await writeObservations(c.env, input.source_id, [input]);
+
+  await c.env.DB_PRIVATE.prepare(
+    `INSERT INTO audit_logs (audit_id, actor_user_id, actor_role, action, resource_type, resource_id, reason)
+     VALUES (?, ?, 'admin', 'observation.create', 'price_observation', ?, ?)`,
+  )
+    .bind(
+      crypto.randomUUID(),
+      c.get("userId"),
+      result.observation_ids[0],
+      `source_id=${input.source_id}; price_type=${input.price_type}; stat_date=${input.stat_date}`,
+    )
+    .run();
+
+  return c.json(
+    {
+      observation_id: result.observation_ids[0],
+      observations_written: result.observations_written,
+      snapshots_upserted: result.snapshots_upserted,
+    },
+    201,
+  );
 });

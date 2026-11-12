@@ -1,6 +1,6 @@
 // TASK-04A/04B：internal 数据导入端点（PRD 任务行 1285 / §10.4：HMAC 签名、时间戳、nonce 防重放、固定来源 ID 与批次 ID）
 // 校验顺序（04A spec）：密钥就绪 → 时间戳（±300s）→ nonce 落库（冲突即重放）→ HMAC 签名 → body schema → 门禁 → 受理。
-// 04A 只做门禁与受理记录（ingest_batches），不解析观测明细——清洗/去重落库属 TASK-04E，04B connector 复用同一门禁。
+// 04A 原则上门禁与受理记录（ingest_batches）即止；04D 按负责人拍板扩展：批内带 observations 时落明细并聚合快照（清洗规则仍属 TASK-04E）。
 // 04B 新增：共享签名链（verifySignedRequest，行为与 04A 逐字节一致）+ 任务开始/完成 + 来源健康 + 资格预检四端点。
 // 签名口径：HMAC-SHA256(INGEST_HMAC_SECRET, `${timestamp}.${nonce}.${rawBody}`) 的小写 hex；
 // 任何失败只回稳定 error_code，绝不回显 secret 或内部细节。
@@ -18,6 +18,11 @@ import {
   sourceHealthSchema,
 } from "../schemas";
 import { assertIngestAllowed, resolveLicense } from "../source-gate";
+import {
+  assertObservationSemantics,
+  writeObservations,
+  type ObservationInput,
+} from "../observations";
 
 /** 时间戳允许偏差（秒）——覆盖人工时钟漂移，同时限定重放窗口 */
 const TIMESTAMP_MAX_SKEW_SEC = 300;
@@ -110,7 +115,7 @@ function parseJsonBody(raw: string): unknown {
   }
 }
 
-// POST /internal/ingest/batch —— 批次受理（签名 → 门禁 → 记录）
+// POST /internal/ingest/batch —— 批次受理（签名 → 门禁 → 记录；04D：带 observations 时落库+聚合）
 internalRoutes.post("/ingest/batch", async (c) => {
   const raw = await verifySignedRequest(c);
   const body = parseJsonBody(raw);
@@ -120,7 +125,22 @@ internalRoutes.post("/ingest/batch", async (c) => {
     source_id: string;
     city_code: string;
     object_level: string;
+    observed_count?: number;
+    observations?: ObservationInput[];
   };
+
+  // 04D 交叉与语义校验（先于门禁与受理，失败不落任何行）
+  if (input.observations !== undefined) {
+    if (input.observed_count !== input.observations.length) {
+      throw errors.validation([
+        {
+          field: "/observed_count",
+          message: `必须与 observations 长度一致（${input.observations.length}）`,
+        },
+      ]);
+    }
+    assertObservationSemantics(input.observations, "/observations");
+  }
 
   // 门禁（pending_review/suspended/超范围等一律拒绝，PRD 04A 验收）
   await assertIngestAllowed(c.env, input);
@@ -143,6 +163,24 @@ internalRoutes.post("/ingest/batch", async (c) => {
       return c.json({ batch_id: input.batch_id, status: "duplicate" }, 202);
     }
     throw e;
+  }
+
+  // 04D：批内观测明细落库 + 快照聚合（重复 batch 已在上面短路，不会重写）
+  if (input.observations !== undefined) {
+    const result = await writeObservations(
+      c.env,
+      input.source_id,
+      input.observations,
+    );
+    return c.json(
+      {
+        batch_id: input.batch_id,
+        status: "accepted",
+        observations_written: result.observations_written,
+        snapshots_upserted: result.snapshots_upserted,
+      },
+      202,
+    );
   }
   return c.json({ batch_id: input.batch_id, status: "accepted" }, 202);
 });

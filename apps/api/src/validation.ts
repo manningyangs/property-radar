@@ -32,6 +32,8 @@ const SUPPORTED_KEYWORDS = new Set([
   // TASK-04A：approve 的 coverage 数组（元素对象 schema 递归 + 至少 1 项）
   "items",
   "minItems",
+  // TASK-04D：批次观测数组上限（spec R2 maxItems 500）
+  "maxItems",
 ]);
 
 const SUPPORTED_TYPES = new Set([
@@ -186,6 +188,9 @@ function collect(
   if (Array.isArray(data)) {
     if (typeof schema.minItems === "number" && data.length < schema.minItems) {
       push(out, path, `至少需要 ${schema.minItems} 个元素`);
+    }
+    if (typeof schema.maxItems === "number" && data.length > schema.maxItems) {
+      push(out, path, `元素数量不能超过 ${schema.maxItems} 个`);
     }
     if (isPlainObject(schema.items)) {
       const itemSchema = schema.items as JsonSchema;

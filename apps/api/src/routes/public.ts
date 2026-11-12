@@ -186,6 +186,69 @@ publicRoutes.get("/communities", async (c) => {
   return c.json({ items: res.results, count: res.results.length });
 });
 
+// GET /public/communities/coverage?city_code= —— TASK-04D：逐小区覆盖结论（spec R3 / 验收"覆盖可复查"）
+// 逐小区返回 {community_id, name, district, snapshot: 最新快照六字段 | null}——无快照如实 null，不造数。
+// 注册须先于 /communities/:id，否则 "coverage" 会被当作小区 ID。
+publicRoutes.get("/communities/coverage", async (c) => {
+  const cityCode = (c.req.query("city_code") ?? "").trim();
+  if (!cityCode) {
+    throw errors.validation([
+      { field: "city_code", message: "city_code 不能为空" },
+    ]);
+  }
+  const res = await c.env.DB_PUBLIC.prepare(
+    `SELECT c.community_id, c.name, r.name AS district,
+            s.source_id, s.price_type, s.metric_code, s.sample_count,
+            s.stat_date, s.collected_at, s.quality_status
+     FROM communities c
+     LEFT JOIN regions r ON r.region_id = c.region_id
+     LEFT JOIN price_snapshots s ON s.snapshot_id = (
+       SELECT s2.snapshot_id FROM price_snapshots s2
+       WHERE s2.object_type = 'community' AND s2.object_id = c.community_id
+       ORDER BY s2.stat_date DESC, s2.metric_code
+       LIMIT 1
+     )
+     WHERE c.city_code = ? AND c.status = 'active'
+     ORDER BY c.name
+     LIMIT 200`,
+  )
+    .bind(cityCode)
+    .all<{
+      community_id: string;
+      name: string;
+      district: string | null;
+      source_id: string | null;
+      price_type: string | null;
+      metric_code: string | null;
+      sample_count: number | null;
+      stat_date: string | null;
+      collected_at: string | null;
+      quality_status: string | null;
+    }>();
+  const items = res.results.map((row) => ({
+    community_id: row.community_id,
+    name: row.name,
+    district: row.district,
+    snapshot:
+      row.source_id === null
+        ? null
+        : {
+            source_id: row.source_id,
+            price_type: row.price_type,
+            metric_code: row.metric_code,
+            sample_count: row.sample_count,
+            stat_date: row.stat_date,
+            collected_at: row.collected_at,
+            quality_status: row.quality_status,
+          },
+  }));
+  return c.json({
+    city_code: cityCode,
+    items,
+    count: items.length,
+  });
+});
+
 // GET /public/communities/:id —— 小区基础信息
 publicRoutes.get("/communities/:id", async (c) => {
   const row = await c.env.DB_PUBLIC.prepare(
@@ -211,7 +274,7 @@ publicRoutes.get("/communities/:id/prices", async (c) => {
   const limit = readLimit(c.req.query("limit"));
   const res = await c.env.DB_PUBLIC.prepare(
     `SELECT snapshot_id, price_type, metric_code, median, mean, p25, p75,
-            sample_count, stat_date, quality_status, source_id
+            sample_count, stat_date, quality_status, source_id, collected_at
      FROM price_snapshots
      WHERE object_type = 'community' AND object_id = ?
      ORDER BY stat_date DESC, metric_code
