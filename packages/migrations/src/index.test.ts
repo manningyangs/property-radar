@@ -22,6 +22,7 @@ const PRIVATE_TABLES = [
   "audit_logs",
   "city_coverage_requests",
   "email_otps",
+  "email_send_ledger",
   "notification_deliveries",
   "notification_preferences",
   "sessions",
@@ -219,7 +220,7 @@ describe("Public D1（radar_public）", () => {
 });
 
 describe("Private D1（radar_private）", () => {
-  it("up 建出全部 13 张表，且重复执行（幂等）不报错", () => {
+  it("up 建出全部 14 张表，且重复执行（幂等）不报错", () => {
     const db = createDb();
     applyMigrations(db, "private", "up");
     expect(tablesOf(db).sort()).toEqual(PRIVATE_TABLES);
@@ -246,6 +247,39 @@ describe("Private D1（radar_private）", () => {
     expect(idx).toContain("ix_deliveries_status_created"); // notification_deliveries(status, created_at)
     expect(idx).toContain("ix_sessions_token_expires"); // sessions(token_hash, expires_at)
     expect(idx).toContain("ix_email_otps_email_purpose_expires"); // email_otps(email_normalized, purpose, expires_at)
+    expect(idx).toContain("ix_email_send_ledger_created"); // email_send_ledger(created_at, status, template) 配额求和
+  });
+
+  it("邮件配额账本可按滚动 24 小时求和（TASK-02C 硬上限依据）", () => {
+    const db = createDb();
+    applyMigrations(db, "private", "up");
+    db.prepare(
+      `INSERT INTO email_send_ledger (ledger_id, template, recipient_count, provider, status)
+       VALUES ('lg_1', 'otp', 1, 'google_apps_script_mail', 'sent')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO email_send_ledger (ledger_id, template, recipient_count, provider, status)
+       VALUES ('lg_2', 'otp', 1, 'google_apps_script_mail', 'failed')`,
+    ).run();
+    const row = db
+      .prepare(
+        `SELECT COALESCE(SUM(CASE WHEN status = 'sent' THEN recipient_count END), 0) AS total,
+                COALESCE(SUM(CASE WHEN status = 'sent' AND template = 'otp' THEN recipient_count END), 0) AS otp
+         FROM email_send_ledger
+         WHERE created_at > datetime('now', '-24 hours')`,
+      )
+      .get() as { total: number; otp: number };
+    expect(row.total).toBe(1);
+    expect(row.otp).toBe(1);
+    // 模板与状态受 CHECK 约束
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO email_send_ledger (ledger_id, template, provider)
+           VALUES ('lg_3', 'spam', 'google_apps_script_mail')`,
+        )
+        .run(),
+    ).toThrow();
   });
 
   it("users / user_cities / watch_items / alert_events 唯一约束生效", () => {
@@ -294,10 +328,15 @@ describe("Private D1（radar_private）", () => {
     expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   });
 
-  it("所有 user-owned 表都带 user_id（email_otps/audit_logs 为设计例外）", () => {
+  it("所有 user-owned 表都带 user_id（email_otps/email_send_ledger/audit_logs 为设计例外）", () => {
     const db = createDb();
     applyMigrations(db, "private", "up");
-    const exceptions = new Set(["email_otps", "audit_logs", "users"]);
+    const exceptions = new Set([
+      "email_otps",
+      "email_send_ledger",
+      "audit_logs",
+      "users",
+    ]);
     for (const table of tablesOf(db)) {
       if (exceptions.has(table)) continue;
       expect(columnsOf(db, table), `${table} 缺少 user_id`).toContain(

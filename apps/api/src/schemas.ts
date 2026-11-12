@@ -79,3 +79,28 @@ export const emptyObjectSchema: AnySchema = {
   type: "object",
   additionalProperties: false,
 };
+
+// ---------------- TASK-02C：认证（PRD §10.2） ----------------
+
+/** 邮箱形态校验（不依赖 ajv-formats，纯 pattern，避免 strict 模式缺插件报错） */
+const EMAIL_PATTERN = "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$";
+
+export const requestCodeSchema: AnySchema = {
+  type: "object",
+  required: ["email", "turnstile_token"],
+  additionalProperties: false,
+  properties: {
+    email: { type: "string", pattern: EMAIL_PATTERN, maxLength: 254 },
+    turnstile_token: { type: "string", minLength: 1, maxLength: 2048 },
+  },
+};
+
+export const verifyCodeSchema: AnySchema = {
+  type: "object",
+  required: ["email", "code"],
+  additionalProperties: false,
+  properties: {
+    email: { type: "string", pattern: EMAIL_PATTERN, maxLength: 254 },
+    code: { type: "string", pattern: "^[0-9]{6}$" },
+  },
+};

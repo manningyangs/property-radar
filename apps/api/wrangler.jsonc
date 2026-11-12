@@ -8,5 +8,12 @@
     { "binding": "DB_PUBLIC", "database_name": "radar_public", "database_id": "ae8a0143-f3ca-4141-ba15-754ccdb15fff" },
     { "binding": "DB_PRIVATE", "database_name": "radar_private", "database_id": "c94227fc-b557-4bf1-ad3e-e929bf1820ab" }
   ],
+  // 非敏感配置（PRD 附录 A：这些是 vars，不得作为 Secret 混淆）；
+  // Secrets（SESSION_SIGNING_SECRET / TURNSTILE_SECRET_KEY / APPS_SCRIPT_* ）用 wrangler secret put
+  "vars": {
+    "EMAIL_PROVIDER": "google_apps_script_mail",
+    "EMAIL_DAILY_HARD_CAP": "80",
+    "OTP_DAILY_RESERVED_CAP": "60"
+  },
   "observability": { "enabled": true }
 }

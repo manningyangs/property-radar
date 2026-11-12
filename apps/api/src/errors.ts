@@ -11,6 +11,7 @@ export type ErrorCode =
   | "unsupported_media_type"
   | "rate_limited"
   | "not_implemented"
+  | "service_unavailable"
   | "internal_error";
 
 /** 业务/协议错误：携带 HTTP 状态与稳定 error_code，绝不携带内部结构（SQL、表名等） */
@@ -44,6 +45,8 @@ export const errors = {
     new AppError(429, "rate_limited", message),
   notImplemented: (message = "该功能将在后续任务实现") =>
     new AppError(501, "not_implemented", message),
+  unavailable: (message = "服务暂不可用，请稍后再试") =>
+    new AppError(503, "service_unavailable", message),
   internal: (message = "服务器内部错误") =>
     new AppError(500, "internal_error", message),
 };

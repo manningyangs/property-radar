@@ -1,7 +1,7 @@
 // TASK-02B：应用装配——请求 ID、CORS 白名单、限流、访问日志、统一错误信封（PRD §10）
 import { Hono } from "hono";
 import { AppError, errorEnvelope } from "./errors";
-import { allowedOrigins, type AppEnv } from "./env";
+import { allowedOrigins, envInt, type AppEnv } from "./env";
 import { logAccess, logError } from "./log";
 import { clientIp, FixedWindowRateLimiter } from "./rate-limit";
 import { authRoutes } from "./routes/auth";
@@ -10,12 +10,6 @@ import { publicRoutes } from "./routes/public";
 
 const RATE_DEFAULT_MAX = 120;
 const RATE_DEFAULT_WINDOW_SEC = 60;
-
-function envInt(raw: string | undefined, fallback: number): number {
-  if (raw === undefined) return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : fallback;
-}
 
 export function createApp(): Hono<AppEnv> {
   // 限流状态挂在 app 实例上（每个 Worker isolate / 测试实例独立）
