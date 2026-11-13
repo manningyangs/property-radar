@@ -25,7 +25,7 @@
   - [x] SubTask 5.1: `pnpm typecheck` / `pnpm lint` / `pnpm test` / `pnpm -r build` + `py -3 -m pytest collectors/tests` 全绿
   - [x] SubTask 5.2: 本地 18789 e2e——mock 网关（测试桩路径）触发事件邮件/摘要、幂等复跑、额度打满 quota_deferred、重试 2 次
   - [x] SubTask 5.3: 生产部署 + 冒烟（evaluate/dispatch 正常、.gs 未部署时 provider_error 不影响站内）；演示模式/浏览器零回归（无前端改动，抽查 events 页）
-- [ ] Task 6: 报告与收尾
-  - [ ] SubTask 6.1: `docs/TASK-05B-邮件提醒与每日摘要验收报告.md`
-  - [ ] SubTask 6.2: 中文 commit（UTF-8 `-F`）→ push → 盯 CI 绿
-  - [ ] SubTask 6.3: checklist 勾选入库 → 记忆更新 → §12.0 收尾报告
+- [x] Task 6: 报告与收尾
+  - [x] SubTask 6.1: `docs/TASK-05B-邮件提醒与每日摘要验收报告.md`
+  - [x] SubTask 6.2: 中文 commit（UTF-8 `-F`）→ push → 盯 CI 绿（0fd1f81，run 43379177213 success）
+  - [x] SubTask 6.3: checklist 勾选入库 → 记忆更新 → §12.0 收尾报告

@@ -18,9 +18,9 @@
 - [x] 本地 18789 e2e：测试桩邮件链路、幂等复跑、额度打满、重试计数（49/49）
 - [x] 生产部署 + 冒烟（.gs 未部署 → provider_error 降级路径实证、站内保留）（13/13，deploy b85a7c70）
 - [x] 浏览器抽查 events 页零回归（本期无前端改动）
-- [ ] 中文 commit + push + CI 绿
+- [x] 中文 commit + push + CI 绿（0fd1f81，run 43379177213 success）
 - [x] 验收报告 `docs/TASK-05B-邮件提醒与每日摘要验收报告.md` 入库
-- [ ] 记忆更新（topics.md / project_memory.md）
+- [x] 记忆更新（topics.md / project_memory.md）
 
 ## 偏差记录（实施期如实填写）
 
