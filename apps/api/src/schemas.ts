@@ -100,6 +100,15 @@ export const emptyObjectSchema: JsonSchema = {
   additionalProperties: false,
 };
 
+/** TASK-05A：PATCH /me/events/:id/read —— { read?: boolean }，缺省/true=已读，false=标记未读 */
+export const eventReadSchema: JsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    read: { type: "boolean" },
+  },
+};
+
 // ---------------- TASK-02C：认证（PRD §10.2） ----------------
 
 /** 邮箱形态校验（不依赖 ajv-formats，纯 pattern，避免 strict 模式缺插件报错） */

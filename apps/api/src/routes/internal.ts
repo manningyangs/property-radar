@@ -11,6 +11,7 @@ import { errors } from "../errors";
 import { type AppEnv } from "../env";
 import { validateOrThrow } from "../validation";
 import {
+  emptyObjectSchema,
   ingestBatchSchema,
   ingestJobFinishSchema,
   ingestJobStartSchema,
@@ -19,7 +20,13 @@ import {
 } from "../schemas";
 import { assertIngestAllowed, resolveLicense } from "../source-gate";
 import { cleanObservations, type CleanResult } from "../cleaning";
-import { writeObservations, type ObservationInput } from "../observations";
+import { logError } from "../log";
+import {
+  OBJECT_TYPE,
+  writeObservations,
+  type ObservationInput,
+} from "../observations";
+import { evaluateRulesForObjects, evaluateSystemEvents } from "../rules-engine";
 
 /** 时间戳允许偏差（秒）——覆盖人工时钟漂移，同时限定重放窗口 */
 const TIMESTAMP_MAX_SKEW_SEC = 300;
@@ -175,6 +182,23 @@ internalRoutes.post("/ingest/batch", async (c) => {
       input.source_id,
       clean.cleaned,
     );
+
+    // TASK-05A：新快照入库后同步评估受影响对象的规则（03C 状态机；
+    // 评估失败仅记日志，不影响已受理批次与观测——事件可由下批复跑补齐）
+    if (result.snapshots_upserted > 0) {
+      try {
+        const objects = [...new Set(clean.cleaned.map((o) => o.object_id))].map(
+          (objectId) => ({ object_type: OBJECT_TYPE, object_id: objectId }),
+        );
+        await evaluateRulesForObjects(c.env, objects, new Date());
+      } catch (err) {
+        logError({
+          request_id: c.get("requestId") ?? "rules-evaluate",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     return c.json(
       {
         batch_id: input.batch_id,
@@ -345,4 +369,14 @@ internalRoutes.post("/sources/:id/eligibility", async (c) => {
     status,
     valid_until: license?.valid_until ?? null,
   });
+});
+
+// POST /internal/events/evaluate —— 系统事件（更新延迟/数据异常）评估（TASK-05A / §2.8 / §6.6）
+// 签名链与批次一致；供采集完成后、CI 或人工验收触发。Worker scheduled（cron）调用同一函数。
+internalRoutes.post("/events/evaluate", async (c) => {
+  const raw = await verifySignedRequest(c);
+  const body = parseJsonBody(raw);
+  validateOrThrow(emptyObjectSchema, body);
+  const result = await evaluateSystemEvents(c.env, new Date());
+  return c.json({ status: "evaluated", ...result }, 202);
 });

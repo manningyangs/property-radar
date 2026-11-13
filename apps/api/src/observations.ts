@@ -17,7 +17,7 @@ import {
 import type { Env } from "./env";
 
 /** 观测对象层级（spec R2：04D 样本统一挂小区） */
-const OBJECT_TYPE = "community";
+export const OBJECT_TYPE = "community";
 
 /** 单条观测输入（schema 见 schemas.ts OBSERVATION_ITEM_SCHEMA，字段口径与其一致） */
 export interface ObservationInput {

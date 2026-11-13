@@ -15,5 +15,7 @@
     "EMAIL_DAILY_HARD_CAP": "80",
     "OTP_DAILY_RESERVED_CAP": "60"
   },
+  // TASK-05A §6.6：每日系统事件评估（更新延迟/数据异常）——UTC 00:30 = 北京 08:30
+  "triggers": { "crons": ["30 0 * * *"] },
   "observability": { "enabled": true }
 }

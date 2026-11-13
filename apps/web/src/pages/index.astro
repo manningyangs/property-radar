@@ -186,6 +186,43 @@ const suggestions = demo
     ) : (
       <div class="page">
         <GlobalSearch />
+
+        {/* 今日与我有关（05A 真实事件：登录态拉取，Asia/Shanghai 当日前 3 条） */}
+        <section aria-label="今日与我有关的事件" class="today-events" data-today-events>
+          <div class="section-head">
+            <h2 class="section-title">今日与我有关</h2>
+            <a class="section-more" href="/events">
+              全部事件 ›
+            </a>
+          </div>
+          <p class="meta is-hidden" data-today-loading>正在加载今日事件…</p>
+          <div class="stack-sm is-hidden" data-today-list></div>
+          <div class="is-hidden" data-today-empty>
+            <EmptyState
+              title="今天暂无新事件"
+              description="监控对象的价格与数据状态今天没有变化；出现新事件时会第一时间显示在这里。"
+            />
+          </div>
+          <div class="is-hidden" data-today-login>
+            <EmptyState
+              title="登录后查看今日事件"
+              description="事件由你的监控对象与规则触发；登录后可查看与你有关的今日事件与未读提醒。"
+              actionText="登录"
+              actionHref="/login"
+            />
+          </div>
+          <div class="is-hidden" data-today-error>
+            <EmptyState
+              title="今日事件加载失败"
+              description="无法连接服务获取事件数据，请稍后重试。"
+            >
+              <button type="button" class="btn btn--secondary" data-today-retry>
+                重新加载
+              </button>
+            </EmptyState>
+          </div>
+        </section>
+
         <EmptyState
           title="暂未覆盖，可提交覆盖申请"
           description="当前构建未接入任何房价数据源，因此不展示任何价格数字。可先浏览标准城市目录、提交覆盖申请，或登录后收藏关注对象。"
@@ -199,6 +236,82 @@ const suggestions = demo
     )
   }
 </AppShell>
+
+<script>
+  import { ApiError, listEvents } from "../lib/api";
+  import type { AlertEvent } from "../lib/api";
+  import { eventLabel, eventShanghaiDate, formatEventClock, todayShanghaiDate } from "../lib/events";
+
+  const root = document.querySelector<HTMLElement>("[data-today-events]");
+
+  if (root) {
+    const loadingEl = root.querySelector<HTMLElement>("[data-today-loading]");
+    const listEl = root.querySelector<HTMLElement>("[data-today-list]");
+    const emptyEl = root.querySelector<HTMLElement>("[data-today-empty]");
+    const loginEl = root.querySelector<HTMLElement>("[data-today-login]");
+    const errorEl = root.querySelector<HTMLElement>("[data-today-error]");
+    const retryBtn = root.querySelector<HTMLButtonElement>("[data-today-retry]");
+
+    /** 面板互斥显隐：加载中 / 列表 / 空态 / 未登录引导 / 错误态 */
+    const showPanel = (target: HTMLElement | null) => {
+      [loadingEl, listEl, emptyEl, loginEl, errorEl]
+        .filter((el): el is HTMLElement => el !== null)
+        .forEach((el) => el.classList.toggle("is-hidden", el !== target));
+    };
+
+    /** 简卡：类型徽标 + evidence.explanation + 本地时间 */
+    const renderCard = (event: AlertEvent): HTMLElement => {
+      const card = document.createElement("article");
+      card.className = "card today-event";
+      const head = document.createElement("div");
+      head.className = "today-event-head";
+      const badge = document.createElement("span");
+      badge.className = "badge badge--primary";
+      badge.textContent = eventLabel(event.event_type);
+      const clock = document.createElement("span");
+      clock.className = "meta today-event-clock";
+      clock.textContent = formatEventClock(event.created_at);
+      head.append(badge, clock);
+      const text = document.createElement("p");
+      text.className = "meta today-event-text";
+      const explanation = event.evidence?.explanation;
+      text.textContent =
+        typeof explanation === "string" && explanation.trim() !== "" ? explanation : "—";
+      card.append(head, text);
+      return card;
+    };
+
+    const load = async () => {
+      showPanel(loadingEl);
+      try {
+        // 401 不跳转：首页展示登录引导
+        const result = await listEvents({ limit: 50 }, { skipAuthRedirect: true });
+        const today = todayShanghaiDate();
+        const todays = result.items
+          .filter((event) => eventShanghaiDate(event.created_at) === today)
+          .slice(0, 3);
+        if (todays.length === 0) {
+          showPanel(emptyEl);
+          return;
+        }
+        const fragment = document.createDocumentFragment();
+        for (const event of todays) fragment.append(renderCard(event));
+        listEl?.replaceChildren(fragment);
+        showPanel(listEl);
+        // 登录态下顺带同步导航未读角标
+        window.dispatchEvent(
+          new CustomEvent("app:unread-changed", { detail: { count: result.unread_count } }),
+        );
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) showPanel(loginEl);
+        else showPanel(errorEl);
+      }
+    };
+
+    retryBtn?.addEventListener("click", () => void load());
+    void load();
+  }
+</script>
 
 <style>
   .status-card {
@@ -243,5 +356,33 @@ const suggestions = demo
 
   .prod-note {
     margin-top: var(--space-2);
+  }
+
+  .today-events {
+    margin-bottom: var(--space-3);
+  }
+
+  /* 今日事件简卡（脚本动态生成，节点无 Astro 作用域属性） */
+  :global(.today-event) {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  :global(.today-event-head) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  :global(.today-event-clock) {
+    flex-shrink: 0;
+  }
+
+  :global(.today-event-text) {
+    margin: 0;
+    font-size: var(--text-sm);
+    line-height: 1.7;
   }
 </style>

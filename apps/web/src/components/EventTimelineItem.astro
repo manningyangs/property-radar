@@ -22,7 +22,8 @@ interface Props {
   statDate: string;
   source: string;
   sample: number;
-  quality: "A" | "B" | "C";
+  /** A/B/C（演示）或 evidence.quality_label/quality_status 原文透传（真实事件） */
+  quality: string;
   read: boolean;
   explanation: string;
   evidence: string[];
@@ -54,61 +55,77 @@ const levelMap = {
   low: { text: "低", cls: "badge--neutral" },
 } as const;
 const levelInfo = levelMap[level];
-const qualityText = quality === "A" ? "A（优质）" : quality === "B" ? "B（可用）" : "C（受限）";
+// A/B/C 走质量分层文案；真实事件直接透传 evidence.quality_label/quality_status
+const qualityText =
+  quality === "A"
+    ? "A（优质）"
+    : quality === "B"
+      ? "B（可用）"
+      : quality === "C"
+        ? "C（受限）"
+        : quality || "—";
 const hasValue = before !== 0 || after !== 0;
 ---
 
 <article class="event card" data-event={id} data-read={read ? "true" : "false"}>
   <div class="event-head">
     <span class="event-dot" aria-hidden="true"></span>
-    <span class:list={["badge", levelInfo.cls]}>级别 {levelInfo.text}</span>
-    <span class="event-type">{type}</span>
+    <span class:list={["badge", levelInfo.cls]} data-field="level">级别 {levelInfo.text}</span>
+    <span class="event-type" data-field="type">{type}</span>
     <span class="badge badge--neutral event-read-badge" data-event-read-badge>
       {read ? "已读" : "未读"}
     </span>
   </div>
 
   <p class="event-target">
-    监控对象：<strong>{target}</strong>
-    <span class="badge badge--neutral">{targetType}</span>
+    监控对象：<strong data-field="target">{target}</strong>
+    <span class:list={["badge", "badge--neutral", !targetType && "is-hidden"]} data-field="target-type">
+      {targetType}
+    </span>
   </p>
 
-  {
-    hasValue && (
-      <div class="event-values">
-        <span class="event-value">
-          触发前 <span class="num">{before.toLocaleString("zh-CN")}</span> 元/㎡
-        </span>
-        <span class="event-arrow" aria-hidden="true">
-          →
-        </span>
-        <span class="event-value">
-          触发后 <span class="num">{after.toLocaleString("zh-CN")}</span> 元/㎡
-        </span>
-        <PriceChangeBadge
-          direction={direction}
-          percent={deltaPct}
-          amount={`${deltaAmount.toLocaleString("zh-CN")} 元/㎡`}
-          size="sm"
-        />
-      </div>
-    )
-  }
+  <!-- 无前后值（系统事件/演示延迟类）时整块隐藏，真实分支按 old/new_value 再显隐 -->
+  <div class:list={["event-values", !hasValue && "is-hidden"]} data-field="values">
+    <span class="event-value">
+      触发前 <span class="num" data-field="before">{before.toLocaleString("zh-CN")}</span>
+      {" "}<span data-field="unit">元/㎡</span>
+    </span>
+    <span class="event-arrow" aria-hidden="true">
+      →
+    </span>
+    <span class="event-value">
+      触发后 <span class="num" data-field="after">{after.toLocaleString("zh-CN")}</span>
+      {" "}<span data-field="unit">元/㎡</span>
+    </span>
+    <span data-field="delta">
+      <PriceChangeBadge
+        direction={direction}
+        percent={deltaPct}
+        amount={`${deltaAmount.toLocaleString("zh-CN")} 元/㎡`}
+        size="sm"
+      />
+    </span>
+  </div>
 
   <p class="meta event-meta">
-    事件 ID <span class="num">{id}</span> · 数据日期 <span class="num">{statDate}</span> ·
-    来源 {source} · 质量 {qualityText}
+    事件 ID <span class="num" data-field="id">{id}</span>
+    {" · 数据日期 "}
+    <span class="num" data-field="stat-date">{statDate}</span>
+    {" · 来源 "}
+    <span data-field="source">{source}</span>
+    {" · 质量 "}
+    <span data-field="quality">{qualityText}</span>
   </p>
 
-  <div class="event-sample">
+  <div class="event-sample" data-field="sample">
     <SampleCountLabel sample={sample} explain={false} />
   </div>
 
-  <p class="event-explain">{explanation}</p>
+  <p class="event-explain" data-field="explanation">{explanation}</p>
 
   <div class="event-evidence is-hidden" data-event-evidence>
     <p class="event-evidence-title">证据明细</p>
-    <ul class="event-evidence-list">
+    <ul class="event-evidence-list" data-field="evidence-list">
       {evidence.map((line) => <li>{line}</li>)}
     </ul>
   </div>

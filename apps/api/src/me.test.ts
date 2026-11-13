@@ -417,6 +417,131 @@ describe("用户 A 无法读取/更新用户 B 的数据", () => {
   });
 });
 
+describe("TASK-05A 事件接口扩展（type 过滤 / unread_count / evidence / 标记未读）", () => {
+  beforeEach(() => {
+    ctx.priv
+      .prepare(
+        `INSERT INTO alert_events
+           (event_id, user_id, event_key, event_type, old_value, new_value, target_value,
+            difference_pct, evidence_json, snapshot_id, status)
+         VALUES
+           ('evt_t', 'usr_a', 'key-t', 'target_price_reached', 32000, 29500, 30000, -7.81,
+            '{"explanation":"已达到目标价 30000 元/㎡","rule_version":2,"evidence_lines":["统计日期 2026-11-11"]}',
+            'snap_x', 'unread'),
+           ('evt_d', 'usr_a', 'key-d', 'update_delayed', NULL, NULL, NULL, NULL,
+            '{"explanation":"最新数据滞后 30 天","sla_days":10}',
+            NULL, 'unread')`,
+      )
+      .run();
+  });
+
+  it("type 过滤命中四类枚举，非法 type 400", async () => {
+    const filtered = await app.request(
+      "/api/v1/me/events?type=target_price_reached",
+      { headers: jsonHeaders(TOK_A) },
+      ctx.env,
+    );
+    expect(filtered.status).toBe(200);
+    const body = (await filtered.json()) as {
+      count: number;
+      items: Array<Record<string, unknown>>;
+      unread_count: number;
+    };
+    expect(body.count).toBe(1);
+    expect(body.items[0]!.event_type).toBe("target_price_reached");
+    expect(body.unread_count).toBe(2); // 未读总数不受 type/limit 影响
+
+    const bad = await app.request(
+      "/api/v1/me/events?type=bogus_type",
+      { headers: jsonHeaders(TOK_A) },
+      ctx.env,
+    );
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error_code?: string }).error_code).toBe(
+      "validation_failed",
+    );
+  });
+
+  it("evidence 全字段返回（evidence_json 解析为对象）", async () => {
+    const res = await app.request(
+      "/api/v1/me/events?limit=50",
+      { headers: jsonHeaders(TOK_A) },
+      ctx.env,
+    );
+    const body = (await res.json()) as {
+      items: Array<Record<string, unknown>>;
+      unread_count: number;
+    };
+    expect(body.items).toHaveLength(2);
+    const t = body.items.find((i) => i.event_id === "evt_t");
+    expect(t?.snapshot_id).toBe("snap_x");
+    expect(t?.difference_pct).toBe(-7.81);
+    const ev = t?.evidence as Record<string, unknown>;
+    expect(ev.rule_version).toBe(2);
+    expect(ev.explanation).toContain("目标价");
+    expect(Array.isArray(ev.evidence_lines)).toBe(true);
+  });
+
+  it("PATCH {read:false} 标记未读，与 {read:true}/{} 已读均幂等", async () => {
+    const read = await app.request(
+      "/api/v1/me/events/evt_t/read",
+      {
+        method: "PATCH",
+        headers: jsonHeaders(TOK_A),
+        body: JSON.stringify({}),
+      },
+      ctx.env,
+    );
+    expect(read.status).toBe(200);
+    const afterRead = await app.request(
+      "/api/v1/me/events",
+      { headers: jsonHeaders(TOK_A) },
+      ctx.env,
+    );
+    expect(
+      ((await afterRead.json()) as { unread_count: number }).unread_count,
+    ).toBe(1);
+
+    const unread = await app.request(
+      "/api/v1/me/events/evt_t/read",
+      {
+        method: "PATCH",
+        headers: jsonHeaders(TOK_A),
+        body: JSON.stringify({ read: false }),
+      },
+      ctx.env,
+    );
+    expect(unread.status).toBe(200);
+    expect(
+      (
+        (await unread.json()) as {
+          event: { status: string; read_at: string | null };
+        }
+      ).event,
+    ).toMatchObject({ status: "unread", read_at: null });
+    const afterUnread = await app.request(
+      "/api/v1/me/events",
+      { headers: jsonHeaders(TOK_A) },
+      ctx.env,
+    );
+    expect(
+      ((await afterUnread.json()) as { unread_count: number }).unread_count,
+    ).toBe(2);
+
+    // 额外字段仍 400
+    const bad = await app.request(
+      "/api/v1/me/events/evt_t/read",
+      {
+        method: "PATCH",
+        headers: jsonHeaders(TOK_A),
+        body: JSON.stringify({ read: true, user_id: "usr_b" }),
+      },
+      ctx.env,
+    );
+    expect(bad.status).toBe(400);
+  });
+});
+
 describe("JSON Schema 校验与稳定错误码", () => {
   it("缺字段/多字段/枚举错误 → 400 validation_failed", async () => {
     const cases = [

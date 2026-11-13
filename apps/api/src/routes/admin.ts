@@ -20,7 +20,13 @@ import {
 } from "../schemas";
 import { adminLicenseOf } from "../source-gate";
 import { cleanObservations } from "../cleaning";
-import { writeObservations, type ObservationInput } from "../observations";
+import { logError } from "../log";
+import {
+  OBJECT_TYPE,
+  writeObservations,
+  type ObservationInput,
+} from "../observations";
+import { evaluateRulesForObjects } from "../rules-engine";
 
 export const adminRoutes = new Hono<AppEnv>();
 
@@ -443,6 +449,23 @@ adminRoutes.post("/observations", async (c) => {
     "",
   );
   const result = await writeObservations(c.env, input.source_id, clean.cleaned);
+
+  // TASK-05A：补录观测同步评估规则（与 internal 批次同一条引擎路径；
+  // 评估失败仅记日志，不影响补录与审计）
+  if (result.snapshots_upserted > 0) {
+    try {
+      await evaluateRulesForObjects(
+        c.env,
+        [{ object_type: OBJECT_TYPE, object_id: input.object_id }],
+        new Date(),
+      );
+    } catch (err) {
+      logError({
+        request_id: c.get("requestId") ?? "rules-evaluate",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   await c.env.DB_PRIVATE.prepare(
     `INSERT INTO audit_logs (audit_id, actor_user_id, actor_role, action, resource_type, resource_id, reason)

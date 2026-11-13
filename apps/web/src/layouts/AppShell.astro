@@ -168,7 +168,12 @@ const navItems: {
       </nav>
 
       <div class="header-right">
-        <a class="icon-btn" href="/events" aria-label="事件通知">
+        <a
+          class="icon-btn"
+          href="/events"
+          aria-label="事件通知"
+          data-notify-mode={demo ? "demo" : "real"}
+        >
           <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
             <path
               d="M10 2.5a4.5 4.5 0 0 0-4.5 4.5c0 4-1.5 5.5-1.5 5.5h12s-1.5-1.5-1.5-5.5A4.5 4.5 0 0 0 10 2.5Z"
@@ -185,6 +190,7 @@ const navItems: {
               stroke-linecap="round"
             />
           </svg>
+          <span class="notify-badge is-hidden" data-notify-badge aria-hidden="true">0</span>
         </a>
         <a class="icon-btn" href="/account" aria-label="账户">
           <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
@@ -221,6 +227,8 @@ const navItems: {
     <PwaRuntime />
 
     <script>
+      import { getUnreadEventCount } from "../lib/api";
+
       // 全局轻提示：任何页面脚本派发 window 事件 app:toast 即可展示
       window.addEventListener("app:toast", (event) => {
         const detail = (event as CustomEvent<{ message: string }>).detail;
@@ -236,6 +244,33 @@ const navItems: {
       const sidebar = document.querySelector<HTMLElement>("[data-admin-sidebar]");
       menuBtn?.addEventListener("click", () => {
         sidebar?.classList.toggle("is-open");
+      });
+
+      // 通知入口未读角标（05A）：真实模式拉 unread_count；0 隐藏；401/失败静默不报错
+      const notifyLink = document.querySelector<HTMLElement>("[data-notify-mode]");
+      const notifyBadge = document.querySelector<HTMLElement>("[data-notify-badge]");
+
+      const setNotifyBadge = (count: number) => {
+        if (!notifyBadge) return;
+        notifyBadge.textContent = count > 99 ? "99+" : String(count);
+        notifyBadge.classList.toggle("is-hidden", count <= 0);
+        notifyLink?.setAttribute("aria-label", count > 0 ? `事件通知，${count} 条未读` : "事件通知");
+      };
+
+      if (notifyLink?.dataset.notifyMode === "real") {
+        void (async () => {
+          try {
+            setNotifyBadge(await getUnreadEventCount());
+          } catch {
+            // 未登录(401)/请求失败：角标保持隐藏，不打断当前页面
+          }
+        })();
+      }
+
+      // 事件页标记已读/未读后同步角标
+      window.addEventListener("app:unread-changed", (event) => {
+        const detail = (event as CustomEvent<{ count?: number }>).detail;
+        if (typeof detail?.count === "number") setNotifyBadge(detail.count);
       });
     </script>
 
@@ -306,6 +341,7 @@ const navItems: {
       }
 
       .icon-btn {
+        position: relative;
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -318,6 +354,24 @@ const navItems: {
         cursor: pointer;
         text-decoration: none;
         flex-shrink: 0;
+      }
+
+      /* 通知入口未读角标（05A）：红色圆形数字，0 由 is-hidden 隐藏 */
+      .notify-badge {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        min-width: 16px;
+        height: 16px;
+        padding: 0 4px;
+        box-sizing: border-box;
+        border-radius: var(--radius-pill);
+        background: var(--color-danger);
+        color: var(--color-surface);
+        font-size: 10px;
+        font-weight: var(--weight-bold);
+        line-height: 16px;
+        text-align: center;
       }
 
       .icon-btn:hover {

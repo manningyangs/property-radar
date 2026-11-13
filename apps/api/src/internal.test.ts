@@ -5,7 +5,7 @@
 // 另覆盖：超范围批次、未知来源、过期自动 suspend、签名链（缺 secret/时间戳/nonce/篡改 body）与受理记录。
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app";
-import { createTestEnv, type TestContext } from "./test-utils/setup";
+import { createTestEnv, seedUser, type TestContext } from "./test-utils/setup";
 
 let ctx: TestContext;
 let app: ReturnType<typeof createApp>;
@@ -914,5 +914,103 @@ describe("computeStats（纯函数直测：线性插值边界）", () => {
     expect(s.p25).toBeCloseTo(17.5, 10);
     expect(s.p75).toBeCloseTo(32.5, 10);
     expect(() => computeStats([])).toThrow();
+  });
+});
+
+// ===== TASK-05A：系统事件评估端点（签名链 + 幂等） =====
+describe("TASK-05A /internal/events/evaluate", () => {
+  async function callEvaluate(opts: SignOpts = {}): Promise<Response> {
+    const raw = "{}";
+    const ts = opts.ts ?? String(Math.floor(Date.now() / 1000));
+    const nonce = opts.nonce ?? newNonce();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "X-Ingest-Timestamp": ts,
+      "X-Ingest-Nonce": nonce,
+      "X-Ingest-Signature": await hmacHex(
+        opts.secret ?? SECRET,
+        `${ts}.${nonce}.${opts.signBody ?? raw}`,
+      ),
+    };
+    return app.request(
+      "/api/v1/internal/events/evaluate",
+      { method: "POST", headers, body: raw },
+      ctx.env,
+    );
+  }
+
+  it("签名有效 202：延迟+异常各 1 条，复跑幂等，篡改签名 403", async () => {
+    const { addDays, shanghaiDate } = await import("./events");
+    await seedUser(
+      ctx.priv,
+      "usr_eval",
+      "eval-05a@example.test",
+      "tok-eval-05a",
+    );
+    seedSource("approved_open");
+    ctx.pub
+      .prepare(
+        "INSERT INTO communities (community_id, city_code, name, status) VALUES ('cmt_eval', ?, 'TEST-EVAL小区（虚构）', 'active')",
+      )
+      .run(CITY);
+    // 延迟输入：老快照（30 天 > 默认 SLA 10 天）
+    ctx.pub
+      .prepare(
+        `INSERT INTO price_snapshots
+           (snapshot_id, object_type, object_id, price_type, metric_code, median,
+            sample_count, stat_date, source_id, quality_status)
+         VALUES ('snap_eval_1', 'community', 'cmt_eval', 'listing_ask',
+                 'community_ask_median_unit', 20000, 6, ?, ?, 'valid')`,
+      )
+      .run(addDays(shanghaiDate(new Date()), -30), SOURCE);
+    // 异常输入：近 24h 失败任务
+    ctx.priv
+      .prepare(
+        `INSERT INTO ingest_jobs (job_id, source_id, city_code, status, error_code)
+         VALUES ('job_eval_fail', ?, ?, 'failed', 'upstream_500')`,
+      )
+      .run(SOURCE, CITY);
+    ctx.priv
+      .prepare(
+        `INSERT INTO watch_items (watch_id, user_id, object_type, object_id, display_name_snapshot)
+         VALUES ('w_eval', 'usr_eval', 'community', 'cmt_eval', 'TEST-EVAL小区（虚构）')`,
+      )
+      .run();
+
+    const first = await callEvaluate();
+    expect(first.status).toBe(202);
+    const j1 = (await first.json()) as {
+      status: string;
+      delayed: number;
+      anomaly: number;
+      skipped: number;
+    };
+    expect(j1.status).toBe("evaluated");
+    expect(j1.delayed).toBe(1);
+    expect(j1.anomaly).toBe(1);
+    const rows = ctx.priv
+      .prepare("SELECT event_type FROM alert_events ORDER BY rowid")
+      .all() as unknown as Array<{ event_type: string }>;
+    expect(rows.map((r) => r.event_type).sort()).toEqual([
+      "data_anomaly",
+      "update_delayed",
+    ]);
+
+    // 复跑幂等（event_key 含 watch_id/日期/任务）
+    const again = await callEvaluate();
+    const j2 = (await again.json()) as { delayed: number; anomaly: number };
+    expect(j2.delayed).toBe(0);
+    expect(j2.anomaly).toBe(0);
+    expect(
+      (
+        ctx.priv.prepare("SELECT COUNT(*) AS n FROM alert_events").get() as {
+          n: number;
+        }
+      ).n,
+    ).toBe(2);
+
+    // 篡改签名 → 403
+    const bad = await callEvaluate({ signBody: "{}tampered" });
+    expect(bad.status).toBe(403);
   });
 });

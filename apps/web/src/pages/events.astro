@@ -1,8 +1,12 @@
 ---
 /**
  * 事件中心 `/events`（PRD 2.8）：
- * 筛选（全部/未读/已读，query 参数）→ 时间线（级别、对象、价差、数据日期、来源）
- * → 标记已读/未读、查看证据（组件内真实交互）→ 未读统计实时更新。
+ * 演示分支（PUBLIC_DEMO_DATA=1）：筛选（全部/未读/已读，query 参数）→ 时间线
+ *   （级别、对象、价差、数据日期、来源）→ 标记已读/未读、查看证据（组件内真实交互）
+ *   → 未读统计实时更新，保持 01B 行为。
+ * 真实分支（TASK-05A）：listEvents(limit=50) 拉取真实事件（401 跳登录），筛选切换
+ *   unread 查询参数，卡片复用 EventTimelineItem 按 API 字段填充，标记已读/未读调
+ *   PATCH /me/events/:id/read 并同步未读徽标与导航角标；加载/空态/错误态齐全。
  */
 import AppShell from "../layouts/AppShell.astro";
 import EmptyState from "../components/EmptyState.astro";
@@ -88,83 +92,581 @@ if (demo) {
         </div>
       </div>
     ) : (
-      <div class="page">
-        <EmptyState
-          title="暂未覆盖，可提交覆盖申请"
-          description="事件由监控对象的价格变化触发；未接入数据源时没有可展示的事件。"
-          actionText="登录后提交覆盖申请"
-          actionHref="/login"
-        />
+      <div class="page" data-events-real>
+        {/* 未读统计（真实 unread_count 由 GET /me/events 返回驱动） */}
+        <section class="card events-summary" aria-label="事件统计">
+          <div class="events-summary-row">
+            <h2 class="section-title">事件</h2>
+            <span class="badge badge--danger is-hidden" data-real-unread>
+              未读 <span class="num" data-real-unread-num>0</span> 条
+            </span>
+          </div>
+          <p class="meta">
+            事件 = 监控对象状态变化（目标价达成、连续降价、数据源延迟等），每条事件可追溯数据日期与来源。
+          </p>
+        </section>
+
+        {/* 筛选 Tab：未读走 unread 查询参数，已读在返回集内过滤（后端 unread=false 不过滤） */}
+        <div class="chip-row events-filters" role="group" aria-label="事件筛选">
+          {filters.map((filter) => (
+            <button
+              type="button"
+              class:list={["chip", filter.key === "all" && "is-active"]}
+              data-real-filter={filter.key}
+              aria-pressed={filter.key === "all" ? "true" : "false"}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+
+        <p class="meta real-loading is-hidden" data-real-loading>正在加载事件…</p>
+
+        <div class="stack-sm is-hidden" data-real-list></div>
+
+        <div class="is-hidden" data-real-empty>
+          <EmptyState
+            title="暂无事件"
+            description="事件由监控对象的价格变化与数据状态触发；添加监控后，目标价达成、降价与数据异常会在这里留痕。"
+            actionText="去添加监控"
+            actionHref="/watch/add"
+          />
+        </div>
+
+        <div class="is-hidden" data-real-error>
+          <EmptyState
+            title="事件加载失败"
+            description="无法连接服务获取你的事件，请检查网络后重试。"
+          >
+            <button type="button" class="btn btn--secondary" data-real-retry>
+              重新加载
+            </button>
+          </EmptyState>
+        </div>
+
+        {/* 真实卡片模板：复用 EventTimelineItem，脚本按 API 字段填充 data-field */}
+        <template data-event-template>
+          <EventTimelineItem
+            id=""
+            level="low"
+            type=""
+            target=""
+            targetType=""
+            before={0}
+            after={0}
+            direction="flat"
+            deltaAmount={0}
+            deltaPct={0}
+            statDate=""
+            source=""
+            sample={0}
+            quality=""
+            read={false}
+            explanation=""
+            evidence={[]}
+          />
+        </template>
       </div>
     )
   }
 </AppShell>
 
 <script>
-  let currentFilter = "all";
+  import { ApiError, listEvents, setEventRead } from "../lib/api";
+  import type { AlertEvent, ListEventsParams } from "../lib/api";
+  import {
+    EVENT_LEVEL_CLASS,
+    EVENT_LEVEL_TEXT,
+    eventLabel,
+    eventLevel,
+    eventShanghaiDate,
+    formatEventTime,
+    sampleTierText,
+  } from "../lib/events";
 
-  const updateUnread = () => {
-    const unread = document.querySelectorAll('[data-event][data-read="false"]').length;
-    const badge = document.querySelector<HTMLElement>("[data-unread-count]");
-    if (badge) {
-      badge.innerHTML = `未读 <span class="num">${unread}</span> 条`;
+  const realRoot = document.querySelector<HTMLElement>("[data-events-real]");
+
+  if (realRoot) {
+    initRealEvents(realRoot);
+  } else {
+    // ===== 演示分支（01B 行为原样保留）：筛选 / 未读统计 / 读状态更新 =====
+    let currentFilter = "all";
+
+    const updateUnread = () => {
+      const unread = document.querySelectorAll('[data-event][data-read="false"]').length;
+      const badge = document.querySelector<HTMLElement>("[data-unread-count]");
+      if (badge) {
+        badge.innerHTML = `未读 <span class="num">${unread}</span> 条`;
+      }
+      badge?.classList.toggle("is-hidden", unread === 0);
+    };
+
+    const applyFilter = (key: string, updateUrl: boolean) => {
+      currentFilter = key;
+      let visible = 0;
+
+      document.querySelectorAll<HTMLElement>("[data-event]").forEach((item) => {
+        const isRead = item.dataset.read === "true";
+        const show = key === "all" || (key === "read" ? isRead : !isRead);
+        item.classList.toggle("is-hidden", !show);
+        if (show) visible += 1;
+      });
+
+      // 日期分组：组内全部隐藏时整组隐藏
+      document.querySelectorAll<HTMLElement>("[data-events-group]").forEach((group) => {
+        const hasVisible = Array.from(
+          group.querySelectorAll<HTMLElement>("[data-event]"),
+        ).some((item) => !item.classList.contains("is-hidden"));
+        group.classList.toggle("is-hidden", !hasVisible);
+      });
+
+      document.querySelectorAll<HTMLElement>("[data-events-filter]").forEach((chip) => {
+        const active = chip.dataset.eventsFilter === key;
+        chip.classList.toggle("is-active", active);
+        chip.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+
+      const empty = document.querySelector<HTMLElement>("[data-events-empty]");
+      const list = document.querySelector<HTMLElement>("[data-events-list]");
+      empty?.classList.toggle("is-hidden", visible > 0);
+      list?.classList.toggle("is-hidden", visible === 0);
+
+      if (updateUrl) {
+        const url = new URL(window.location.href);
+        if (key === "all") url.searchParams.delete("filter");
+        else url.searchParams.set("filter", key);
+        window.history.replaceState({}, "", url);
+      }
+    };
+
+    document.addEventListener("click", (event) => {
+      const chip = (event.target as HTMLElement).closest<HTMLElement>("[data-events-filter]");
+      if (chip) applyFilter(chip.dataset.eventsFilter ?? "all", true);
+    });
+
+    // 读状态变化后：更新未读数，并在“未读/已读”筛选下即时生效
+    window.addEventListener("app:event-read", () => {
+      updateUnread();
+      applyFilter(currentFilter, false);
+    });
+
+    const initial = new URLSearchParams(window.location.search).get("filter") ?? "all";
+    applyFilter(["all", "unread", "read"].includes(initial) ? initial : "all", false);
+    updateUnread();
+  }
+
+  /** 未知对象类型原样透传，缺省返回空串（徽标隐藏，不臆造文案） */
+  function objectTypeLabel(value: unknown): string {
+    if (typeof value !== "string" || value === "") return "";
+    if (value === "region") return "区域";
+    if (value === "community") return "小区";
+    if (value === "listing") return "房源";
+    return value;
+  }
+
+  /** 取第一个非空字符串（evidence 字段容错） */
+  function firstString(values: unknown[]): string | null {
+    for (const value of values) {
+      if (typeof value === "string" && value.trim() !== "") return value;
     }
-    badge?.classList.toggle("is-hidden", unread === 0);
-  };
+    return null;
+  }
 
-  const applyFilter = (key: string, updateUrl: boolean) => {
-    currentFilter = key;
-    let visible = 0;
+  /** 真实分支：列表加载、筛选切换、标记已读/未读（全部对接事件接口） */
+  function initRealEvents(root: HTMLElement): void {
+    const listEl = root.querySelector<HTMLElement>("[data-real-list]");
+    const template = root.querySelector<HTMLTemplateElement>("[data-event-template]");
+    const loadingEl = root.querySelector<HTMLElement>("[data-real-loading]");
+    const emptyEl = root.querySelector<HTMLElement>("[data-real-empty]");
+    const errorEl = root.querySelector<HTMLElement>("[data-real-error]");
+    const retryBtn = root.querySelector<HTMLButtonElement>("[data-real-retry]");
+    const unreadBadge = root.querySelector<HTMLElement>("[data-real-unread]");
+    const unreadNum = root.querySelector<HTMLElement>("[data-real-unread-num]");
+    const emptyTitle = emptyEl?.querySelector<HTMLElement>(".empty-title");
+    const emptyDesc = emptyEl?.querySelector<HTMLElement>(".empty-desc");
 
-    document.querySelectorAll<HTMLElement>("[data-event]").forEach((item) => {
-      const isRead = item.dataset.read === "true";
-      const show =
-        key === "all" || (key === "read" ? isRead : !isRead);
-      item.classList.toggle("is-hidden", !show);
-      if (show) visible += 1;
-    });
+    const paramFilter = new URLSearchParams(window.location.search).get("filter");
+    let currentFilter: "all" | "unread" | "read" =
+      paramFilter === "unread" || paramFilter === "read" ? paramFilter : "all";
+    let items: AlertEvent[] = [];
+    let unreadCount = 0;
 
-    // 日期分组：组内全部隐藏时整组隐藏
-    document.querySelectorAll<HTMLElement>("[data-events-group]").forEach((group) => {
-      const hasVisible = Array.from(
-        group.querySelectorAll<HTMLElement>("[data-event]"),
-      ).some((item) => !item.classList.contains("is-hidden"));
-      group.classList.toggle("is-hidden", !hasVisible);
-    });
+    const toast = (message: string) => {
+      window.dispatchEvent(new CustomEvent("app:toast", { detail: { message } }));
+    };
 
-    document.querySelectorAll<HTMLElement>("[data-events-filter]").forEach((chip) => {
-      const active = chip.dataset.eventsFilter === key;
-      chip.classList.toggle("is-active", active);
-      chip.setAttribute("aria-pressed", active ? "true" : "false");
-    });
+    /** 面板互斥显隐：加载中 / 列表 / 空态 / 错误态 */
+    const showPanel = (target: HTMLElement | null) => {
+      [loadingEl, listEl, emptyEl, errorEl]
+        .filter((el): el is HTMLElement => el !== null)
+        .forEach((el) => el.classList.toggle("is-hidden", el !== target));
+    };
 
-    const empty = document.querySelector<HTMLElement>("[data-events-empty]");
-    const list = document.querySelector<HTMLElement>("[data-events-list]");
-    empty?.classList.toggle("is-hidden", visible > 0);
-    list?.classList.toggle("is-hidden", visible === 0);
+    /** 顶部未读徽标 + 导航角标同步（AppShell 监听 app:unread-changed） */
+    const syncUnread = () => {
+      if (unreadBadge && unreadNum) {
+        unreadNum.textContent = String(unreadCount);
+        unreadBadge.classList.toggle("is-hidden", unreadCount <= 0);
+      }
+      window.dispatchEvent(
+        new CustomEvent("app:unread-changed", { detail: { count: unreadCount } }),
+      );
+    };
 
-    if (updateUrl) {
+    const setText = (article: HTMLElement, field: string, value: string) => {
+      const el = article.querySelector<HTMLElement>(`[data-field="${field}"]`);
+      if (el) el.textContent = value;
+    };
+
+    /** 价格涨跌徽标原位更新（方向 + 涨跌幅 + 价差金额三重编码保持） */
+    const applyDelta = (
+      article: HTMLElement,
+      direction: "up" | "down" | "flat",
+      deltaPct: number | null,
+      deltaAmount: number,
+      unit: string,
+    ) => {
+      const badge = article.querySelector<HTMLElement>("[data-field='delta'] .change");
+      if (!badge) return;
+      const text = direction === "up" ? "上涨" : direction === "down" ? "下降" : "持平";
+      badge.className = `change change--${direction} change--sm`;
+      const textEl = badge.querySelector<HTMLElement>(".change-text");
+      if (textEl) textEl.textContent = text;
+      const pctText = deltaPct === null ? "" : `${Math.abs(deltaPct).toFixed(1)}%`;
+      const pctEl = badge.querySelector<HTMLElement>(".change-value");
+      if (pctEl) {
+        pctEl.textContent = pctText;
+        pctEl.classList.toggle("is-hidden", deltaPct === null);
+      }
+      const amountText = `${Math.abs(deltaAmount).toLocaleString("zh-CN")} ${unit}`;
+      const amountEl = badge.querySelector<HTMLElement>(".change-amount");
+      if (amountEl) amountEl.textContent = amountText;
+      badge.setAttribute(
+        "aria-label",
+        pctText ? `${text} ${pctText}（${amountText}）` : `${text} ${amountText}`,
+      );
+      const path = badge.querySelector<SVGPathElement>("svg path");
+      if (path) {
+        path.setAttribute(
+          "d",
+          direction === "flat"
+            ? "M2 6h8"
+            : direction === "up"
+              ? "M6 2 L10 8 L2 8 Z"
+              : "M6 10 L2 4 L10 4 Z",
+        );
+        if (direction === "flat") {
+          path.setAttribute("fill", "none");
+          path.setAttribute("stroke", "currentColor");
+          path.setAttribute("stroke-width", "2");
+        } else {
+          path.setAttribute("fill", "currentColor");
+          path.setAttribute("stroke", "none");
+        }
+      }
+    };
+
+    /** 按 API 字段克隆填充一张时间线卡（全部取 evidence/items，不前端造数） */
+    const renderCard = (event: AlertEvent): HTMLElement | null => {
+      const card = template?.content.firstElementChild?.cloneNode(true) as
+        | HTMLElement
+        | undefined;
+      if (!card) return null;
+      const evidence: Record<string, unknown> = event.evidence ?? {};
+      const read = event.status === "read";
+      const level = eventLevel(event.event_type);
+
+      card.setAttribute("data-event", event.event_id);
+      card.dataset.read = read ? "true" : "false";
+
+      const levelBadge = card.querySelector<HTMLElement>('[data-field="level"]');
+      if (levelBadge) {
+        levelBadge.className = `badge ${EVENT_LEVEL_CLASS[level]}`;
+        levelBadge.textContent = `级别 ${EVENT_LEVEL_TEXT[level]}`;
+      }
+      setText(card, "type", eventLabel(event.event_type));
+
+      const readBadge = card.querySelector<HTMLElement>("[data-event-read-badge]");
+      if (readBadge) readBadge.textContent = read ? "已读" : "未读";
+      const readBtn = card.querySelector<HTMLElement>("[data-event-read]");
+      if (readBtn) {
+        readBtn.setAttribute("data-event-read", event.event_id);
+        readBtn.textContent = read ? "标记未读" : "标记已读";
+      }
+      const evidenceBtn = card.querySelector<HTMLElement>("[data-event-evidence-toggle]");
+      evidenceBtn?.setAttribute("data-event-evidence-toggle", event.event_id);
+
+      setText(card, "target", firstString([evidence.display_name]) ?? "—");
+      const typeText = objectTypeLabel(evidence.object_type);
+      const targetBadge = card.querySelector<HTMLElement>('[data-field="target-type"]');
+      if (targetBadge) {
+        targetBadge.textContent = typeText;
+        targetBadge.classList.toggle("is-hidden", typeText === "");
+      }
+
+      // 触发前后值与价差：old/new_value 缺任一展示位则隐藏整块（系统事件无价格值）
+      const before = typeof event.old_value === "number" ? event.old_value : null;
+      const after = typeof event.new_value === "number" ? event.new_value : null;
+      const valuesBox = card.querySelector<HTMLElement>('[data-field="values"]');
+      const hasValue = before !== null || after !== null;
+      valuesBox?.classList.toggle("is-hidden", !hasValue);
+      if (hasValue) {
+        setText(card, "before", before === null ? "—" : before.toLocaleString("zh-CN"));
+        setText(card, "after", after === null ? "—" : after.toLocaleString("zh-CN"));
+        const unit = firstString([evidence.unit]) ?? "元/㎡";
+        card.querySelectorAll<HTMLElement>('[data-field="unit"]').forEach((el) => {
+          el.textContent = unit;
+        });
+        const deltaBox = card.querySelector<HTMLElement>('[data-field="delta"]');
+        if (before !== null && after !== null) {
+          const deltaAmount = after - before;
+          const direction = deltaAmount < 0 ? "down" : deltaAmount > 0 ? "up" : "flat";
+          applyDelta(
+            card,
+            direction,
+            typeof event.difference_pct === "number" ? event.difference_pct : null,
+            deltaAmount,
+            unit,
+          );
+          deltaBox?.classList.remove("is-hidden");
+        } else {
+          deltaBox?.classList.add("is-hidden");
+        }
+      }
+
+      // 数据日期 = created_at 本地格式化 + evidence.stat_date
+      const statDate =
+        formatEventTime(event.created_at) +
+        (firstString([evidence.stat_date]) ? `（数据日 ${String(evidence.stat_date)}）` : "");
+      setText(card, "stat-date", statDate);
+      setText(card, "id", event.event_id);
+
+      setText(card, "source", firstString([evidence.source_id, evidence.source_name, evidence.latest_source_id]) ?? "—");
+      setText(card, "quality", firstString([evidence.quality_label, evidence.quality_status]) ?? "—");
+
+      // 样本量：系统事件无 sample_count 时整块隐藏
+      const sampleBox = card.querySelector<HTMLElement>('[data-field="sample"]');
+      const sample = typeof evidence.sample_count === "number" ? evidence.sample_count : null;
+      if (sample === null) {
+        sampleBox?.classList.add("is-hidden");
+      } else {
+        sampleBox?.classList.remove("is-hidden");
+        const sampleBadge = sampleBox?.querySelector<HTMLElement>(".sample");
+        const numEl = sampleBadge?.querySelector<HTMLElement>(".num");
+        if (numEl) numEl.textContent = `n=${sample}`;
+        if (sampleBadge) {
+          const spans = sampleBadge.querySelectorAll<HTMLElement>(":scope > span");
+          const tierEl = spans[spans.length - 1];
+          if (tierEl) tierEl.textContent = sampleTierText(sample);
+        }
+      }
+
+      // 解释整句与证据列表：全部取 evidence 字段（缺失降级为“—”，不自造文案）
+      setText(
+        card,
+        "explanation",
+        firstString([evidence.explanation]) ?? "—",
+      );
+      const lines = Array.isArray(evidence.evidence_lines)
+        ? evidence.evidence_lines.filter((line): line is string => typeof line === "string")
+        : [];
+      const evidenceList = card.querySelector<HTMLElement>('[data-field="evidence-list"]');
+      if (evidenceList) {
+        evidenceList.replaceChildren(
+          ...lines.map((line) => {
+            const li = document.createElement("li");
+            li.textContent = line;
+            return li;
+          }),
+        );
+      }
+      evidenceBtn?.classList.toggle("is-hidden", lines.length === 0);
+
+      return card;
+    };
+
+    /** 渲染当前筛选下的列表（按 Asia/Shanghai 当日分组为时间线） */
+    const renderList = () => {
+      const visible =
+        currentFilter === "all"
+          ? items
+          : items.filter((event) =>
+              currentFilter === "read" ? event.status === "read" : event.status === "unread",
+            );
+
+      const fragment = document.createDocumentFragment();
+      let groupDate = "";
+      let groupEl: HTMLElement | null = null;
+      for (const event of visible) {
+        const date = eventShanghaiDate(event.created_at);
+        if (!groupEl || date !== groupDate) {
+          groupDate = date;
+          groupEl = document.createElement("section");
+          groupEl.setAttribute("data-real-group", date);
+          const head = document.createElement("p");
+          head.className = "events-date";
+          const dateNum = document.createElement("span");
+          dateNum.className = "num";
+          dateNum.textContent = date;
+          const line = document.createElement("span");
+          line.className = "events-date-line";
+          line.setAttribute("aria-hidden", "true");
+          head.append(dateNum, line);
+          const body = document.createElement("div");
+          body.className = "stack-sm";
+          groupEl.append(head, body);
+          fragment.append(groupEl);
+        }
+        const card = renderCard(event);
+        const body = groupEl.lastElementChild;
+        if (card && body) body.append(card);
+      }
+      listEl?.replaceChildren(fragment);
+
+      const hasItems = visible.length > 0;
+      if (!hasItems) {
+        if (emptyTitle) {
+          emptyTitle.textContent =
+            currentFilter === "unread"
+              ? "暂无未读事件"
+              : currentFilter === "read"
+                ? "暂无已读事件"
+                : "暂无事件";
+        }
+        if (emptyDesc) {
+          emptyDesc.textContent =
+            currentFilter === "all"
+              ? "事件由监控对象的价格变化与数据状态触发；添加监控后，目标价达成、降价与数据异常会在这里留痕。"
+              : "可切换筛选条件查看其他事件。";
+        }
+      }
+      showPanel(hasItems ? listEl : emptyEl);
+    };
+
+    const load = async () => {
+      showPanel(loadingEl);
+      try {
+        const params: ListEventsParams = { limit: 50 };
+        if (currentFilter === "unread") params.unread = true;
+        const result = await listEvents(params);
+        items = result.items;
+        unreadCount = result.unread_count;
+        renderList();
+        syncUnread();
+      } catch (error) {
+        // 401 已由 API 客户端统一跳转 /login?next=/events
+        if (error instanceof ApiError && error.status === 401) return;
+        showPanel(errorEl);
+      }
+    };
+
+    /** 标记失败时回滚本地读状态（组件已乐观切换） */
+    const revertRead = (id: string, read: boolean) => {
+      const card = root.querySelector<HTMLElement>(`[data-event="${id}"]`);
+      if (!card) return;
+      card.dataset.read = read ? "true" : "false";
+      const badge = card.querySelector<HTMLElement>("[data-event-read-badge]");
+      if (badge) badge.textContent = read ? "已读" : "未读";
+      const btn = card.querySelector<HTMLElement>("[data-event-read]");
+      if (btn) btn.textContent = read ? "标记未读" : "标记已读";
+    };
+
+    const setFilterChips = () => {
+      root.querySelectorAll<HTMLElement>("[data-real-filter]").forEach((chip) => {
+        const active = chip.dataset.realFilter === currentFilter;
+        chip.classList.toggle("is-active", active);
+        chip.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+    };
+
+    root.addEventListener("click", (event) => {
+      const chip = (event.target as HTMLElement).closest<HTMLElement>("[data-real-filter]");
+      if (!chip) return;
+      const key = chip.dataset.realFilter;
+      if (key !== "all" && key !== "unread" && key !== "read") return;
+      currentFilter = key;
+      setFilterChips();
       const url = new URL(window.location.href);
       if (key === "all") url.searchParams.delete("filter");
       else url.searchParams.set("filter", key);
       window.history.replaceState({}, "", url);
-    }
-  };
+      void load();
+    });
 
-  document.addEventListener("click", (event) => {
-    const chip = (event.target as HTMLElement).closest<HTMLElement>("[data-events-filter]");
-    if (chip) applyFilter(chip.dataset.eventsFilter ?? "all", true);
-  });
+    // 组件内已乐观切换读状态 → 这里调 PATCH，成功后同步未读计数与角标，失败回滚
+    window.addEventListener("app:event-read", (event) => {
+      const detail = (event as CustomEvent<{ id?: string; read?: boolean }>).detail;
+      const id = detail?.id;
+      const read = detail?.read;
+      if (!id || typeof read !== "boolean") return;
+      void (async () => {
+        try {
+          await setEventRead(id, read);
+          items = items.map((item) =>
+            item.event_id === id
+              ? {
+                  ...item,
+                  status: read ? ("read" as const) : ("unread" as const),
+                  read_at: read ? item.read_at ?? new Date().toISOString() : null,
+                }
+              : item,
+          );
+          unreadCount = Math.max(0, unreadCount + (read ? -1 : 1));
+          syncUnread();
+          // 未读/已读筛选下已读状态即时生效（全部筛选保持已展开的证据状态）
+          if (currentFilter !== "all") renderList();
+        } catch (error) {
+          revertRead(id, !read);
+          toast(
+            error instanceof ApiError && error.status === 401
+              ? "登录已过期，请重新登录"
+              : "标记失败，请稍后重试",
+          );
+        }
+      })();
+    });
 
-  // 读状态变化后：更新未读数，并在“未读/已读”筛选下即时生效
-  window.addEventListener("app:event-read", () => {
-    updateUnread();
-    applyFilter(currentFilter, false);
-  });
+    // EventTimelineItem 的组件脚本在 <template> 内以惰性内联脚本输出（不会执行），
+    // 真实分支在此复刻其两条委托交互：事件名、文案与组件保持一致
+    root.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement;
 
-  const initial = new URLSearchParams(window.location.search).get("filter") ?? "all";
-  applyFilter(["all", "unread", "read"].includes(initial) ? initial : "all", false);
-  updateUnread();
+      const evidenceBtn = target.closest<HTMLElement>("[data-event-evidence-toggle]");
+      if (evidenceBtn) {
+        const article = evidenceBtn.closest<HTMLElement>("[data-event]");
+        const panel = article?.querySelector<HTMLElement>("[data-event-evidence]");
+        panel?.classList.toggle("is-hidden");
+        evidenceBtn.textContent = panel?.classList.contains("is-hidden") ? "查看证据" : "收起证据";
+        return;
+      }
+
+      const readBtn = target.closest<HTMLElement>("[data-event-read]");
+      if (readBtn) {
+        const article = readBtn.closest<HTMLElement>("[data-event]");
+        if (!article) return;
+        const nowRead = article.dataset.read !== "true";
+        article.dataset.read = nowRead ? "true" : "false";
+        readBtn.textContent = nowRead ? "标记未读" : "标记已读";
+        const badge = article.querySelector<HTMLElement>("[data-event-read-badge]");
+        if (badge) badge.textContent = nowRead ? "已读" : "未读";
+        window.dispatchEvent(
+          new CustomEvent("app:event-read", {
+            detail: { id: article.dataset.event ?? "", read: nowRead },
+          }),
+        );
+        window.dispatchEvent(
+          new CustomEvent("app:toast", {
+            detail: { message: nowRead ? "已标记为已读" : "已标记为未读" },
+          }),
+        );
+      }
+    });
+
+    retryBtn?.addEventListener("click", () => void load());
+
+    setFilterChips();
+    void load();
+  }
 </script>
 
 <style>
@@ -185,7 +687,13 @@ if (demo) {
     margin-top: var(--space-2);
   }
 
-  .events-date {
+  .real-loading {
+    margin-top: var(--space-2);
+    text-align: center;
+  }
+
+  /* 时间组标题（演示静态渲染 + 真实分支脚本动态克隆，动态节点无 Astro 作用域属性） */
+  :global(.events-date) {
     display: flex;
     align-items: center;
     gap: var(--space-1);
@@ -195,7 +703,7 @@ if (demo) {
     color: var(--color-muted);
   }
 
-  .events-date-line {
+  :global(.events-date-line) {
     flex: 1;
     height: 1px;
     background: var(--color-border);

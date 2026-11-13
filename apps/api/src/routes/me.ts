@@ -9,11 +9,12 @@ import {
 import { requireSession } from "../auth";
 import { errors } from "../errors";
 import { type AppEnv } from "../env";
+import { EVENT_TYPES, type EventType } from "../events";
 import { readJsonBody, validateOrThrow } from "../validation";
 import {
   createRuleSchema,
   createWatchItemSchema,
-  emptyObjectSchema,
+  eventReadSchema,
   patchPreferencesSchema,
   patchRuleSchema,
   patchWatchItemSchema,
@@ -804,7 +805,7 @@ meRoutes.delete("/rules/:id", async (c) => {
 
 // ---------------- 事件 ----------------
 
-// GET /me/events?unread=&limit=
+// GET /me/events?unread=&limit=&type=
 meRoutes.get("/events", async (c) => {
   const unread = c.req.query("unread");
   if (unread !== undefined && unread !== "true" && unread !== "false") {
@@ -823,13 +824,30 @@ meRoutes.get("/events", async (c) => {
     }
     limit = n;
   }
+  const typeRaw = c.req.query("type");
+  if (
+    typeRaw !== undefined &&
+    typeRaw !== "" &&
+    !EVENT_TYPES.includes(typeRaw as EventType)
+  ) {
+    throw errors.validation([
+      {
+        field: "type",
+        message: `必须是事件类型枚举之一（${EVENT_TYPES.join("/")}）`,
+      },
+    ]);
+  }
   const where = ["user_id = ?"];
   const params: Array<string | number> = [c.get("userId")];
   if (unread === "true") where.push("read_at IS NULL");
+  if (typeRaw !== undefined && typeRaw !== "") {
+    where.push("event_type = ?");
+    params.push(typeRaw);
+  }
   params.push(limit);
   const res = await c.env.DB_PRIVATE.prepare(
-    `SELECT event_id, rule_id, watch_id, event_type, old_value, new_value,
-            target_value, difference_pct, status, created_at, read_at
+    `SELECT event_id, rule_id, watch_id, snapshot_id, event_type, old_value, new_value,
+            target_value, difference_pct, evidence_json, status, created_at, read_at
      FROM alert_events
      WHERE ${where.join(" AND ")}
      ORDER BY created_at DESC
@@ -837,28 +855,61 @@ meRoutes.get("/events", async (c) => {
   )
     .bind(...params)
     .all();
-  return c.json({ items: res.results, count: res.results.length });
+  // 未读总数（当前用户，不受 limit/type 过滤影响——供导航角标）
+  const unreadRow = await c.env.DB_PRIVATE.prepare(
+    "SELECT COUNT(*) AS n FROM alert_events WHERE user_id = ? AND read_at IS NULL",
+  )
+    .bind(c.get("userId"))
+    .first<{ n: number }>();
+  const items = (res.results as Array<Record<string, unknown>>).map((row) => {
+    const { evidence_json: evidenceJson, ...rest } = row;
+    let evidence: unknown = {};
+    if (typeof evidenceJson === "string") {
+      try {
+        evidence = JSON.parse(evidenceJson);
+      } catch {
+        evidence = {}; // 证据损坏不阻塞展示（PRD 2.2A 降级）
+      }
+    }
+    return { ...rest, evidence };
+  });
+  return c.json({
+    items,
+    count: items.length,
+    unread_count: unreadRow?.n ?? 0,
+  });
 });
 
-// PATCH /me/events/:id/read —— 标记已读（幂等）
+// PATCH /me/events/:id/read —— 标记已读/未读（幂等；{read:false}=标记未读）
 meRoutes.patch("/events/:id/read", async (c) => {
   const userId = c.get("userId");
   const eventId = c.req.param("id");
   const body = await jsonBody(c);
-  validateOrThrow(emptyObjectSchema, body);
+  validateOrThrow(eventReadSchema, body);
+  const markRead = (body as { read?: boolean }).read !== false;
   const row = await c.env.DB_PRIVATE.prepare(
     "SELECT event_id FROM alert_events WHERE event_id = ? AND user_id = ?",
   )
     .bind(eventId, userId)
     .first();
   if (!row) throw errors.notFound("事件不存在");
-  await c.env.DB_PRIVATE.prepare(
-    `UPDATE alert_events
-     SET read_at = COALESCE(read_at, datetime('now')), status = 'read'
-     WHERE event_id = ? AND user_id = ?`,
-  )
-    .bind(eventId, userId)
-    .run();
+  if (markRead) {
+    await c.env.DB_PRIVATE.prepare(
+      `UPDATE alert_events
+       SET read_at = COALESCE(read_at, datetime('now')), status = 'read'
+       WHERE event_id = ? AND user_id = ?`,
+    )
+      .bind(eventId, userId)
+      .run();
+  } else {
+    await c.env.DB_PRIVATE.prepare(
+      `UPDATE alert_events
+       SET read_at = NULL, status = 'unread'
+       WHERE event_id = ? AND user_id = ?`,
+    )
+      .bind(eventId, userId)
+      .run();
+  }
   const updated = await c.env.DB_PRIVATE.prepare(
     `SELECT event_id, status, read_at FROM alert_events
      WHERE event_id = ? AND user_id = ?`,

@@ -341,6 +341,111 @@ export function deleteRule(id: string): Promise<{ deleted: boolean }> {
   });
 }
 
+// ---------------- 站内事件（TASK-05A） ----------------
+
+/** 事件证据（evidence_json 解析对象；字段可能缺失，前端按需容错取用） */
+export interface AlertEventEvidence {
+  /** 服务端生成的中文解释整句（前端不自造文案） */
+  explanation?: string;
+  /** 证据明细列表 */
+  evidence_lines?: string[];
+  /** 监控对象名 */
+  display_name?: string;
+  object_type?: string;
+  quality_status?: string;
+  quality_label?: string;
+  stat_date?: string;
+  source_id?: string;
+  source_name?: string;
+  latest_source_id?: string | null;
+  sample_count?: number;
+  metric_code?: string;
+  unit?: string;
+  rule_version?: number;
+  target_value?: number;
+  baseline_value?: number;
+  drop_pct?: number;
+  sla_days?: number;
+  delay_days?: number;
+  latest_stat_date?: string;
+  trigger?: string;
+  job_id?: string;
+  error_code?: string;
+  /** 其余服务端证据字段（透传容错） */
+  [key: string]: unknown;
+}
+
+/** 站内事件（GET /me/events 的 items 元素，§2.8 字段全集） */
+export interface AlertEvent {
+  event_id: string;
+  rule_id: string | null;
+  watch_id: string | null;
+  snapshot_id: string | null;
+  event_type: string;
+  old_value: number | null;
+  new_value: number | null;
+  target_value: number | null;
+  difference_pct: number | null;
+  evidence: AlertEventEvidence;
+  status: "unread" | "read";
+  created_at: string;
+  read_at: string | null;
+}
+
+export interface ListEventsParams {
+  /** true=只看未读（服务端过滤）；false/缺省=全部 */
+  unread?: boolean;
+  /** 1–50（后端缺省 20） */
+  limit?: number;
+  /** 事件类型枚举：target_price_reached/price_drop/data_anomaly/update_delayed */
+  type?: string;
+}
+
+export interface ListEventsOptions {
+  /** 401 时不跳登录（首页引导、导航角标等需自行降级的场景） */
+  skipAuthRedirect?: boolean;
+}
+
+/** GET /me/events——事件列表（unread_count=当前用户未读总数，不受 limit/type 影响） */
+export function listEvents(
+  params: ListEventsParams = {},
+  options: ListEventsOptions = {},
+): Promise<{ items: AlertEvent[]; count: number; unread_count: number }> {
+  const query = new URLSearchParams();
+  if (params.unread !== undefined)
+    query.set("unread", params.unread ? "true" : "false");
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
+  if (params.type) query.set("type", params.type);
+  const qs = query.toString();
+  return request(`/me/events${qs ? `?${qs}` : ""}`, {
+    skipAuthRedirect: options.skipAuthRedirect ?? false,
+  });
+}
+
+/** PATCH /me/events/:id/read——标记已读/未读（幂等；404=事件不存在） */
+export function setEventRead(
+  id: string,
+  read: boolean,
+): Promise<{
+  event: { event_id: string; status: string; read_at: string | null };
+}> {
+  return request(`/me/events/${encodeURIComponent(id)}/read`, {
+    method: "PATCH",
+    body: JSON.stringify({ read }),
+  });
+}
+
+/** 导航角标未读数（401/失败不跳转不抛扰——由调用方静默隐藏角标） */
+export async function getUnreadEventCount(): Promise<number> {
+  const res = await request<{ unread_count?: number }>(
+    "/me/events?unread=true&limit=1",
+    {
+      skipAuthRedirect: true,
+    },
+  );
+  return res.unread_count ?? 0;
+}
+
 // ---------------- 公共目录（添加监控流程的数据源） ----------------
 
 export interface CityItem {
