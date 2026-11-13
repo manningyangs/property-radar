@@ -96,8 +96,24 @@ function doPost(e) {
           ttl +
           " 分钟内有效，请勿泄露给他人。\n如非本人操作，请忽略本邮件。"
       );
-      // 其余模板（price_alert / daily_digest）在对应任务接入，模板未实现时拒绝
+    } else if (payload.template === "price_alert") {
+      // TASK-05B R4.2：事件邮件 HTML 模板（字段映射 R1.2 九要素；正文 HTML 转义）
+      MailApp.sendEmail(
+        String(payload.to),
+        subject_(payload, "房价雷达提醒"),
+        "",
+        { htmlBody: buildPriceAlertHtml_(payload) }
+      );
+    } else if (payload.template === "daily_digest") {
+      // TASK-05B R4.2：每日摘要 HTML 模板（概述 + 事件明细 + 链接，字段映射 R2.3）
+      MailApp.sendEmail(
+        String(payload.to),
+        subject_(payload, "房价雷达每日摘要"),
+        "",
+        { htmlBody: buildDigestHtml_(payload) }
+      );
     } else {
+      // ALLOWED_TEMPLATES 之外的兜底（结构保持：未知模板一律拒绝）
       return json_({ ok: false, error: "template_not_implemented" });
     }
 
@@ -113,6 +129,118 @@ function doPost(e) {
 function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(
     ContentService.MimeType.JSON
+  );
+}
+
+// ---- TASK-05B 模板渲染（HTML 全量转义；只渲染 Worker 传入的展示字段） ----
+
+function htmlEscape_(s) {
+  return String(s === undefined || s === null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function subject_(payload, fallback) {
+  var s = payload.subject ? String(payload.subject).trim() : "";
+  if (!s) return fallback;
+  return s.length > 200 ? s.slice(0, 200) : s;
+}
+
+function cell_(value, isLabel) {
+  var base =
+    "padding:8px 12px;border:1px solid #e5e7eb;font-size:14px;vertical-align:top";
+  var style = isLabel
+    ? base + ";width:112px;color:#6b7280;background:#f9fafb"
+    : base + ";color:#111827";
+  return '<td style="' + style + '">' + htmlEscape_(value) + "</td>";
+}
+
+function wrapHtml_(inner) {
+  return (
+    '<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111827;line-height:1.6">' +
+    inner +
+    '<p style="color:#6b7280;font-size:12px;margin-top:20px">本邮件由房价雷达按您的通知设置自动发送；可在站内「通知设置」中关闭邮件提醒或调整每日摘要。</p>' +
+    "</div>"
+  );
+}
+
+/** price_alert：对象/指标/目标/当前/价差/数据日期/来源/样本量 + 页面链接（R1.2 九要素） */
+function buildPriceAlertHtml_(p) {
+  var rows = [
+    ["对象", p.object_name],
+    ["指标", p.metric_name],
+    ["目标（阈值）", p.target],
+    ["当前值", p.current],
+    ["价差", p.gap],
+    ["数据日期", p.date],
+    ["来源", p.source],
+    ["样本量", p.samples],
+  ];
+  var body = "";
+  for (var i = 0; i < rows.length; i++) {
+    body +=
+      "<tr>" +
+      cell_(rows[i][0], true) +
+      cell_(rows[i][1], false) +
+      "</tr>";
+  }
+  return wrapHtml_(
+    '<h2 style="font-size:18px;margin:0 0 14px">' +
+      htmlEscape_(subject_(p, "房价雷达提醒")) +
+      "</h2>" +
+      '<table role="presentation" style="border-collapse:collapse;width:100%;margin-bottom:16px">' +
+      body +
+      "</table>" +
+      '<p style="margin:0 0 8px"><a href="' +
+      htmlEscape_(p.link || "#") +
+      '" style="color:#2563eb;font-size:14px">前往事件中心查看</a></p>'
+  );
+}
+
+/** daily_digest：概述行 + 事件明细（对象/类型/变化/链接）+ 页面链接（R2.3） */
+function buildDigestHtml_(p) {
+  var lines = p.summary_lines || [];
+  var items = "";
+  for (var i = 0; i < lines.length; i++) {
+    items +=
+      '<li style="margin:4px 0;font-size:14px">' +
+      htmlEscape_(lines[i]) +
+      "</li>";
+  }
+  var rows = p.event_rows || [];
+  var trs =
+    '<tr><th style="padding:8px 12px;border:1px solid #e5e7eb;background:#f9fafb;color:#6b7280;font-size:13px;text-align:left">对象</th>' +
+    '<th style="padding:8px 12px;border:1px solid #e5e7eb;background:#f9fafb;color:#6b7280;font-size:13px;text-align:left">类型</th>' +
+    '<th style="padding:8px 12px;border:1px solid #e5e7eb;background:#f9fafb;color:#6b7280;font-size:13px;text-align:left">变化</th>' +
+    '<th style="padding:8px 12px;border:1px solid #e5e7eb;background:#f9fafb;color:#6b7280;font-size:13px;text-align:left">链接</th></tr>';
+  for (var j = 0; j < rows.length; j++) {
+    var r = rows[j] || {};
+    trs +=
+      "<tr>" +
+      cell_(r.object_name, false) +
+      cell_(r.type_label, false) +
+      cell_(r.change_summary, false) +
+      '<td style="padding:8px 12px;border:1px solid #e5e7eb;font-size:14px;white-space:nowrap"><a href="' +
+      htmlEscape_(r.link || p.link || "#") +
+      '" style="color:#2563eb">查看</a></td>' +
+      "</tr>";
+  }
+  return wrapHtml_(
+    '<h2 style="font-size:18px;margin:0 0 14px">' +
+      htmlEscape_(subject_(p, "房价雷达每日摘要")) +
+      "</h2>" +
+      '<ul style="margin:0 0 16px;padding-left:20px">' +
+      items +
+      "</ul>" +
+      '<table role="presentation" style="border-collapse:collapse;width:100%;margin-bottom:16px">' +
+      trs +
+      "</table>" +
+      '<p style="margin:0 0 8px"><a href="' +
+      htmlEscape_(p.link || "#") +
+      '" style="color:#2563eb;font-size:14px">前往事件中心查看全部事件</a></p>'
   );
 }
 

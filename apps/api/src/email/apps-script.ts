@@ -6,7 +6,9 @@ import { hmacSha256Hex } from "../crypto";
 import { type Env } from "../env";
 import {
   EmailProviderError,
+  type DigestMail,
   type EmailProvider,
+  type EventMail,
   type OtpMail,
 } from "./provider";
 
@@ -28,7 +30,11 @@ export class GoogleAppsScriptMailProvider implements EmailProvider {
 
   constructor(private readonly env: Env) {}
 
-  async sendOtp(mail: OtpMail): Promise<void> {
+  /**
+   * 经 HMAC 网关发送固定模板（签名与错误分类同 02C sendOtp）：
+   * 签名覆盖方法、完整 body、时间戳与随机 request_id；失败抛 EmailProviderError 分类码。
+   */
+  private async postTemplate(payload: Record<string, unknown>): Promise<void> {
     const url = this.env.APPS_SCRIPT_WEB_APP_URL?.trim();
     const secret = this.env.APPS_SCRIPT_HMAC_SECRET?.trim();
     if (!url || !secret) {
@@ -36,12 +42,7 @@ export class GoogleAppsScriptMailProvider implements EmailProvider {
     }
     const requestId = crypto.randomUUID();
     const timestamp = String(Math.floor(Date.now() / 1000));
-    const body = JSON.stringify({
-      template: "otp",
-      to: mail.to,
-      code: mail.code,
-      ttl_minutes: mail.ttlMinutes,
-    });
+    const body = JSON.stringify(payload);
     const signature = await hmacSha256Hex(
       secret,
       gatewayCanonical("POST", body, timestamp, requestId),
@@ -71,5 +72,24 @@ export class GoogleAppsScriptMailProvider implements EmailProvider {
       // 例如 MailApp.getRemainingDailyQuota() 为 0 时网关拒绝（quota_exhausted）
       throw new EmailProviderError(data?.error ?? "gateway_rejected");
     }
+  }
+
+  async sendOtp(mail: OtpMail): Promise<void> {
+    await this.postTemplate({
+      template: "otp",
+      to: mail.to,
+      code: mail.code,
+      ttl_minutes: mail.ttlMinutes,
+    });
+  }
+
+  async sendEvent(mail: EventMail): Promise<void> {
+    const { to, ...content } = mail;
+    await this.postTemplate({ template: "price_alert", to, ...content });
+  }
+
+  async sendDigest(mail: DigestMail): Promise<void> {
+    const { to, ...content } = mail;
+    await this.postTemplate({ template: "daily_digest", to, ...content });
   }
 }

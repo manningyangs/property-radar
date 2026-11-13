@@ -12,6 +12,7 @@ import { timingSafeEqualHex } from "../crypto";
 import { errors } from "../errors";
 import { envInt, SESSION_COOKIE, type AppEnv, type Env } from "../env";
 import { createEmailProvider, EmailProviderError } from "../email/provider";
+import { emailQuotaUsed } from "../email/quota";
 import {
   cleanupExpiredOtps,
   hashOtpCode,
@@ -53,22 +54,6 @@ function requireSecret(env: Env): string {
   const secret = env.SESSION_SIGNING_SECRET?.trim();
   if (!secret) throw errors.unavailable("登录服务未配置");
   return secret;
-}
-
-/** 邮件配额账本（滚动 24 小时已发送收件人数，PRD §7.1 免费额度降级） */
-async function emailQuotaUsed(
-  db: D1Database,
-): Promise<{ total: number; otp: number }> {
-  const row = await db
-    .prepare(
-      `SELECT
-         COALESCE(SUM(CASE WHEN status = 'sent' THEN recipient_count END), 0) AS total,
-         COALESCE(SUM(CASE WHEN status = 'sent' AND template = 'otp' THEN recipient_count END), 0) AS otp
-       FROM email_send_ledger
-       WHERE created_at > datetime('now', '-24 hours')`,
-    )
-    .first<{ total: number; otp: number }>();
-  return { total: row?.total ?? 0, otp: row?.otp ?? 0 };
 }
 
 interface OtpRateRow {

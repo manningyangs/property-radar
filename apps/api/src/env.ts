@@ -28,6 +28,8 @@ export interface Env {
   EMAIL_DAILY_HARD_CAP?: string;
   /** OTP 每日预留上限（缺省 60） */
   OTP_DAILY_RESERVED_CAP?: string;
+  /** TASK-05B：前端站点根地址（邮件内页链接用；缺省本地开发地址） */
+  WEB_BASE_URL?: string;
 }
 
 export type AppEnv = {

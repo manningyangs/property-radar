@@ -1,9 +1,13 @@
-// TASK-05A：事件核心（PRD §2.8 事件中心 / §9.2 alert_events·notification_deliveries / §11）
+// TASK-05A/05B：事件核心（PRD §2.8 事件中心 / §9.2 alert_events·notification_deliveries / §11）
 // 红线（US-08/§8.8）：事件先落 alert_events，投递后置且 try/catch 隔离——
 // 邮件 provider 不可用/抛错绝不回滚、绝不删除站内事件。
-// 05A 不发送真实邮件（05B 经 dispatchNotification 的 sendEmail 接缝接入真实 provider），
-// email 行如实落 provider_error + provider_unavailable（不得谎称已发送）。
+// 05B：dispatchNotification 接真实发送（R1.1/R3.2/R3.3）——共享总帽核验 → 九要素正文 →
+// sendEvent 立即重试 1 次（共 2 次尝试）→ email 行 sent/provider_error/quota_deferred +
+// 账本 sent/quota_blocked；不配置网关时如实落 provider_unavailable（不谎称已发送 §11）。
 import type { Env } from "./env";
+import { buildEventMailContent } from "./email/content";
+import { createEmailProvider, EmailProviderError } from "./email/provider";
+import { emailQuotaUsed, notificationQuotaExceeded } from "./email/quota";
 
 export const EVENT_TYPES = [
   "target_price_reached",
@@ -70,14 +74,111 @@ export interface DispatchableEvent {
 
 export interface DispatchOptions {
   /**
-   * 邮件真实发送接缝（05B 在此接入 provider）。
-   * 05A 缺省不提供 → email 行落 provider_error/provider_unavailable；
-   * 测试注入抛错桩以验证「provider 故障 → 站内事件保留」。
+   * 邮件发送接缝（05B）：缺省走真实 provider（sendEventByEmail，九要素正文 + HMAC 网关）；
+   * 测试可注入成功桩/抛错桩替换“发送”这一步——额度核验、落行与重试计数仍由 dispatchNotification 负责。
    */
   sendEmail?: (event: DispatchableEvent) => Promise<void>;
 }
 
-/** 投递：in_app 必达（站内事件即投递本体）；email 按通知偏好占位，失败不影响事件 */
+/** 账本记账（R3.2：仅 sent/quota_blocked；不存收件人，request_id 用事件 ID 可追溯） */
+async function recordLedger(
+  env: Env,
+  template: "price_alert" | "daily_digest",
+  status: "sent" | "quota_blocked",
+  requestId: string,
+): Promise<void> {
+  const providerName = (env.EMAIL_PROVIDER ?? "google_apps_script_mail").trim();
+  await env.DB_PRIVATE.prepare(
+    `INSERT INTO email_send_ledger
+       (ledger_id, template, recipient_count, provider, status, request_id)
+     VALUES (?, ?, 1, ?, ?, ?)`,
+  )
+    .bind(crypto.randomUUID(), template, providerName, status, requestId)
+    .run();
+}
+
+/** 投递错误码分类（R3.3）：网关未配置=provider_unavailable（沿用 05A 语义），其余保留分类码；未知错误=provider_error */
+function deliveryErrorCode(err: unknown): string {
+  if (err instanceof EmailProviderError) {
+    const reason = err.message.split(":").pop() ?? "";
+    if (reason === "gateway_not_configured") return "provider_unavailable";
+    if (reason.length > 0) return reason;
+  }
+  return "provider_error";
+}
+
+/** 来源展示名：evidence 来源名 → 来源目录名 → “未知”（绝不把 source_id 写进正文） */
+async function resolveSourceName(
+  env: Env,
+  evidence: Record<string, unknown>,
+): Promise<string> {
+  const direct = evidence.source_name;
+  if (typeof direct === "string" && direct.length > 0) return direct;
+  const sourceId =
+    typeof evidence.source_id === "string"
+      ? evidence.source_id
+      : typeof evidence.latest_source_id === "string"
+        ? evidence.latest_source_id
+        : null;
+  if (!sourceId) return "未知";
+  const row = await env.DB_PUBLIC.prepare(
+    "SELECT name FROM data_sources_public WHERE source_id = ?",
+  )
+    .bind(sourceId)
+    .first<{ name: string }>();
+  return row?.name ?? "未知";
+}
+
+/**
+ * 缺省真实发送（R1.1/R1.2）：查事件行与收件邮箱 → 构造九要素正文 → provider.sendEvent。
+ * 重试统一由 dispatchNotification 负责，本函数单次尝试；正文与日志不落邮箱明文（R3.4）。
+ */
+async function sendEventByEmail(
+  env: Env,
+  event: DispatchableEvent,
+): Promise<void> {
+  const row = await env.DB_PRIVATE.prepare(
+    `SELECT event_type, old_value, new_value, target_value, difference_pct, evidence_json
+       FROM alert_events WHERE event_id = ?`,
+  )
+    .bind(event.eventId)
+    .first<{
+      event_type: string;
+      old_value: number | null;
+      new_value: number | null;
+      target_value: number | null;
+      difference_pct: number | null;
+      evidence_json: string | null;
+    }>();
+  if (!row) throw new EmailProviderError("event_missing");
+  const user = await env.DB_PRIVATE.prepare(
+    "SELECT email_normalized FROM users WHERE user_id = ?",
+  )
+    .bind(event.userId)
+    .first<{ email_normalized: string }>();
+  if (!user) throw new EmailProviderError("recipient_unavailable");
+
+  const evidence = JSON.parse(row.evidence_json ?? "{}") as Record<
+    string,
+    unknown
+  >;
+  const content = buildEventMailContent({
+    eventType: row.event_type,
+    values: {
+      oldValue: row.old_value,
+      newValue: row.new_value,
+      targetValue: row.target_value,
+      differencePct: row.difference_pct,
+    },
+    evidence,
+    sourceName: await resolveSourceName(env, evidence),
+    webBase: (env.WEB_BASE_URL ?? "http://localhost:4321").trim(),
+  });
+  const provider = createEmailProvider(env);
+  await provider.sendEvent({ to: user.email_normalized, ...content });
+}
+
+/** 投递：in_app 必达（站内事件即投递本体）；email 按偏好核验 → 共享总帽 → 发送（失败立即重试 1 次） */
 export async function dispatchNotification(
   env: Env,
   event: DispatchableEvent,
@@ -108,35 +209,98 @@ export async function dispatchNotification(
     if (setting !== null && setting.notify_email !== 1) return;
   }
 
-  // 3) 邮件行（05A：未接 provider → 如实 provider_error；不谎称已发送 §11）
-  const deliveryId = newId("dlv");
-  if (!opts.sendEmail) {
-    await env.DB_PRIVATE.prepare(
-      `INSERT INTO notification_deliveries
-         (delivery_id, event_id, user_id, channel, provider, status, attempt_count, last_error_code)
-       VALUES (?, ?, ?, 'email', 'apps_script', 'provider_error', 0, 'provider_unavailable')`,
-    )
-      .bind(deliveryId, event.eventId, event.userId)
-      .run();
+  // 3) R1.4 发送幂等：同事件已有非 quota_deferred 邮件投递行 → 不重复发送
+  const existing = await env.DB_PRIVATE.prepare(
+    `SELECT delivery_id, status FROM notification_deliveries
+      WHERE event_id = ? AND channel = 'email' LIMIT 1`,
+  )
+    .bind(event.eventId)
+    .first<{ delivery_id: string; status: string }>();
+  if (existing && existing.status !== "quota_deferred") return;
+
+  // 4) R3.2 共享总帽：达限不调 provider，投递行 quota_deferred（attempt 0）+ 账本 quota_blocked
+  const usage = await emailQuotaUsed(env.DB_PRIVATE);
+  if (notificationQuotaExceeded(env, usage)) {
+    if (existing) {
+      await env.DB_PRIVATE.prepare(
+        `UPDATE notification_deliveries
+            SET status = 'quota_deferred', attempt_count = 0,
+                last_error_code = 'quota_blocked', sent_at = NULL
+          WHERE delivery_id = ?`,
+      )
+        .bind(existing.delivery_id)
+        .run();
+    } else {
+      await env.DB_PRIVATE.prepare(
+        `INSERT INTO notification_deliveries
+           (delivery_id, event_id, user_id, channel, provider, status, attempt_count, last_error_code)
+         VALUES (?, ?, ?, 'email', 'apps_script', 'quota_deferred', 0, 'quota_blocked')`,
+      )
+        .bind(newId("dlv"), event.eventId, event.userId)
+        .run();
+    }
+    await recordLedger(env, "price_alert", "quota_blocked", event.eventId);
     return;
   }
-  try {
-    await opts.sendEmail(event);
+
+  // 5) 发送：缺省真实 provider；测试经 sendEmail 接缝注入桩。失败立即重试 1 次（共 2 次尝试，R3.3）
+  const send =
+    opts.sendEmail ?? ((ev: DispatchableEvent) => sendEventByEmail(env, ev));
+  let attempts = 0;
+  let failure: unknown = null;
+  for (let i = 0; i < 2; i += 1) {
+    attempts = i + 1;
+    try {
+      await send(event);
+      failure = null;
+      break;
+    } catch (err) {
+      failure = err;
+    }
+  }
+
+  const deliveryId = existing?.delivery_id ?? newId("dlv");
+  if (failure === null) {
+    if (existing) {
+      await env.DB_PRIVATE.prepare(
+        `UPDATE notification_deliveries
+            SET status = 'sent', attempt_count = ?, last_error_code = NULL,
+                sent_at = datetime('now')
+          WHERE delivery_id = ?`,
+      )
+        .bind(attempts, deliveryId)
+        .run();
+    } else {
+      await env.DB_PRIVATE.prepare(
+        `INSERT INTO notification_deliveries
+           (delivery_id, event_id, user_id, channel, provider, status, attempt_count, sent_at)
+         VALUES (?, ?, ?, 'email', 'apps_script', 'sent', ?, datetime('now'))`,
+      )
+        .bind(deliveryId, event.eventId, event.userId, attempts)
+        .run();
+    }
+    await recordLedger(env, "price_alert", "sent", event.eventId);
+    return;
+  }
+
+  // 只落错误码，不落错误消息（可能含收件人/上游内容，隐私最小化 R3.4）
+  const errorCode = deliveryErrorCode(failure);
+  if (existing) {
     await env.DB_PRIVATE.prepare(
-      `INSERT INTO notification_deliveries
-         (delivery_id, event_id, user_id, channel, provider, status, attempt_count, sent_at)
-       VALUES (?, ?, ?, 'email', 'apps_script', 'sent', 1, datetime('now'))`,
+      `UPDATE notification_deliveries
+          SET status = 'provider_error', attempt_count = ?, last_error_code = ?,
+              sent_at = NULL
+        WHERE delivery_id = ?`,
     )
-      .bind(deliveryId, event.eventId, event.userId)
+      .bind(attempts, errorCode, deliveryId)
       .run();
-  } catch {
-    // 只落错误码，不落错误消息（可能含收件人/上游内容，隐私最小化）
+  } else {
     await env.DB_PRIVATE.prepare(
       `INSERT INTO notification_deliveries
          (delivery_id, event_id, user_id, channel, provider, status, attempt_count, last_error_code)
-       VALUES (?, ?, ?, 'email', 'apps_script', 'provider_error', 1, 'provider_error')`,
+       VALUES (?, ?, ?, 'email', 'apps_script', 'provider_error', ?, ?)`,
     )
-      .bind(deliveryId, event.eventId, event.userId)
+      .bind(deliveryId, event.eventId, event.userId, attempts, errorCode)
       .run();
   }
 }

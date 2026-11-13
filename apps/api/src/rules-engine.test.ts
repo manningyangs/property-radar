@@ -190,7 +190,7 @@ describe("03C 五场景：目标价状态机", () => {
     expect(String(evidence.explanation)).toContain("目标价 30000");
     expect(Array.isArray(evidence.evidence_lines)).toBe(true);
     expect(ruleState("r1").armed_state).toBe("triggered");
-    // 投递占位：in_app 必达；email 如实 provider_error（05A 未接 provider）
+    // 投递落行：in_app 必达；网关未配置 → 如实 provider_error/provider_unavailable（不谎称已发送）
     expect(deliveries("in_app")).toHaveLength(1);
     expect(deliveries("in_app")[0]!.status).toBe("sent");
     const email = deliveries("email");
@@ -585,7 +585,8 @@ describe("投递占位与故障隔离（验收：邮件 provider 不可用时站
     const email = deliveries("email");
     expect(email).toHaveLength(1);
     expect(email[0]!.status).toBe("provider_error");
-    expect(email[0]!.attempt_count).toBe(1);
+    // 05B：失败立即重试 1 次 → 共 2 次尝试后放弃（R3.3）
+    expect(email[0]!.attempt_count).toBe(2);
     // 错误消息（可能含收件人）不入库，只落错误码
     expect(String(email[0]!.last_error_code)).toBe("provider_error");
     expect(JSON.stringify(email)).not.toContain("recipient@example.test");

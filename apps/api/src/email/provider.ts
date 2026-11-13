@@ -14,10 +14,64 @@ export interface OtpMail {
   ttlMinutes: number;
 }
 
+/**
+ * TASK-05B R1.2：事件邮件正文（九要素，全部为展示就绪的中文文案）。
+ * 字段名与取值均不使用内部字段名/表名/列名（PRD 任务行 1332 验收）。
+ */
+export interface EventMailContent {
+  subject: string;
+  /** 对象名称 */
+  object_name: string;
+  /** 指标中文名 */
+  metric_name: string;
+  /** 目标值（或跌幅阈值） */
+  target: string;
+  /** 当前值 */
+  current: string;
+  /** 价差（数值与百分比） */
+  gap: string;
+  /** 数据统计日期 */
+  date: string;
+  /** 来源名称 */
+  source: string;
+  /** 样本量 */
+  samples: string;
+  /** 站内页面链接 */
+  link: string;
+}
+
+/** 事件邮件（price_alert 模板） */
+export interface EventMail extends EventMailContent {
+  to: string;
+}
+
+/** 每日摘要邮件（daily_digest 模板）正文：概述行 + 事件明细行 + 页面链接 */
+export interface DigestMail {
+  to: string;
+  subject: string;
+  /** 摘要日期（北京） */
+  date: string;
+  /** 概述行（昨日价格变化/事件/监控与数据状态） */
+  summary_lines: string[];
+  /** 事件明细行（对象、类型、变化摘要、链接） */
+  event_rows: Array<{
+    object_name: string;
+    type_label: string;
+    change_summary: string;
+    link: string;
+  }>;
+  /** 事件中心页面链接 */
+  link: string;
+}
+
 export interface EmailProvider {
   readonly name: string;
   /** 发送登录验证码；失败抛 EmailProviderError（消息不含验证码/邮箱） */
   sendOtp(mail: OtpMail): Promise<void>;
+  /** 发送事件提醒邮件（price_alert）；失败抛 EmailProviderError */
+  sendEvent(mail: EventMail): Promise<void>;
+  /** 发送每日摘要邮件（daily_digest）；失败抛 EmailProviderError */
+  sendDigest(mail: DigestMail): Promise<void>;
 }
 
 /** 邮件网关失败（网络/配额/验签拒绝）；reason 为无敏感信息的分类码 */
