@@ -21,11 +21,11 @@
 - [x] Task 4: 前端
   - [x] SubTask 4.1: account.astro 五态状态机（不支持/granted+订阅+enabled=1→已开启+关闭/granted 未订阅或 enabled=0→已授权+开启/denied→已拒绝/default→未授权）；开启=requestPermission(仅click)→push-config→subscribe→POST→PATCH enabled=true；关闭=unsubscribe→DELETE(404 容忍)→PATCH false；DEMO 不打真实 API；api.ts 增 6 个推送函数（astro check 0 错）
   - [x] SubTask 4.2: sw.js `push` showNotification(title,{body,icon,badge,tag,data:{url}}，解析失败走通用标题) + `notificationclick` 聚焦跳转/开窗 + VERSION 20261113.1（sw-test PWA 验收全通过、build 13 页成功）
-- [ ] Task 5: 门禁与验收
+- [x] Task 5: 门禁与验收
   - [x] SubTask 5.1: `pnpm typecheck` / `pnpm lint` / `pnpm test` / `pnpm -r build` + `py -3 -m pytest collectors/tests` 全绿
   - [x] SubTask 5.2: 本地 18789 e2e——桩端点收到 vapid 头与密文、404 删订阅、cron 清 61 天休眠、CRUD 权限隔离（39/39 PASS；种子补公库来源三件套+ingest 台账清理、VAPID exp 断言改相对当前时间）
   - [x] SubTask 5.3: 生产部署（0007 remote 已应用=22 表、VAPID 两 Secret+SUBJECT var 已配）+ 生产冒烟 17/17（push-config 公钥一致、CRUD、404 死端点即删+subscription_expired 不重试、in_app sent 渠道独立）；浏览器验收 6/6（页面 fetch 登录、开启/关闭闭环、denied 降级、events 零回归；偏差：无头环境真实 subscribe 不可用，用 mock 订阅断言状态机）
-- [ ] Task 6: 报告与收尾
-  - [ ] SubTask 6.1: `docs/TASK-05C-浏览器通知验收报告.md`
-  - [ ] SubTask 6.2: 中文 commit（UTF-8 `-F`）→ push → 盯 CI 绿
-  - [ ] SubTask 6.3: checklist 勾选入库 → 记忆更新 → §12.0 收尾报告
+- [x] Task 6: 报告与收尾
+  - [x] SubTask 6.1: `docs/TASK-05C-浏览器通知验收报告.md`
+  - [x] SubTask 6.2: 中文 commit（UTF-8 `-F`）→ push → 盯 CI 绿（c6173ba 已推送，CI run 43401246012 success）
+  - [x] SubTask 6.3: checklist 勾选入库 → 记忆更新 → §12.0 收尾报告

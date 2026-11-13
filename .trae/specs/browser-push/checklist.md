@@ -21,9 +21,9 @@
 - [x] 本地 18789 e2e：桩端点 vapid+密文、404 删订阅、cron 清 61 天休眠、CRUD 隔离（39/39 PASS）
 - [x] 生产部署 + db:apply 0007 + 冒烟（push-config、订阅 CRUD、404 死端点清理链路）（17/17 PASS，私库 22 表）
 - [x] 浏览器验收：不弹窗断言、开启/关闭流、denied 降级、events 页零回归（6/6 PASS）
-- [ ] 中文 commit + push + CI 绿
+- [x] 中文 commit + push + CI 绿（主体 c6173ba 已推送，CI run 43401246012 success）
 - [x] 验收报告 `docs/TASK-05C-浏览器通知验收报告.md` 入库
-- [ ] 记忆更新（topics.md / project_memory.md）
+- [x] 记忆更新（topics.md 05C 完成条目 / project_memory.md 05C 教训 5 条）
 
 ## 偏差记录（实施期如实填写）
 
