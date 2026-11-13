@@ -28,10 +28,10 @@
   - [x] SubTask 6.1: `pnpm typecheck` / `pnpm lint` / `pnpm test`（181 tests）/ `pnpm -r build` 全绿 + `py -3 -m pytest collectors/tests`（100 passed）全绿（零 Python 改动回归）
   - [x] SubTask 6.2: 本地 wrangler dev 18789 e2e——规则五场景直发、系统事件（构造 failed job/老快照）、evaluate 端点签名调用、故障注入事件保留、隔离 404
   - [x] SubTask 6.3: 生产部署 e2e——`wrangler deploy`（含 cron）、签名调用 evaluate、事件/投递行冒烟、双用户隔离冒烟、邮件 provider_error 保留断言
-- [ ] Task 7: 验收报告与收尾
-  - [ ] SubTask 7.1: `docs/TASK-05A-站内事件中心验收报告.md`——五场景结果表、系统事件证据、故障注入对照、隔离验收、SLA/口径常量说明
-  - [ ] SubTask 7.2: 中文 commit `TASK-05A: …`（UTF-8 `git commit -F`）→ push → 盯 CI 绿
-  - [ ] SubTask 7.3: §12.0 收尾报告 → checklist 勾选入库 → 更新记忆 topics.md / project_memory.md
+- [x] Task 7: 验收报告与收尾
+  - [x] SubTask 7.1: `docs/TASK-05A-站内事件中心验收报告.md`——五场景结果表、系统事件证据、故障注入对照、隔离验收、SLA/口径常量说明
+  - [x] SubTask 7.2: 中文 commit `TASK-05A: …`（UTF-8 `git commit -F`）→ push → 盯 CI 绿（807f375 / run 43366957330 success）
+  - [x] SubTask 7.3: §12.0 收尾报告 → checklist 勾选入库 → 更新记忆 topics.md / project_memory.md
 
 # Task Dependencies
 
