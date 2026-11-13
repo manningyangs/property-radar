@@ -6,6 +6,14 @@ import { type AppEnv } from "../env";
 
 export const publicRoutes = new Hono<AppEnv>();
 
+// TASK-05C：浏览器推送 VAPID 公钥（只回非机密公钥；私钥只在 Worker Secrets）。
+// enabled=false → 前端提示「推送暂不可用」；未开启页面的访客也可安全调用（无用户数据）。
+publicRoutes.get("/push-config", (c) => {
+  const publicKey = c.env.VAPID_PUBLIC_KEY?.trim();
+  if (!publicKey) return c.json({ enabled: false });
+  return c.json({ enabled: true, public_key: publicKey });
+});
+
 const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 20;
 

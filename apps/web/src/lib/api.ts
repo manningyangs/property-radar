@@ -446,6 +446,73 @@ export async function getUnreadEventCount(): Promise<number> {
   return res.unread_count ?? 0;
 }
 
+// ---------------- 浏览器推送（TASK-05C） ----------------
+
+export interface PushConfig {
+  enabled: boolean;
+  /** base64url P-256 应用服务器公钥（enabled=false 时缺省） */
+  public_key?: string;
+}
+
+export interface PushSubscriptionCounts {
+  count: number;
+  active_count: number;
+}
+
+/** GET /public/push-config——订阅所需 VAPID 公钥（公开端点，401 不跳转） */
+export function getPushConfig(): Promise<PushConfig> {
+  return request("/public/push-config", { skipAuthRedirect: true });
+}
+
+/** GET /me/push-subscriptions——本人订阅聚合数（不回显 endpoint/密钥） */
+export function getPushSubscriptionCounts(): Promise<PushSubscriptionCounts> {
+  return request("/me/push-subscriptions", { skipAuthRedirect: true });
+}
+
+/** POST /me/push-subscriptions——upsert 订阅（返回 subscription_id，删除时需要） */
+export function createPushSubscription(
+  endpoint: string,
+  keys: { p256dh: string; auth: string },
+): Promise<{ subscription_id: string }> {
+  return request("/me/push-subscriptions", {
+    method: "POST",
+    body: JSON.stringify({ endpoint, keys }),
+  });
+}
+
+/** DELETE /me/push-subscriptions——按 subscription_id 删除（204 空体） */
+export function deletePushSubscription(subscriptionId: string): Promise<null> {
+  return request("/me/push-subscriptions", {
+    method: "DELETE",
+    body: JSON.stringify({ subscription_id: subscriptionId }),
+  });
+}
+
+export interface NotificationPreferences {
+  email_enabled: boolean;
+  digest_enabled: boolean;
+  digest_time: string;
+  browser_push_enabled: boolean;
+  timezone: string;
+}
+
+/** GET /me/notification-preferences——含 browser_push_enabled（未登录 401 不跳转） */
+export function getNotificationPreferences(): Promise<{
+  preferences: NotificationPreferences;
+}> {
+  return request("/me/notification-preferences", { skipAuthRedirect: true });
+}
+
+/** PATCH /me/notification-preferences——browser_push_enabled 联动开关 */
+export function patchNotificationPreferences(patch: {
+  browser_push_enabled?: boolean;
+}): Promise<{ preferences: NotificationPreferences }> {
+  return request("/me/notification-preferences", {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
 // ---------------- 公共目录（添加监控流程的数据源） ----------------
 
 export interface CityItem {

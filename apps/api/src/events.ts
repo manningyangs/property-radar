@@ -8,6 +8,7 @@ import type { Env } from "./env";
 import { buildEventMailContent } from "./email/content";
 import { createEmailProvider, EmailProviderError } from "./email/provider";
 import { emailQuotaUsed, notificationQuotaExceeded } from "./email/quota";
+import { PushError, sendPush } from "./push";
 
 export const EVENT_TYPES = [
   "target_price_reached",
@@ -78,6 +79,11 @@ export interface DispatchOptions {
    * 测试可注入成功桩/抛错桩替换“发送”这一步——额度核验、落行与重试计数仍由 dispatchNotification 负责。
    */
   sendEmail?: (event: DispatchableEvent) => Promise<void>;
+  /**
+   * 浏览器推送发送接缝（05C）：缺省走真实 sendPush（VAPID ES256 + RFC 8291 aes128gcm 单次尝试）；
+   * 测试可注入成功桩/抛错桩/404 桩——偏好与订阅核验、幂等、重试计数与落行仍由 dispatchNotification 负责。
+   */
+  sendPush?: (event: DispatchableEvent) => Promise<void>;
 }
 
 /** 账本记账（R3.2：仅 sent/quota_blocked；不存收件人，request_id 用事件 ID 可追溯） */
@@ -178,7 +184,7 @@ async function sendEventByEmail(
   await provider.sendEvent({ to: user.email_normalized, ...content });
 }
 
-/** 投递：in_app 必达（站内事件即投递本体）；email 按偏好核验 → 共享总帽 → 发送（失败立即重试 1 次） */
+/** 投递：in_app 必达（站内事件即投递本体）；email（05B）与 browser_push（05C）两渠道各自核验/重试/落行，互不阻断 */
 export async function dispatchNotification(
   env: Env,
   event: DispatchableEvent,
@@ -193,6 +199,26 @@ export async function dispatchNotification(
     .bind(newId("dlv"), event.eventId, event.userId)
     .run();
 
+  // 2) 邮件渠道（05B）：偏好/幂等/总帽/重试的短路全部封闭在渠道内（早退只表示邮件不发）
+  await dispatchEmailChannel(env, event, opts);
+
+  // 3) 浏览器推送渠道（05C）：独立 try/catch——任何推送故障绝不影响站内与邮件已完成的投递
+  try {
+    await dispatchPushChannel(env, event, opts);
+  } catch {
+    // 未知故障（库异常等）静默保全其他渠道；正常失败已按分类码落 browser_push 投递行
+  }
+}
+
+/**
+ * 邮件渠道（05B）：偏好 → 幂等 → 共享总帽 → 发送/重试 → 落行。
+ * 内部 return = 邮件不发；站内与推送渠道不受影响（05C 渠道独立拍板）。
+ */
+async function dispatchEmailChannel(
+  env: Env,
+  event: DispatchableEvent,
+  opts: DispatchOptions,
+): Promise<void> {
   // 2) 邮件偏好（缺行 = 默认开，0001 DEFAULT 1；规则侧缺行 = 默认开）
   const pref = await env.DB_PRIVATE.prepare(
     "SELECT email_enabled FROM notification_preferences WHERE user_id = ?",
@@ -301,6 +327,83 @@ export async function dispatchNotification(
        VALUES (?, ?, ?, 'email', 'apps_script', 'provider_error', ?, ?)`,
     )
       .bind(deliveryId, event.eventId, event.userId, attempts, errorCode)
+      .run();
+  }
+}
+
+/**
+ * 浏览器推送渠道（05C 拍板 4：全部事件与站内一致）：
+ * 偏好核验（browser_push_enabled 缺行 = 0 不推）→ 有效订阅 → 幂等 → 发送/重试 → 落行。
+ * 不查邮件帽、不落 quota_deferred（渠道独立）；只落错误码不落 endpoint（红线）。
+ */
+async function dispatchPushChannel(
+  env: Env,
+  event: DispatchableEvent,
+  opts: DispatchOptions,
+): Promise<void> {
+  const pushPref = await env.DB_PRIVATE.prepare(
+    "SELECT browser_push_enabled FROM notification_preferences WHERE user_id = ?",
+  )
+    .bind(event.userId)
+    .first<{ browser_push_enabled: number }>();
+  if (pushPref?.browser_push_enabled !== 1) return; // 缺行 = 0（0001 DEFAULT 0）不推
+
+  const subscription = await env.DB_PRIVATE.prepare(
+    `SELECT subscription_id FROM push_subscriptions
+      WHERE user_id = ? AND status = 'active' LIMIT 1`,
+  )
+    .bind(event.userId)
+    .first<{ subscription_id: string }>();
+  if (!subscription) return; // 无有效订阅：跳过，不落行
+
+  // 幂等：同事件已有 browser_push 行（任何状态）不重发（与邮件 R1.4 同构；push 无 quota 态）
+  const pushed = await env.DB_PRIVATE.prepare(
+    `SELECT delivery_id FROM notification_deliveries
+      WHERE event_id = ? AND channel = 'browser_push' LIMIT 1`,
+  )
+    .bind(event.eventId)
+    .first<{ delivery_id: string }>();
+  if (pushed) return;
+
+  // 发送：缺省真实 sendPush（VAPID + RFC 8291 单次尝试）；测试经 sendPush 接缝注入桩。
+  // 429/5xx/网络 = 瞬时失败立即重试 1 次（共 2 次尝试，与邮件 R3.3 一致）；
+  // 404/410（subscription_expired，sendPush 内已删订阅）与其他 4xx 立即收口不重试。
+  const send = opts.sendPush ?? ((ev: DispatchableEvent) => sendPush(env, ev));
+  let attempts = 0;
+  let failure: unknown = null;
+  for (let i = 0; i < 2; i += 1) {
+    attempts = i + 1;
+    try {
+      await send(event);
+      failure = null;
+      break;
+    } catch (err) {
+      failure = err;
+      if (!(err instanceof PushError) || !err.retryable) break;
+    }
+  }
+  const errorCode =
+    failure === null
+      ? null
+      : failure instanceof PushError
+        ? failure.code
+        : "provider_error";
+
+  if (failure === null) {
+    await env.DB_PRIVATE.prepare(
+      `INSERT INTO notification_deliveries
+         (delivery_id, event_id, user_id, channel, provider, status, attempt_count, sent_at)
+       VALUES (?, ?, ?, 'browser_push', 'web_push', 'sent', ?, datetime('now'))`,
+    )
+      .bind(newId("dlv"), event.eventId, event.userId, attempts)
+      .run();
+  } else {
+    await env.DB_PRIVATE.prepare(
+      `INSERT INTO notification_deliveries
+         (delivery_id, event_id, user_id, channel, provider, status, attempt_count, last_error_code)
+       VALUES (?, ?, ?, 'browser_push', 'web_push', 'provider_error', ?, ?)`,
+    )
+      .bind(newId("dlv"), event.eventId, event.userId, attempts, errorCode)
       .run();
   }
 }

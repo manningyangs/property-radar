@@ -7,7 +7,7 @@
  *  - 登出时通过 PURGE_PRIVATE 消息清理页面缓存与 meta。
  */
 
-const VERSION = "20261111.1";
+const VERSION = "20261113.1";
 const STATIC_CACHE = `pr-static-${VERSION}`;
 const PAGE_CACHE = `pr-pages-${VERSION}`;
 /** meta 缓存跨版本保留（存缓存时间），仅在 PURGE_PRIVATE 或 activate 显式清理逻辑外保护 */
@@ -98,6 +98,63 @@ self.addEventListener("message", (event) => {
       })(),
     );
   }
+});
+
+/* ============ TASK-05C：Web Push 通知（spec §5.2） ============ */
+
+// 服务端下发 payload：{ title, body, url, tag }（push.ts buildPushPayload 同源拼装）
+self.addEventListener("push", (event) => {
+  event.waitUntil(
+    (async () => {
+      let data = null;
+      try {
+        data = event.data ? event.data.json() : null;
+      } catch {
+        data = null; // 解析失败走通用标题，不白屏
+      }
+      const title =
+        (data && typeof data.title === "string" && data.title) || "房价雷达";
+      const body =
+        data && typeof data.body === "string" && data.body
+          ? data.body
+          : "有新的监控事件，点击查看。";
+      const tag =
+        data && typeof data.tag === "string" && data.tag
+          ? data.tag
+          : "property-radar-event";
+      const url = data && typeof data.url === "string" ? data.url : "/events";
+      await self.registration.showNotification(title, {
+        body,
+        icon: "/icons/icon-192.png",
+        badge: "/icons/icon-192.png",
+        tag,
+        data: { url },
+      });
+    })(),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  const url = typeof data.url === "string" ? data.url : "/events";
+  event.waitUntil(
+    (async () => {
+      const allClients = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      // 已有窗口：聚焦并跳转到事件页；否则开新窗
+      for (const client of allClients) {
+        if ("focus" in client) {
+          await client.focus();
+          if ("navigate" in client) await client.navigate(url);
+          return;
+        }
+      }
+      await self.clients.openWindow(url);
+    })(),
+  );
 });
 
 self.addEventListener("fetch", (event) => {

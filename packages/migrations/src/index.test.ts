@@ -30,6 +30,7 @@ const PRIVATE_TABLES = [
   "ingest_nonces",
   "notification_deliveries",
   "notification_preferences",
+  "push_subscriptions",
   "sessions",
   "source_approvals",
   "source_health_reports",
@@ -367,7 +368,7 @@ describe("Public D1（radar_public）", () => {
 });
 
 describe("Private D1（radar_private）", () => {
-  it("up 建出全部 21 张表，且重复执行（幂等）不报错", () => {
+  it("up 建出全部 22 张表，且重复执行（幂等）不报错", () => {
     const db = createDb();
     applyMigrations(db, "private", "up");
     expect(tablesOf(db).sort()).toEqual(PRIVATE_TABLES);
@@ -396,6 +397,34 @@ describe("Private D1（radar_private）", () => {
     expect(idx).toContain("ix_email_otps_email_purpose_expires"); // email_otps(email_normalized, purpose, expires_at)
     expect(idx).toContain("ix_email_send_ledger_created"); // email_send_ledger(created_at, status, template) 配额求和
     expect(idx).toContain("ix_watch_item_groups_user_group"); // watch_item_groups(user_id, group_name) 分组筛选
+    expect(idx).toContain("ix_push_subs_user_status"); // push_subscriptions(user_id, status) 推送订阅查询
+  });
+
+  it("push_subscriptions（TASK-05C）：endpoint 唯一、status CHECK、删用户级联", () => {
+    const db = createDb();
+    applyMigrations(db, "private", "up");
+    db.prepare(
+      "INSERT INTO users (user_id, email_normalized) VALUES ('usr_push', 'push.user@example.com')",
+    ).run();
+    const ins =
+      "INSERT INTO push_subscriptions (subscription_id, user_id, endpoint, p256dh, auth) VALUES (?, 'usr_push', ?, 'p256dh-x', 'auth-x')";
+    db.prepare(ins).run("sub_1", "https://push.example.com/ep/secret-1");
+    // endpoint UNIQUE：同一端点重复订阅被拒
+    expect(() =>
+      db.prepare(ins).run("sub_2", "https://push.example.com/ep/secret-1"),
+    ).toThrow();
+    // status CHECK：非法状态被拒
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO push_subscriptions (subscription_id, user_id, endpoint, p256dh, auth, status) VALUES ('sub_3', 'usr_push', 'https://push.example.com/ep/secret-3', 'k', 'a', 'bogus')",
+        )
+        .run(),
+    ).toThrow();
+    // 删除用户级联清空订阅（安全存储生命周期）
+    db.prepare("DELETE FROM users WHERE user_id = 'usr_push'").run();
+    expect(db.prepare("SELECT * FROM push_subscriptions").all()).toEqual([]);
+    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   });
 
   it("邮件配额账本可按滚动 24 小时求和（TASK-02C 硬上限依据）", () => {

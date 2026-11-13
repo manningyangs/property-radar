@@ -30,6 +30,13 @@ export interface Env {
   OTP_DAILY_RESERVED_CAP?: string;
   /** TASK-05B：前端站点根地址（邮件内页链接用；缺省本地开发地址） */
   WEB_BASE_URL?: string;
+  // ---- TASK-05C：浏览器推送 VAPID（RFC 8296） ----
+  /** VAPID ES256 私钥：PKCS#8 DER 的 base64url（Secret；缺失时推送走 provider_unavailable 降级） */
+  VAPID_PRIVATE_KEY?: string;
+  /** VAPID 公钥：P-256 未压缩点 65 字节的 base64url（非机密；经 GET /public/push-config 分发给浏览器作 applicationServerKey） */
+  VAPID_PUBLIC_KEY?: string;
+  /** VAPID JWT 的 sub（mailto: 或 https: 联系方式；缺省 mailto:admin@example.com） */
+  VAPID_SUBJECT?: string;
 }
 
 export type AppEnv = {

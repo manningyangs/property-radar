@@ -13,7 +13,9 @@
   "vars": {
     "EMAIL_PROVIDER": "google_apps_script_mail",
     "EMAIL_DAILY_HARD_CAP": "80",
-    "OTP_DAILY_RESERVED_CAP": "60"
+    "OTP_DAILY_RESERVED_CAP": "60",
+    // TASK-05C：VAPID 联系方（非敏感，spec §3：缺省 mailto:admin@example.com）；两把 VAPID 密钥用 wrangler secret put
+    "VAPID_SUBJECT": "mailto:admin@example.com"
   },
   // TASK-05A §6.6：每日系统事件评估（更新延迟/数据异常）——UTC 00:30 = 北京 08:30
   "triggers": { "crons": ["30 0 * * *", "30 23 * * *"] }, // 北京08:30事件评估（05A）+ 北京07:30每日摘要（05B）

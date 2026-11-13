@@ -281,59 +281,213 @@ const channels = [
   }
   channelBoxes.forEach((box) => box.addEventListener("change", saveChannels));
 
-  // ===== 浏览器推送：真实 Notification 权限状态（读取不触发弹窗） =====
+  // ===== 浏览器推送（TASK-05C spec §5.1）：五态状态机（读取不触发弹窗） =====
+  // 状态：不支持 / 已开启（granted+订阅+enabled=1）/ 已授权（granted 但未订阅或未开启）
+  //       / 已拒绝 / 未授权（default）。requestPermission 仅在「开启」click 内调用。
+  const DEMO_PUSH = import.meta.env.PUBLIC_DEMO_DATA === "1";
+  const PUSH_SUB_ID_KEY = "pr:push:subscription_id";
+
   const pushHint = document.querySelector<HTMLElement>("[data-push-hint]");
   const pushBadge = document.querySelector<HTMLElement>("[data-push-status]");
   const pushDenied = document.querySelector<HTMLElement>("[data-push-denied]");
   const pushBtn = document.querySelector<HTMLButtonElement>("[data-push-request]");
 
-  const renderPush = () => {
-    if (typeof window.Notification === "undefined") {
-      if (pushBadge) {
-        pushBadge.textContent = "环境不支持";
-        pushBadge.className = "badge badge--neutral";
-      }
-      if (pushHint) pushHint.textContent = "当前环境不支持浏览器推送，可改用邮件与站内事件。";
+  type PushApi = typeof import("../lib/api");
+  let apiMod: PushApi | null = null;
+  // 按需加载 API 模块：未启用真实交互前不引入额外请求（DEMO 完全不打真实 API）
+  const loadApi = async (): Promise<PushApi> => {
+    apiMod ??= await import("../lib/api");
+    return apiMod;
+  };
+
+  const setPushBadge = (text: string, cls: string) => {
+    if (pushBadge) {
+      pushBadge.textContent = text;
+      pushBadge.className = `badge ${cls}`;
+    }
+  };
+
+  /** 读取 browser_push_enabled（未登录 401 → 视为未开启，不跳转） */
+  async function readPushEnabled(): Promise<boolean> {
+    if (DEMO_PUSH) return false;
+    try {
+      const { getNotificationPreferences } = await loadApi();
+      const res = await getNotificationPreferences();
+      return res.preferences.browser_push_enabled;
+    } catch {
+      return false; // 401/网络失败：按未开启渲染，点击时再走既有 401 跳转
+    }
+  }
+
+  /** 当前是否有有效推送订阅（未注册 SW 视为无订阅，不阻塞等待） */
+  async function readSubscription(): Promise<PushSubscription | null> {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return null;
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg?.pushManager) return null;
+    return reg.pushManager.getSubscription();
+  }
+
+  async function renderPush(): Promise<void> {
+    // 不支持：无 Notification / 无 PushManager / 非安全上下文（iOS Safari 需 PWA）
+    if (
+      typeof window.Notification === "undefined" ||
+      !("PushManager" in window) ||
+      !window.isSecureContext
+    ) {
+      setPushBadge("环境不支持", "badge--neutral");
+      if (pushHint)
+        pushHint.textContent = "当前环境不支持浏览器推送，可改用邮件与站内事件。";
       if (pushBtn) pushBtn.disabled = true;
       return;
     }
     const permission = window.Notification.permission;
-    if (permission === "granted") {
-      if (pushBadge) {
-        pushBadge.textContent = "已授权";
-        pushBadge.className = "badge badge--down";
-      }
-      if (pushHint) pushHint.textContent = "达到目标价时可直接推送到系统通知。";
-      if (pushDenied) pushDenied.classList.add("is-hidden");
-      if (pushBtn) pushBtn.disabled = true;
-    } else if (permission === "denied") {
-      if (pushBadge) {
-        pushBadge.textContent = "已拒绝";
-        pushBadge.className = "badge badge--danger";
-      }
+    if (permission === "denied") {
+      setPushBadge("已拒绝", "badge--danger");
       if (pushHint) pushHint.textContent = "权限已被拒绝，无法再次弹出授权。";
-      if (pushDenied) pushDenied.classList.remove("is-hidden");
+      pushDenied?.classList.remove("is-hidden");
       if (pushBtn) pushBtn.disabled = true;
-    } else {
-      if (pushBadge) {
-        pushBadge.textContent = "未授权";
-        pushBadge.className = "badge badge--warning";
-      }
-      if (pushHint) pushHint.textContent = "点击“开启”向浏览器申请通知权限。";
-      if (pushDenied) pushDenied.classList.add("is-hidden");
-      if (pushBtn) pushBtn.disabled = false;
+      return;
     }
-  };
-  renderPush();
+    pushDenied?.classList.add("is-hidden");
+    if (permission === "default") {
+      setPushBadge("未授权", "badge--warning");
+      if (pushHint) pushHint.textContent = "点击“开启”向浏览器申请通知权限。";
+      if (pushBtn) {
+        pushBtn.disabled = false;
+        pushBtn.textContent = "开启";
+      }
+      return;
+    }
+    // permission=granted：区分「已开启」与「已授权未开启」
+    const [subscription, enabled] = await Promise.all([
+      readSubscription(),
+      readPushEnabled(),
+    ]);
+    if (subscription && enabled) {
+      setPushBadge("已开启", "badge--down");
+      if (pushHint) pushHint.textContent = "达到目标价时会推送到系统通知，可随时关闭。";
+      if (pushBtn) {
+        pushBtn.disabled = false;
+        pushBtn.textContent = "关闭";
+      }
+    } else {
+      setPushBadge("已授权", "badge--down");
+      if (pushHint) pushHint.textContent = "权限已授予，点击“开启”完成订阅。";
+      if (pushBtn) {
+        pushBtn.disabled = false;
+        pushBtn.textContent = "开启";
+      }
+    }
+  }
+  void renderPush();
+
+  /** base64url → Uint8Array（pushManager.subscribe 的 applicationServerKey） */
+  function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
+    const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+    const raw = atob((base64 + padding).replace(/-/g, "+").replace(/_/g, "/"));
+    const out = new Uint8Array(new ArrayBuffer(raw.length));
+    for (let i = 0; i < raw.length; i += 1) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  /** 「开启」：requestPermission（仅此触发弹窗）→ 订阅 → 存库 → enabled 联动 */
+  async function enablePush(): Promise<void> {
+    if (typeof window.Notification === "undefined") return;
+    if (DEMO_PUSH) {
+      // 演示模式：仅本地权限演示，不打真实 API、不真实订阅
+      const result = await window.Notification.requestPermission();
+      toast(
+        result === "granted"
+          ? "演示环境不会真实订阅（仅本地权限演示）"
+          : result === "denied"
+            ? "已拒绝：演示环境自动降级为邮件 + 站内事件"
+            : "未选择权限，可随时再试",
+      );
+      await renderPush();
+      return;
+    }
+    const api = await loadApi();
+    // 1) 只在 click 中申请权限
+    const result = await window.Notification.requestPermission();
+    if (result !== "granted") {
+      toast(
+        result === "denied"
+          ? "已拒绝：自动降级为邮件 + 站内事件"
+          : "未选择权限，可随时再试",
+      );
+      await renderPush();
+      return;
+    }
+    try {
+      // 2) 拉取 VAPID 公钥（未配置 → 提示并保持既有渠道）
+      let subscription = await readSubscription();
+      if (!subscription) {
+        const cfg = await api.getPushConfig();
+        if (!cfg.enabled || !cfg.public_key) {
+          toast("推送服务未配置，请改用邮件与站内事件");
+          await renderPush();
+          return;
+        }
+        if (!("serviceWorker" in navigator)) throw new Error("无 Service Worker");
+        const reg = await navigator.serviceWorker.ready;
+        // 3) 浏览器订阅
+        subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(cfg.public_key),
+        });
+      }
+      const json = subscription.toJSON();
+      if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
+        throw new Error("订阅数据不完整");
+      }
+      // 4) 存库（返回 subscription_id 供关闭时删除）→ 5) 联动 enabled=1
+      const created = await api.createPushSubscription(json.endpoint, {
+        p256dh: json.keys.p256dh,
+        auth: json.keys.auth,
+      });
+      window.localStorage.setItem(PUSH_SUB_ID_KEY, created.subscription_id);
+      await api.patchNotificationPreferences({ browser_push_enabled: true });
+      toast("浏览器推送已开启");
+    } catch (err) {
+      // 任一步失败不改变既有渠道（邮件/站内零影响）
+      const message = err instanceof Error ? err.message : "未知错误";
+      toast(`开启失败：${message}（邮件与站内事件不受影响）`);
+    }
+    await renderPush();
+  }
+
+  /** 「关闭」：unsubscribe → DELETE 订阅 → enabled=0（401 按 api.ts 既有跳转） */
+  async function disablePush(): Promise<void> {
+    if (DEMO_PUSH) {
+      toast("演示环境未真实订阅，无需关闭");
+      return;
+    }
+    const api = await loadApi();
+    try {
+      const subscription = await readSubscription();
+      if (subscription) await subscription.unsubscribe();
+      const subId = window.localStorage.getItem(PUSH_SUB_ID_KEY);
+      if (subId) {
+        try {
+          await api.deletePushSubscription(subId);
+        } catch (err) {
+          // 服务端已清理（404）不算失败；其他错误上抛
+          if (!(err instanceof api.ApiError && err.status === 404)) throw err;
+        }
+        window.localStorage.removeItem(PUSH_SUB_ID_KEY);
+      }
+      await api.patchNotificationPreferences({ browser_push_enabled: false });
+      toast("浏览器推送已关闭（邮件与站内事件不受影响）");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "未知错误";
+      toast(`关闭失败：${message}`);
+    }
+    await renderPush();
+  }
 
   pushBtn?.addEventListener("click", () => {
-    if (typeof window.Notification === "undefined") return;
-    void window.Notification.requestPermission().then((result) => {
-      renderPush();
-      if (result === "granted") toast("浏览器推送已开启");
-      else if (result === "denied") toast("已拒绝：自动降级为邮件 + 站内事件");
-      else toast("未选择权限，可随时再试");
-    });
+    if (pushBtn.textContent === "关闭") void disablePush();
+    else void enablePush();
   });
 
   // ===== 覆盖申请（本地演示，诚实确认） =====

@@ -12,8 +12,10 @@ import { type AppEnv } from "../env";
 import { EVENT_TYPES, type EventType } from "../events";
 import { readJsonBody, validateOrThrow } from "../validation";
 import {
+  createPushSubscriptionSchema,
   createRuleSchema,
   createWatchItemSchema,
+  deletePushSubscriptionSchema,
   eventReadSchema,
   patchPreferencesSchema,
   patchRuleSchema,
@@ -1031,6 +1033,103 @@ meRoutes.patch("/notification-preferences", async (c) => {
     )
     .run();
   return c.json({ preferences: prefToJson(next) });
+});
+
+// ---------------- 浏览器推送订阅（TASK-05C / spec §3.2） ----------------
+
+// POST /me/push-subscriptions —— upsert（同 endpoint 重复订阅 = 更新密钥并复活）
+meRoutes.post("/push-subscriptions", async (c) => {
+  const body = await jsonBody(c);
+  validateOrThrow(createPushSubscriptionSchema, body);
+  const input = body as {
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+  };
+  // schema pattern 已保证 http(s) 前缀，这里做 URL 语义校验（非法 URL → 400）
+  try {
+    const url = new URL(input.endpoint);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error("protocol");
+    }
+  } catch {
+    throw errors.validation([
+      { field: "/endpoint", message: "必须是合法的 http(s) URL" },
+    ]);
+  }
+  const userId = c.get("userId");
+  const existing = await c.env.DB_PRIVATE.prepare(
+    "SELECT subscription_id, user_id FROM push_subscriptions WHERE endpoint = ?",
+  )
+    .bind(input.endpoint)
+    .first<{ subscription_id: string; user_id: string }>();
+  if (existing && existing.user_id !== userId) {
+    // endpoint 是机密资源：他人订阅按冲突处理，不回显也不泄露存在性细节
+    throw errors.conflict("该订阅端点已被使用");
+  }
+  try {
+    if (existing) {
+      await c.env.DB_PRIVATE.prepare(
+        `UPDATE push_subscriptions
+         SET p256dh = ?, auth = ?, status = 'active', last_seen_at = datetime('now')
+         WHERE subscription_id = ? AND user_id = ?`,
+      )
+        .bind(
+          input.keys.p256dh,
+          input.keys.auth,
+          existing.subscription_id,
+          userId,
+        )
+        .run();
+      return c.json({ subscription_id: existing.subscription_id }, 201);
+    }
+    const subscriptionId = `psub_${crypto.randomUUID()}`;
+    await c.env.DB_PRIVATE.prepare(
+      `INSERT INTO push_subscriptions (subscription_id, user_id, endpoint, p256dh, auth)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+      .bind(
+        subscriptionId,
+        userId,
+        input.endpoint,
+        input.keys.p256dh,
+        input.keys.auth,
+      )
+      .run();
+    return c.json({ subscription_id: subscriptionId }, 201);
+  } catch (e) {
+    mapDbError(e); // endpoint UNIQUE 并发冲突 → 409
+  }
+});
+
+// GET /me/push-subscriptions —— 仅聚合数（endpoint 含机密路径段，不回显列表）
+meRoutes.get("/push-subscriptions", async (c) => {
+  const row = await c.env.DB_PRIVATE.prepare(
+    `SELECT COUNT(*) AS count,
+       SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active_count
+     FROM push_subscriptions WHERE user_id = ?`,
+  )
+    .bind(c.get("userId"))
+    .first<{ count: number; active_count: number | null }>();
+  return c.json({
+    count: Number(row?.count ?? 0),
+    active_count: Number(row?.active_count ?? 0),
+  });
+});
+
+// DELETE /me/push-subscriptions —— body 携带 subscription_id；不存在/非本人 → 404
+meRoutes.delete("/push-subscriptions", async (c) => {
+  const body = await jsonBody(c);
+  validateOrThrow(deletePushSubscriptionSchema, body);
+  const { subscription_id: subscriptionId } = body as {
+    subscription_id: string;
+  };
+  const res = await c.env.DB_PRIVATE.prepare(
+    "DELETE FROM push_subscriptions WHERE subscription_id = ? AND user_id = ?",
+  )
+    .bind(subscriptionId, c.get("userId"))
+    .run();
+  if ((res.meta.changes ?? 0) === 0) throw errors.notFound("订阅不存在");
+  return c.body(null, 204);
 });
 
 // ---------------- 摘要与账户 ----------------

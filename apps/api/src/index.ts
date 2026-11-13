@@ -3,6 +3,7 @@ import { createApp } from "./app";
 import { sendDailyDigest } from "./digest";
 import type { Env } from "./env";
 import { logError } from "./log";
+import { cleanupStalePushSubscriptions } from "./push";
 import { evaluateSystemEvents } from "./rules-engine";
 
 const app = createApp();
@@ -29,6 +30,22 @@ async function scheduled(
         .catch((err: unknown) => {
           logError({
             request_id: "cron-daily-digest",
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }),
+    );
+    // TASK-05C：随每日摘要清理 60 天未活跃的推送订阅（独立 waitUntil + catch，
+    // 与摘要互不阻塞；日志记录 removed 计数便于核对清理量）
+    ctx.waitUntil(
+      cleanupStalePushSubscriptions(env)
+        .then((removed) => {
+          console.log(
+            JSON.stringify({ request_id: "cron-push-cleanup", removed }),
+          );
+        })
+        .catch((err: unknown) => {
+          logError({
+            request_id: "cron-push-cleanup",
             message: err instanceof Error ? err.message : String(err),
           });
         }),

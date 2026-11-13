@@ -2,8 +2,9 @@
 // 限流、日志脱敏（PRD §10 / §TASK-02B 要求）。
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "./app";
+import worker from "./index";
 import { redact } from "./log";
-import { createTestEnv } from "./test-utils/setup";
+import { createTestEnv, seedUser } from "./test-utils/setup";
 
 describe("健康检查与错误信封", () => {
   it("GET /api/health 返回 200 与服务名", async () => {
@@ -176,5 +177,86 @@ describe("日志脱敏（PRD §12.0-5）", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe("TASK-05C scheduled 推送订阅清理（SubTask 3.3）", () => {
+  it("digest cron 分支附带清理 61 天休眠订阅并记录 removed 计数，活跃订阅保留", async () => {
+    const { env, priv } = createTestEnv();
+    await seedUser(priv, "usr_cron", "cron@example.com", "tok-cron");
+    // 休眠 61 天（>60 天阈值）与昨天活跃的两条订阅
+    priv
+      .prepare(
+        `INSERT INTO push_subscriptions (subscription_id, user_id, endpoint, p256dh, auth, last_seen_at)
+         VALUES ('psub_stale', 'usr_cron', 'https://push.test/stale', 'k', 'a', datetime('now', '-61 days'))`,
+      )
+      .run();
+    priv
+      .prepare(
+        `INSERT INTO push_subscriptions (subscription_id, user_id, endpoint, p256dh, auth, last_seen_at)
+         VALUES ('psub_fresh', 'usr_cron', 'https://push.test/fresh', 'k', 'a', datetime('now', '-1 day'))`,
+      )
+      .run();
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const pending: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil: (p: Promise<unknown>) => {
+        pending.push(p);
+      },
+    };
+    try {
+      await worker.scheduled(
+        { cron: "30 23 * * *" } as ScheduledController,
+        env,
+        ctx as unknown as ExecutionContext,
+      );
+      // waitUntil 的任务（摘要 + 订阅清理）全部完成
+      await Promise.all(pending);
+      const logged = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(logged).toContain('"request_id":"cron-push-cleanup"');
+      expect(logged).toContain('"removed":1');
+    } finally {
+      logSpy.mockRestore();
+    }
+    const rows = priv
+      .prepare(
+        "SELECT subscription_id FROM push_subscriptions ORDER BY subscription_id",
+      )
+      .all() as Array<{ subscription_id: string }>;
+    expect(rows.map((r) => r.subscription_id)).toEqual(["psub_fresh"]);
+  });
+
+  it("非 digest cron（事件评估分支）不触发订阅清理", async () => {
+    const { env, priv } = createTestEnv();
+    await seedUser(priv, "usr_cron2", "cron2@example.com", "tok-cron2");
+    priv
+      .prepare(
+        `INSERT INTO push_subscriptions (subscription_id, user_id, endpoint, p256dh, auth, last_seen_at)
+         VALUES ('psub_stale2', 'usr_cron2', 'https://push.test/stale2', 'k', 'a', datetime('now', '-61 days'))`,
+      )
+      .run();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const pending: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil: (p: Promise<unknown>) => {
+        pending.push(p);
+      },
+    };
+    try {
+      await worker.scheduled(
+        { cron: "0 30 * * *" } as ScheduledController,
+        env,
+        ctx as unknown as ExecutionContext,
+      );
+      await Promise.all(pending);
+      const logged = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(logged).not.toContain("cron-push-cleanup");
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(
+      priv.prepare("SELECT COUNT(*) AS n FROM push_subscriptions").get(),
+    ).toEqual({ n: 1 });
   });
 });

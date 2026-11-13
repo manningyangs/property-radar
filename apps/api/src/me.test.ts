@@ -1580,3 +1580,222 @@ describe("TASK-03B watch 卡片规则摘要", () => {
     expect(body.item.rule_highlight).toBeNull();
   });
 });
+
+// ---------------- TASK-05C：推送订阅 CRUD（spec §3.2） ----------------
+
+describe("TASK-05C 推送订阅 CRUD", () => {
+  /** 合法订阅 body（keys 为 base64url 形态的假密钥） */
+  function subBody(endpoint: string, tag = "k1"): Record<string, unknown> {
+    return {
+      endpoint,
+      keys: {
+        p256dh: `BFakeP256dh_${tag}-Abc_123`,
+        auth: `FakeAuth_${tag}-XyZ_9`,
+      },
+    };
+  }
+
+  /** POST /me/push-subscriptions（原样返回 Response） */
+  async function postSub(
+    token: string,
+    payload: Record<string, unknown>,
+  ): Promise<Response> {
+    return await app.request(
+      "/api/v1/me/push-subscriptions",
+      {
+        method: "POST",
+        headers: jsonHeaders(token),
+        body: JSON.stringify(payload),
+      },
+      ctx.env,
+    );
+  }
+
+  /** GET /me/push-subscriptions（断言 200 后返回聚合体） */
+  async function getCounts(
+    token: string,
+  ): Promise<{ count: number; active_count: number }> {
+    const res = await app.request(
+      "/api/v1/me/push-subscriptions",
+      { headers: jsonHeaders(token) },
+      ctx.env,
+    );
+    expect(res.status).toBe(200);
+    return (await res.json()) as { count: number; active_count: number };
+  }
+
+  /** DELETE /me/push-subscriptions（原样返回 Response） */
+  async function deleteSub(
+    token: string,
+    subscriptionId: string,
+  ): Promise<Response> {
+    return await app.request(
+      "/api/v1/me/push-subscriptions",
+      {
+        method: "DELETE",
+        headers: jsonHeaders(token),
+        body: JSON.stringify({ subscription_id: subscriptionId }),
+      },
+      ctx.env,
+    );
+  }
+
+  it("POST 创建 201 返回 subscription_id，GET 仅回自己的聚合数", async () => {
+    const created = await postSub(
+      TOK_A,
+      subBody("https://push.test/endpoint-A-1"),
+    );
+    expect(created.status).toBe(201);
+    const { subscription_id: idA } = (await created.json()) as {
+      subscription_id: string;
+    };
+    expect(idA).toMatch(/^psub_/);
+
+    // 响应只含聚合数，不回显 endpoint/密钥
+    const countsA = await getCounts(TOK_A);
+    expect(countsA).toEqual({ count: 1, active_count: 1 });
+    const rawCounts = JSON.stringify(countsA);
+    expect(rawCounts).not.toContain("endpoint");
+    expect(rawCounts).not.toContain("p256dh");
+
+    // 用户 B 的订阅不计入 A 的聚合数（数据隔离）
+    await postSub(TOK_B, subBody("https://push.test/endpoint-B-1", "b1"));
+    expect(await getCounts(TOK_A)).toEqual({ count: 1, active_count: 1 });
+    expect(await getCounts(TOK_B)).toEqual({ count: 1, active_count: 1 });
+
+    // 库内确实落了 A 的行且密钥非空
+    const row = ctx.priv
+      .prepare(
+        "SELECT user_id, status, p256dh FROM push_subscriptions WHERE subscription_id = ?",
+      )
+      .get(idA) as { user_id: string; status: string; p256dh: string };
+    expect(row.user_id).toBe("usr_a");
+    expect(row.status).toBe("active");
+    expect(row.p256dh).toBe("BFakeP256dh_k1-Abc_123");
+  });
+
+  it("同 endpoint 重复 POST 幂等 upsert：同 subscription_id、密钥更新", async () => {
+    const endpoint = "https://push.test/endpoint-reup";
+    const first = (await (
+      await postSub(TOK_A, subBody(endpoint, "old"))
+    ).json()) as {
+      subscription_id: string;
+    };
+    // 直接把库内密钥改掉，验证第二次 POST 会刷新 keys
+    ctx.priv
+      .prepare(
+        "UPDATE push_subscriptions SET p256dh = 'stale-key' WHERE subscription_id = ?",
+      )
+      .run(first.subscription_id);
+    const again = await postSub(TOK_A, subBody(endpoint, "new"));
+    expect(again.status).toBe(201);
+    const second = (await again.json()) as { subscription_id: string };
+    expect(second.subscription_id).toBe(first.subscription_id);
+    expect(await getCounts(TOK_A)).toEqual({ count: 1, active_count: 1 });
+    const row = ctx.priv
+      .prepare(
+        "SELECT p256dh, status FROM push_subscriptions WHERE subscription_id = ?",
+      )
+      .get(first.subscription_id) as { p256dh: string; status: string };
+    expect(row.p256dh).toBe("BFakeP256dh_new-Abc_123");
+    expect(row.status).toBe("active");
+  });
+
+  it("schema 校验：非 http(s) endpoint、非法 base64url、缺 keys → 400", async () => {
+    const cases: Array<[string, Record<string, unknown>]> = [
+      [
+        "ftp 协议 endpoint",
+        { ...subBody("ftp://push.test/x"), endpoint: "ftp://push.test/x" },
+      ],
+      ["非 URL endpoint", subBody("not-a-url")],
+      [
+        "p256dh 含 base64 padding 字符",
+        subBody("https://push.test/e-pad", "="),
+      ],
+      ["缺 keys", { endpoint: "https://push.test/e-nokey" }],
+      [
+        "keys 缺 auth",
+        { endpoint: "https://push.test/e", keys: { p256dh: "abc" } },
+      ],
+    ];
+    for (const [label, payload] of cases) {
+      const res = await postSub(TOK_A, payload);
+      expect(res.status, label).toBe(400);
+      const body = (await res.json()) as { error_code: string };
+      expect(body.error_code, label).toBe("validation_failed");
+    }
+    // 非法 body 不落库
+    expect(await getCounts(TOK_A)).toEqual({ count: 0, active_count: 0 });
+  });
+
+  it("DELETE 本人 204；不存在/他人的 subscription_id → 404 且不误删", async () => {
+    const idA = (
+      (await (
+        await postSub(TOK_A, subBody("https://push.test/endpoint-del"))
+      ).json()) as { subscription_id: string }
+    ).subscription_id;
+
+    // 用户 B 删除 A 的订阅 → 404，行仍在
+    const cross = await deleteSub(TOK_B, idA);
+    expect(cross.status).toBe(404);
+    expect(
+      ctx.priv
+        .prepare(
+          "SELECT COUNT(*) AS n FROM push_subscriptions WHERE subscription_id = ?",
+        )
+        .get(idA),
+    ).toEqual({ n: 1 });
+
+    // 不存在的 id → 404
+    expect((await deleteSub(TOK_A, "psub_missing")).status).toBe(404);
+
+    // 本人删除成功 → 204，且聚合数归零
+    const own = await deleteSub(TOK_A, idA);
+    expect(own.status).toBe(204);
+    expect(await getCounts(TOK_A)).toEqual({ count: 0, active_count: 0 });
+    // 重复删除 → 404
+    expect((await deleteSub(TOK_A, idA)).status).toBe(404);
+  });
+
+  it("他人已占用的 endpoint 再 POST → 409，且不改变原属主", async () => {
+    const endpoint = "https://push.test/endpoint-owned";
+    const idA = (
+      (await (await postSub(TOK_A, subBody(endpoint, "a"))).json()) as {
+        subscription_id: string;
+      }
+    ).subscription_id;
+    const conflict = await postSub(TOK_B, subBody(endpoint, "b"));
+    expect(conflict.status).toBe(409);
+    const body = (await conflict.json()) as { error_code: string };
+    expect(body.error_code).toBe("conflict");
+    // 归属未被抢走、密钥未被覆盖
+    const row = ctx.priv
+      .prepare(
+        "SELECT user_id, p256dh FROM push_subscriptions WHERE subscription_id = ?",
+      )
+      .get(idA) as { user_id: string; p256dh: string };
+    expect(row.user_id).toBe("usr_a");
+    expect(row.p256dh).toBe("BFakeP256dh_a-Abc_123");
+    expect(await getCounts(TOK_B)).toEqual({ count: 0, active_count: 0 });
+  });
+
+  it("未登录访问订阅 CRUD 三端点全部 401", async () => {
+    const probes: Array<[string, string]> = [
+      ["GET", "/api/v1/me/push-subscriptions"],
+      ["POST", "/api/v1/me/push-subscriptions"],
+      ["DELETE", "/api/v1/me/push-subscriptions"],
+    ];
+    for (const [method, path] of probes) {
+      const res = await app.request(
+        path,
+        {
+          method,
+          headers: jsonHeaders(undefined),
+          body: method === "GET" ? undefined : "{}",
+        },
+        ctx.env,
+      );
+      expect(res.status, `${method} ${path}`).toBe(401);
+    }
+  });
+});

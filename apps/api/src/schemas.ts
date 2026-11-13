@@ -94,6 +94,40 @@ export const patchPreferencesSchema: JsonSchema = {
   },
 };
 
+// ---------------- TASK-05C：浏览器推送订阅（spec §3.2） ----------------
+
+/** base64url 形态（无 padding：仅 A-Z a-z 0-9 - _） */
+const BASE64URL_PATTERN = "^[A-Za-z0-9_-]+$";
+
+/** 创建/更新推送订阅：endpoint 为 http(s) URL，keys 为 RFC 8291 订阅密钥 */
+export const createPushSubscriptionSchema: JsonSchema = {
+  type: "object",
+  required: ["endpoint", "keys"],
+  additionalProperties: false,
+  properties: {
+    endpoint: { type: "string", pattern: "^https?://", maxLength: 2048 },
+    keys: {
+      type: "object",
+      required: ["p256dh", "auth"],
+      additionalProperties: false,
+      properties: {
+        p256dh: { type: "string", pattern: BASE64URL_PATTERN, minLength: 1 },
+        auth: { type: "string", pattern: BASE64URL_PATTERN, minLength: 1 },
+      },
+    },
+  },
+};
+
+/** 删除推送订阅：按 subscription_id 定位（不存在/非本人 → 404） */
+export const deletePushSubscriptionSchema: JsonSchema = {
+  type: "object",
+  required: ["subscription_id"],
+  additionalProperties: false,
+  properties: {
+    subscription_id: { type: "string", minLength: 1, maxLength: 128 },
+  },
+};
+
 /** 通用空对象/无字段约束的 PATCH（如标记已读，仅要求是 JSON 对象） */
 export const emptyObjectSchema: JsonSchema = {
   type: "object",
