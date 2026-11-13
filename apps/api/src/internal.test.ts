@@ -396,7 +396,10 @@ describe("HMAC 签名与防重放", () => {
 // ===================== TASK-04D：批内 observations 落库与快照聚合（spec R2） =====================
 
 describe("TASK-04D：批次携带观测明细落库与聚合", () => {
-  const STAT_DATE = "2026-11-12";
+  // 04E 起清洗含未来日期与过期物化判定：固定日期会随时钟失效，统一取沪市昨日
+  const STAT_DATE = new Date(Date.now() - 86_400_000 + 8 * 3600_000)
+    .toISOString()
+    .slice(0, 10);
   const CMT = "cmt_qd_01";
 
   function obs(overrides: Record<string, unknown> = {}) {
@@ -456,13 +459,16 @@ describe("TASK-04D：批次携带观测明细落库与聚合", () => {
       status: "accepted",
       observations_written: 5,
       snapshots_upserted: 1,
+      duplicates_dropped: 0,
+      stale_count: 0,
     });
     expect(obsRowCount()).toBe(5);
 
     const snap = ctx.pub
       .prepare(
         `SELECT price_type, metric_code, median, mean, p25, p75,
-                sample_count, stat_date, quality_status, source_id, collected_at
+                sample_count, stat_date, quality_status, source_id, collected_at,
+                method_version
          FROM price_snapshots WHERE object_id = ?`,
       )
       .get(CMT) as Record<string, unknown>;
@@ -479,6 +485,8 @@ describe("TASK-04D：批次携带观测明细落库与聚合", () => {
       source_id: SOURCE,
     });
     expect(snap["collected_at"]).toBeTruthy();
+    // TASK-04E：口径版本化——快照留痕 method_version（spec R2 唯一真源 cleaning.ts）
+    expect(snap["method_version"]).toBe("04e-aggregate-v2");
   });
 
   it("少于 5 套 → low_sample 降级但 median 仍留痕（PRD §4.4）", async () => {
@@ -592,6 +600,299 @@ describe("TASK-04D：批次携带观测明细落库与聚合", () => {
     expect(res.status).toBe(403);
     expect(await errCode(res)).toBe("source_not_approved");
     expect(batchCount()).toBe(0);
+    expect(obsRowCount()).toBe(0);
+  });
+});
+
+// ===================== TASK-04E：清洗规则接入批次端点（spec R1 / SubTask 1.3） =====================
+
+describe("TASK-04E：批内清洗规则（先于门禁与 DB 写，400 零行）", () => {
+  const CMT = "cmt_qd_04e";
+  /** 沪市日期（与清洗模块 shanghaiDate 同口径：UTC+8 平移取日） */
+  const shDate = (ms: number) =>
+    new Date(ms + 8 * 3600_000).toISOString().slice(0, 10);
+  const YESTERDAY = shDate(Date.now() - 86_400_000);
+
+  function obs(overrides: Record<string, unknown> = {}) {
+    return {
+      object_id: CMT,
+      property_type: "resale",
+      price_type: "listing_ask",
+      metric_code: "listing_ask_unit",
+      price_total_fen: 300000000,
+      unit_price_yuan_sqm: 30000,
+      area_sqm: 100,
+      sample_count: 1,
+      stat_date: YESTERDAY,
+      quality_status: "valid",
+      connector_version: "fang_community/0.1.0",
+      ...overrides,
+    };
+  }
+
+  function obsPayload(
+    observations: unknown[],
+    overrides: Record<string, unknown> = {},
+  ) {
+    return defaultPayload({
+      observed_count: observations.length,
+      observations,
+      ...overrides,
+    });
+  }
+
+  function obsRowCount(): number {
+    return (
+      ctx.pub.prepare("SELECT COUNT(*) AS n FROM price_observations").get() as {
+        n: number;
+      }
+    ).n;
+  }
+
+  async function detailsOf(
+    res: Response,
+  ): Promise<Array<{ field: string; message: string }>> {
+    const b = (await res.json()) as {
+      details?: Array<{ field: string; message: string }>;
+    };
+    return b.details ?? [];
+  }
+
+  beforeEach(() => {
+    seedSource("approved_open");
+    seedCoverage();
+  });
+
+  it("极端价格（单价 999999 元/㎡、总价 2 亿元）→ 400 字段级 details，零受理零落库", async () => {
+    const res = await postBatch(
+      obsPayload(
+        [
+          obs({ unit_price_yuan_sqm: 999999 }),
+          obs({ price_total_fen: 20_000_000_000, unit_price_yuan_sqm: 20000 }),
+        ],
+        { batch_id: "b_04e_001" },
+      ),
+    );
+    expect(res.status).toBe(400);
+    const details = await detailsOf(res);
+    expect(details).toContainEqual(
+      expect.objectContaining({ field: "/observations/0/unit_price_yuan_sqm" }),
+    );
+    expect(details).toContainEqual(
+      expect.objectContaining({ field: "/observations/1/price_total_fen" }),
+    );
+    expect(batchCount()).toBe(0);
+    expect(obsRowCount()).toBe(0);
+  });
+
+  it("未来日期（沪市 T+1）→ 400 details stat_date 字段，零行", async () => {
+    const res = await postBatch(
+      obsPayload([obs({ stat_date: shDate(Date.now() + 86_400_000) })], {
+        batch_id: "b_04e_002",
+      }),
+    );
+    expect(res.status).toBe(400);
+    const details = await detailsOf(res);
+    expect(details).toContainEqual(
+      expect.objectContaining({ field: "/observations/0/stat_date" }),
+    );
+    expect(batchCount()).toBe(0);
+    expect(obsRowCount()).toBe(0);
+  });
+
+  it("语义 area_sqm = 0 → 400 details 字段路径，零行", async () => {
+    const res = await postBatch(
+      obsPayload([obs({ area_sqm: 0 })], { batch_id: "b_04e_003" }),
+    );
+    expect(res.status).toBe(400);
+    const details = await detailsOf(res);
+    expect(details).toContainEqual(
+      expect.objectContaining({ field: "/observations/0/area_sqm" }),
+    );
+    expect(batchCount()).toBe(0);
+    expect(obsRowCount()).toBe(0);
+  });
+
+  it("批内重复 ×2 → 202、duplicates_dropped=1、落库 1 行", async () => {
+    const one = obs({ unit_price_yuan_sqm: 27000, area_sqm: 88 });
+    const res = await postBatch(
+      obsPayload([one, { ...one }], { batch_id: "b_04e_004" }),
+    );
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({
+      batch_id: "b_04e_004",
+      status: "accepted",
+      observations_written: 1,
+      snapshots_upserted: 1,
+      duplicates_dropped: 1,
+      stale_count: 0,
+    });
+    expect(obsRowCount()).toBe(1);
+  });
+
+  it("过期（当日 − 40 天，超默认 30 天阈值）→ stale 物化、snapshots_upserted=0", async () => {
+    const res = await postBatch(
+      obsPayload([obs({ stat_date: shDate(Date.now() - 40 * 86_400_000) })], {
+        batch_id: "b_04e_005",
+      }),
+    );
+    expect(res.status).toBe(202);
+    const b = (await res.json()) as Record<string, unknown>;
+    expect(b).toMatchObject({
+      observations_written: 1,
+      snapshots_upserted: 0,
+      duplicates_dropped: 0,
+      stale_count: 1,
+    });
+    const row = ctx.pub
+      .prepare(
+        "SELECT quality_status FROM price_observations WHERE object_id = ?",
+      )
+      .get(CMT) as { quality_status: string };
+    expect(row.quality_status).toBe("stale");
+    // 过期组无 valid 样本 → 不写快照（不造数）
+    const snaps = ctx.pub
+      .prepare("SELECT COUNT(*) AS n FROM price_snapshots WHERE object_id = ?")
+      .get(CMT) as { n: number };
+    expect(snaps.n).toBe(0);
+    expect(batchCount()).toBe(1); // 过期照常受理入库（拍板 2），非 400
+  });
+});
+
+// ===================== TASK-04E：official_index 指数观测入批次（spec R3） =====================
+
+describe("TASK-04E：official_index 指数观测（schema + 清洗 + 不聚快照）", () => {
+  const CMT = "cmt_qd_idx";
+  const YESTERDAY = new Date(Date.now() - 86_400_000 + 8 * 3600_000)
+    .toISOString()
+    .slice(0, 10);
+
+  function idxPayload(overrides: Record<string, unknown> = {}) {
+    return defaultPayload({
+      batch_id: "b_04e_idx",
+      observed_count: 1,
+      observations: [
+        {
+          object_id: CMT,
+          price_type: "official_index",
+          metric_code: "new_house_price_index",
+          index_value: 99.5,
+          sample_count: 0,
+          stat_date: YESTERDAY,
+          quality_status: "valid",
+          ...overrides,
+        },
+      ],
+    });
+  }
+
+  function obsRowCount(): number {
+    return (
+      ctx.pub.prepare("SELECT COUNT(*) AS n FROM price_observations").get() as {
+        n: number;
+      }
+    ).n;
+  }
+
+  function snapshotCount(): number {
+    return (
+      ctx.pub
+        .prepare(
+          "SELECT COUNT(*) AS n FROM price_snapshots WHERE object_id = ?",
+        )
+        .get(CMT) as { n: number }
+    ).n;
+  }
+
+  beforeEach(() => {
+    seedSource("approved_open");
+    seedCoverage();
+  });
+
+  it("合法指数批次 → 202、index_value 落库、不写快照（spec R3 聚合边界）", async () => {
+    const res = await postBatch(idxPayload());
+    expect(res.status).toBe(202);
+    const b = (await res.json()) as Record<string, unknown>;
+    expect(b).toMatchObject({
+      observations_written: 1,
+      snapshots_upserted: 0,
+      duplicates_dropped: 0,
+      stale_count: 0,
+    });
+    const row = ctx.pub
+      .prepare(
+        "SELECT index_value, quality_status, sample_count FROM price_observations WHERE object_id = ?",
+      )
+      .get(CMT) as {
+      index_value: number;
+      quality_status: string;
+      sample_count: number;
+    };
+    expect(row).toMatchObject({
+      index_value: 99.5,
+      quality_status: "valid",
+      sample_count: 0,
+    });
+    expect(snapshotCount()).toBe(0);
+  });
+
+  it("价格类观测携带 index_value → 400 互斥 details（清洗 R1-1）", async () => {
+    const res = await postBatch(
+      defaultPayload({
+        batch_id: "b_04e_idx2",
+        observed_count: 1,
+        observations: [
+          {
+            object_id: CMT,
+            price_type: "listing_ask",
+            metric_code: "listing_ask_unit",
+            unit_price_yuan_sqm: 30000,
+            index_value: 99.5,
+            stat_date: YESTERDAY,
+          },
+        ],
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      details?: Array<{ field: string; message: string }>;
+    };
+    expect(body.details).toContainEqual(
+      expect.objectContaining({ field: "/observations/0/index_value" }),
+    );
+    expect(obsRowCount()).toBe(0);
+  });
+
+  it("official_index 缺 index_value → 400 details（清洗 R1-1）", async () => {
+    const res = await postBatch(idxPayload({ index_value: undefined }));
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      details?: Array<{ field: string; message: string }>;
+    };
+    expect(body.details).toContainEqual(
+      expect.objectContaining({ field: "/observations/0" }),
+    );
+    expect(obsRowCount()).toBe(0);
+  });
+
+  it("index_value=1500 超界 → 400 schema（0<v≤1000）", async () => {
+    const res = await postBatch(idxPayload({ index_value: 1500 }));
+    expect(res.status).toBe(400);
+    expect(await errCode(res)).toBe("validation_failed");
+    expect(obsRowCount()).toBe(0);
+  });
+
+  it("official_index 携带金额字段（unit_price_yuan_sqm）→ 400 互斥 details", async () => {
+    const res = await postBatch(
+      idxPayload({ unit_price_yuan_sqm: 30000, price_total_fen: 300000000 }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      details?: Array<{ field: string; message: string }>;
+    };
+    expect(body.details).toContainEqual(
+      expect.objectContaining({ field: "/observations/0" }),
+    );
     expect(obsRowCount()).toBe(0);
   });
 });

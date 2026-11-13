@@ -73,7 +73,25 @@ export function applyMigrations(
   // down 逆序回滚（0003 → 0002 → 0001），保证外键依赖方向正确
   const ordered = direction === "down" ? [...migrations].reverse() : migrations;
   for (const migration of ordered) {
-    executor.exec(migration.sql);
+    try {
+      executor.exec(migration.sql);
+    } catch (e) {
+      // TASK-04E 幂等容错指令：文件头 `-- +migrate-idempotent: <错误子串>` 声明时，
+      // 执行失败且错误消息包含该子串视为「已应用/已回滚」（SQLite 无 ADD COLUMN IF NOT
+      // EXISTS，首个列变更迁移 0004 依赖此保持「迁移可重复运行」不变量）。
+      // 指令文件须保持单语句，避免容错吞掉同文件后续真实错误。
+      const tolerate = migration.sql
+        .match(/^--\s*\+migrate-idempotent:\s*(.+)$/m)?.[1]
+        ?.trim();
+      if (
+        tolerate !== undefined &&
+        e instanceof Error &&
+        e.message.includes(tolerate)
+      ) {
+        continue;
+      }
+      throw e;
+    }
   }
   return ordered.map((m) => m.name);
 }

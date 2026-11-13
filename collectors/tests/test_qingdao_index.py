@@ -135,21 +135,32 @@ def test_parse_detail_non_numeric_rejected() -> None:
     assert "不是数值" in str(exc.value)
 
 
-# ---- 归一化观测：每期 ×2 指标、index_value=同比 ----
+# ---- 归一化观测：每期 ×4（TASK-04E 双口径：同比/环比 × 新建/二手）----
 
 
-def test_index_observations_two_per_period() -> None:
+def test_index_observations_four_per_period() -> None:
+    """每期 4 条：yoy+mom × 新建/二手（spec R3 双口径），值取自详情页两列。"""
     record = parse_detail_page(load_html("t20261103_10767725.shtml"), entry_for(2026, 9))
     obs = index_observations(record)
-    assert len(obs) == 2
+    assert len(obs) == 4
     by_metric = {o.metric_code: o for o in obs}
-    assert set(by_metric) == {"new_house_price_index", "second_hand_price_index"}
-    new = by_metric["new_house_price_index"]
-    resale = by_metric["second_hand_price_index"]
-    assert new.property_type == "new_build"
-    assert new.index_value == 99.1  # 同比列
-    assert resale.property_type == "resale"
-    assert resale.index_value == 95.0
+    assert set(by_metric) == {
+        "new_house_price_index",  # 新建·同比（04C 登记码）
+        "new_house_price_index_mom",  # 新建·环比
+        "second_hand_price_index",  # 二手·同比（04C 登记码）
+        "second_hand_price_index_mom",  # 二手·环比
+    }
+    # 双口径值分别取同比列（本月，上年同月=100）与环比列（上月=100）
+    expected = {
+        "new_house_price_index": ("new_build", 99.1),
+        "new_house_price_index_mom": ("new_build", 100.2),
+        "second_hand_price_index": ("resale", 95.0),
+        "second_hand_price_index_mom": ("resale", 99.9),
+    }
+    for code, (property_type, value) in expected.items():
+        o = by_metric[code]
+        assert o.property_type == property_type
+        assert o.index_value == value
     for o in obs:
         assert o.price_type == "official_index"
         assert o.price_total_fen is None and o.unit_price_yuan_sqm is None

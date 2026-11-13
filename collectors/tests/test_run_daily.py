@@ -154,8 +154,26 @@ def test_full_chain_order_signature_and_payload(monkeypatch, secret, fast_http) 
 
     batch = emu.payload("batch")
     assert batch["batch_id"] == "qd_batch_2026-11-05"
-    assert batch["observed_count"] == 4  # 2 期 × 2 指标
+    assert batch["observed_count"] == 8  # 2 期 × 4（双口径：同比/环比 × 新建/二手）
     assert batch["object_level"] == "city"
+    # TASK-04E：批次携带 observations 明细，长度与 observed_count 一致（服务端 04D 交叉校验）
+    obs_items = batch["observations"]
+    assert len(obs_items) == batch["observed_count"] == 8
+    assert {o["metric_code"] for o in obs_items} == {
+        "new_house_price_index",
+        "new_house_price_index_mom",
+        "second_hand_price_index",
+        "second_hand_price_index_mom",
+    }
+    for o in obs_items:
+        assert o["price_type"] == "official_index"
+        assert o["index_value"] is not None
+        assert 0 < o["index_value"] <= 1000  # 服务端 schema/cleaning 同口径
+        assert o["sample_count"] == 0
+        # 指数口径禁金额/面积（04E 互斥清洗同断言）
+        assert o["price_total_fen"] is None and o["unit_price_yuan_sqm"] is None
+        assert o["area_sqm"] is None
+        assert o["object_id"] == "370200"
 
     finish = emu.payload("jobs/finish")
     assert finish["status"] == "succeeded"
@@ -164,6 +182,15 @@ def test_full_chain_order_signature_and_payload(monkeypatch, secret, fast_http) 
     # 源侧只访问白名单主机（fixture 回放零出网）
     assert source_calls
     assert set(source_calls) == {"http://qdtj.qingdao.gov.cn"}
+
+    # TASK-04E R5 HTML 哨兵：批次载荷零原始 HTML——哨兵串与 <div 均不透传
+    batch_json = json.dumps(emu.payload("batch"), ensure_ascii=False)
+    assert "SENTINEL_RAW_HTML" not in batch_json
+    assert "<div" not in batch_json
+    # 拒绝计数口径（run_daily.py 注释）：客户端构建期零拒绝，note 只记
+    # run_date/期次/观测；规范拒绝由服务端 04E 清洗以 400 details 留痕
+    assert "观测=8" in finish["note"]
+    assert "拒绝=" not in finish["note"]
 
 
 def test_not_approved_zero_collection(monkeypatch, secret, fast_http) -> None:

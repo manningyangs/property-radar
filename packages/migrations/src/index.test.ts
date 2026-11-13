@@ -280,6 +280,40 @@ describe("Public D1（radar_public）", () => {
     expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   });
 
+  it("index_value 列（TASK-04E）：CHECK 0<v≤1000 生效，up/down 重复执行幂等", () => {
+    const db = createDb();
+    applyMigrations(db, "public", "up");
+    expect(columnsOf(db, "price_observations")).toContain("index_value");
+    db.prepare(
+      "INSERT INTO data_sources_public (source_id, name, source_type) VALUES ('src_local', '本地来源（虚构）', 'manual')",
+    ).run();
+    const ins = `INSERT INTO price_observations
+       (observation_id, source_id, object_type, object_id, price_type, metric_code,
+        stat_date, payload_hash, index_value)
+       VALUES (?, 'src_local', 'community', 'cmt_idx', 'official_index',
+               'new_house_price_index', '2026-11-01', ?, ?)`;
+    // CHECK 与应用层 schema/cleaning 同口径：0 < v ≤ 1000，NULL 合法
+    db.prepare(ins).run("o_idx_1", "h1", 99.5);
+    db.prepare(ins).run("o_idx_2", "h2", 1000); // 上界（≤）含
+    db.prepare(ins).run("o_idx_null", "h3", null); // 价格观测行
+    expect(() => db.prepare(ins).run("o_idx_3", "h4", 1500)).toThrow();
+    expect(() => db.prepare(ins).run("o_idx_4", "h5", 0)).toThrow();
+    expect(() => db.prepare(ins).run("o_idx_5", "h6", -5)).toThrow();
+    // 重复 up：+migrate-idempotent 指令容错（duplicate column），既有行不丢
+    expect(() => applyMigrations(db, "public", "up")).not.toThrow();
+    expect(columnsOf(db, "price_observations")).toContain("index_value");
+    const n = db
+      .prepare("SELECT COUNT(*) AS n FROM price_observations")
+      .get() as { n: number };
+    expect(n.n).toBe(3);
+    // down→down→up 全程可重复（0004.down 指令容错 no such column/table）
+    applyMigrations(db, "public", "down");
+    expect(tablesOf(db)).toEqual([]);
+    expect(() => applyMigrations(db, "public", "down")).not.toThrow();
+    applyMigrations(db, "public", "up");
+    expect(columnsOf(db, "price_observations")).toContain("index_value");
+  });
+
   it("Public 库任何表都不含个人信息字段（§9.4 验收）", () => {
     const db = createDb();
     applyMigrations(db, "public", "up");

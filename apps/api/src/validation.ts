@@ -28,6 +28,8 @@ const SUPPORTED_KEYWORDS = new Set([
   "pattern",
   "minimum",
   "maximum",
+  // TASK-04E：指数值下界排他（0 < v ≤ 1000，spec R3）
+  "exclusiveMinimum",
   "minProperties",
   // TASK-04A：approve 的 coverage 数组（元素对象 schema 递归 + 至少 1 项）
   "items",
@@ -178,6 +180,12 @@ function collect(
   if (typeof data === "number" && Number.isFinite(data)) {
     if (typeof schema.minimum === "number" && data < schema.minimum) {
       push(out, path, `不能小于 ${schema.minimum}`);
+    }
+    if (
+      typeof schema.exclusiveMinimum === "number" &&
+      data <= schema.exclusiveMinimum
+    ) {
+      push(out, path, `不能小于或等于 ${schema.exclusiveMinimum}`);
     }
     if (typeof schema.maximum === "number" && data > schema.maximum) {
       push(out, path, `不能大于 ${schema.maximum}`);

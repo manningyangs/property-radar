@@ -18,11 +18,8 @@ import {
   sourceHealthSchema,
 } from "../schemas";
 import { assertIngestAllowed, resolveLicense } from "../source-gate";
-import {
-  assertObservationSemantics,
-  writeObservations,
-  type ObservationInput,
-} from "../observations";
+import { cleanObservations, type CleanResult } from "../cleaning";
+import { writeObservations, type ObservationInput } from "../observations";
 
 /** 时间戳允许偏差（秒）——覆盖人工时钟漂移，同时限定重放窗口 */
 const TIMESTAMP_MAX_SKEW_SEC = 300;
@@ -129,7 +126,8 @@ internalRoutes.post("/ingest/batch", async (c) => {
     observations?: ObservationInput[];
   };
 
-  // 04D 交叉与语义校验（先于门禁与受理，失败不落任何行）
+  // 04D 交叉校验 + 04E 清洗前置（先于门禁与受理，失败不落任何行；400 时零行，spec R1）
+  let clean: CleanResult | undefined;
   if (input.observations !== undefined) {
     if (input.observed_count !== input.observations.length) {
       throw errors.validation([
@@ -139,7 +137,12 @@ internalRoutes.post("/ingest/batch", async (c) => {
         },
       ]);
     }
-    assertObservationSemantics(input.observations, "/observations");
+    clean = await cleanObservations(
+      input.observations,
+      new Date(),
+      input.source_id,
+      "/observations",
+    );
   }
 
   // 门禁（pending_review/suspended/超范围等一律拒绝，PRD 04A 验收）
@@ -165,12 +168,12 @@ internalRoutes.post("/ingest/batch", async (c) => {
     throw e;
   }
 
-  // 04D：批内观测明细落库 + 快照聚合（重复 batch 已在上面短路，不会重写）
-  if (input.observations !== undefined) {
+  // 04E/04D：清洗后明细落库 + 快照聚合（重复 batch 已在上面短路，不会重写）
+  if (input.observations !== undefined && clean !== undefined) {
     const result = await writeObservations(
       c.env,
       input.source_id,
-      input.observations,
+      clean.cleaned,
     );
     return c.json(
       {
@@ -178,6 +181,8 @@ internalRoutes.post("/ingest/batch", async (c) => {
         status: "accepted",
         observations_written: result.observations_written,
         snapshots_upserted: result.snapshots_upserted,
+        duplicates_dropped: clean.duplicates_dropped,
+        stale_count: clean.stale_count,
       },
       202,
     );

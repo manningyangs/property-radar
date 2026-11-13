@@ -2,7 +2,7 @@
 # 流程（每步失败都尽量留下任务状态）：
 #   run_guard 资格预检（未 approved → 零采集请求终止）
 #   → health_check + report_health → jobs/start
-#   → fetch_region_data → normalize(每期 ×2 指标) → ingest/batch(observed_count)
+#   → fetch_region_data → normalize(每期 ×4 双口径) → ingest/batch(observed_count + observations 明细)
 #   → jobs/finish(succeeded|failed)
 # 用法（cwd=collectors）：
 #   真实运行: python -m property_radar_collectors.run_daily            # 环境变量 API_BASE / INGEST_HMAC_SECRET
@@ -149,6 +149,9 @@ def main(
 
         records = connector.fetch_region_data([AUTHORIZED_REGION], date_range)
         observations = [o for r in records for o in index_observations(r)]
+        # TASK-04E：携带明细让 04C 指数（同比/环比 × 新建/二手）真正落库——
+        # observed_count 与明细长度一致（服务端 04D 交叉校验；04C 独有拒绝计数在此无拒绝，
+        # 规范拒绝数（对象/统计日/值域）由服务端 04E 清洗以 400 details 返回，批次拒绝即留痕）
         client.submit_batch(
             {
                 "batch_id": batch_id,
@@ -156,6 +159,7 @@ def main(
                 "city_code": AUTHORIZED_REGION,
                 "object_level": OBJECT_LEVEL,
                 "observed_count": len(observations),
+                "observations": [o.to_ingest_item() for o in observations],
             }
         )
         periods = ",".join(r.fields["report_period"] for r in records) or "无新期次"

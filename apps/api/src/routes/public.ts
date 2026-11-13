@@ -274,7 +274,8 @@ publicRoutes.get("/communities/:id/prices", async (c) => {
   const limit = readLimit(c.req.query("limit"));
   const res = await c.env.DB_PUBLIC.prepare(
     `SELECT snapshot_id, price_type, metric_code, median, mean, p25, p75,
-            sample_count, stat_date, quality_status, source_id, collected_at
+            sample_count, stat_date, quality_status, source_id, collected_at,
+            method_version
      FROM price_snapshots
      WHERE object_type = 'community' AND object_id = ?
      ORDER BY stat_date DESC, metric_code

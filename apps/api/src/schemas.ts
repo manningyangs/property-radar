@@ -254,6 +254,13 @@ const OBSERVATION_ITEM_SCHEMA: JsonSchema = {
       ],
     },
     metric_code: { type: "string", minLength: 1, maxLength: 64 },
+    // TASK-04E：指数值（spec R3——仅 official_index 携带，0 < v ≤ 1000；
+    // 价格类观测是否携带 index_value 由 cleaning 语义互斥拒绝）
+    index_value: {
+      type: ["number", "null"],
+      exclusiveMinimum: 0,
+      maximum: 1000,
+    },
     price_total_fen: { type: ["integer", "null"], minimum: 0 },
     unit_price_yuan_sqm: { type: ["integer", "null"], minimum: 0 },
     area_sqm: { type: ["number", "null"], minimum: 0 },

@@ -82,20 +82,12 @@ def _build_connector(fixture_dir: str | None, source_transport) -> FangCommunity
 
 
 def _to_batch_observation(observation: "NormalizedObservation") -> dict:
-    """NormalizedObservation → ingest/batch observations[] 条目（schemas.ts OBSERVATION_ITEM 同口径）。"""
-    return {
-        "object_id": observation.object_id,
-        "property_type": observation.property_type,
-        "price_type": observation.price_type,
-        "metric_code": observation.metric_code,
-        "price_total_fen": observation.price_total_fen,
-        "unit_price_yuan_sqm": observation.unit_price_yuan_sqm,
-        "area_sqm": observation.area_sqm,
-        "sample_count": observation.sample_count,
-        "stat_date": observation.stat_date,
-        "quality_status": observation.quality_status,
-        "connector_version": observation.connector_version,
-    }
+    """NormalizedObservation → ingest/batch observations[] 条目。
+
+    TASK-04E 起统一走 schema.NormalizedObservation.to_ingest_item（与服务端
+    OBSERVATION_ITEM_SCHEMA 逐键同口径，含 index_value 键——价格口径恒 null）。
+    """
+    return observation.to_ingest_item()
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:

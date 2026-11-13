@@ -338,6 +338,12 @@ def test_full_chain_batches_per_community(monkeypatch, secret, fast_http) -> Non
     assert source_calls
     assert set(source_calls) == {"https://qd.esf.fang.com"}
 
+    # TASK-04E R5 HTML 哨兵：批次载荷零原始 HTML——哨兵串与 <div 均不透传
+    # （拒绝=1 已在上方 note 断言：客户端极端价格拒绝即留痕）
+    batch_json = json.dumps(emu.payloads("batch"), ensure_ascii=False)
+    assert "SENTINEL_RAW_HTML" not in batch_json
+    assert "<div" not in batch_json
+
 
 def test_not_approved_zero_collection(monkeypatch, secret, fast_http) -> None:
     """资格 403 → 无健康/任务/批次/源请求，返回 1（04B 验收二回归）。"""

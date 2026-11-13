@@ -19,11 +19,8 @@ import {
   suspendSourceSchema,
 } from "../schemas";
 import { adminLicenseOf } from "../source-gate";
-import {
-  assertObservationSemantics,
-  writeObservations,
-  type ObservationInput,
-} from "../observations";
+import { cleanObservations } from "../cleaning";
+import { writeObservations, type ObservationInput } from "../observations";
 
 export const adminRoutes = new Hono<AppEnv>();
 
@@ -438,8 +435,14 @@ adminRoutes.post("/observations", async (c) => {
     .first();
   if (!source) throw errors.sourceNotFound();
 
-  assertObservationSemantics([input], "");
-  const result = await writeObservations(c.env, input.source_id, [input]);
+  // 04E 清洗前置（先于任何 DB 写；400 时零行，spec R1；prefix "" → details 字段路径 /key）
+  const clean = await cleanObservations(
+    [input],
+    new Date(),
+    input.source_id,
+    "",
+  );
+  const result = await writeObservations(c.env, input.source_id, clean.cleaned);
 
   await c.env.DB_PRIVATE.prepare(
     `INSERT INTO audit_logs (audit_id, actor_user_id, actor_role, action, resource_type, resource_id, reason)
@@ -458,6 +461,8 @@ adminRoutes.post("/observations", async (c) => {
       observation_id: result.observation_ids[0],
       observations_written: result.observations_written,
       snapshots_upserted: result.snapshots_upserted,
+      duplicates_dropped: clean.duplicates_dropped,
+      stale_count: clean.stale_count,
     },
     201,
   );

@@ -3,9 +3,9 @@
 # - 白名单仅 qdtj.qingdao.gov.cn；全站 http（https 证书主机名不匹配），以静态 allow_http_hosts
 #   例外放行该主机的明文 http（见核验报告 §1，仍先于一切网络 I/O 校验，fail closed 不变）。
 # - 解析列表页 + 每期详情页单表格；每期产出 1 条 SourceRecord（四值原始字段保留，不落原始 HTML §5.7）。
-# - 归一化观测：每期 ×2 指标（新建/二手），index_value 取同比列（本月，上年同月=100），
+# - 归一化观测：每期 ×4 指标（TASK-04E 双口径：同比 + 环比 × 新建 + 二手），
+#   index_value 取同比列（本月，上年同月=100）或环比列（上月=100），
 #   price_type="official_index"，stat_date=报告月月末，sample_count=0（来源不公布样本量，禁止造数）。
-#   环比列保留在 SourceRecord.fields（供 04E 清洗落库时决定口径映射）。
 from __future__ import annotations
 
 import calendar
@@ -37,10 +37,15 @@ _TAG_RE = re.compile(r"<[^>]+>")
 _NEW_LABEL = "新建商品住宅销售价格指数"
 _RESALE_LABEL = "二手住宅销售价格指数"
 
-# 观测指标映射：SourceRecord 字段键 → (metric_code, property_type, 同比字段键)
+# 归一化映射：SourceRecord 字段键 → (metric_code, property_type, index 字段键)。
+# TASK-04E 双口径（spec R3）：每期（同比 yoy + 环比 mom）×（新建 + 二手）= 4 条观测；
+# mom 取 04C 解析的环比列，metric_code 用 new_house_price_index_mom /
+# second_hand_price_index_mom（04C 报告口径码，既有 yoy 登记码不改名）。
 _METRIC_FIELDS = (
     ("new_house_price_index", "new_build", "new_build_yoy_index"),
+    ("new_house_price_index_mom", "new_build", "new_build_mom_index"),
     ("second_hand_price_index", "resale", "resale_yoy_index"),
+    ("second_hand_price_index_mom", "resale", "resale_mom_index"),
 )
 
 
@@ -150,18 +155,22 @@ def _month_end(year: int, month: int) -> str:
 
 
 def index_observations(record: SourceRecord) -> list[NormalizedObservation]:
-    """每期记录 → 2 条归一化观测（新建/二手各 1，index_value=同比列）。
+    """每期记录 → 4 条归一化观测（spec R3 双口径：新建 yoy/mom、二手 yoy/mom）。
 
-    环比列不参与归一化观测（price_observations 每（对象,价格类型,指标,统计日）一条，
-    双口径落库映射属 TASK-04E）；四值原始字段仍在 record.fields 中保留。
+    metric_code：yoy 沿用 04C 登记码 new_house_price_index / second_hand_price_index
+    （不改名，避免破坏登记册种子）；mom 用 new_house_price_index_mom /
+    second_hand_price_index_mom（04C 报告口径码，PRD §4.5 词表）。
+    index_value 分别取同比列（*_yoy_index）与环比列（*_mom_index）；
+    每（对象, 价格类型, 指标, 统计日）一行，四码互异故各成独立观测行。
+    price_type 一律 official_index（禁金额、sample_count=0、月末 stat_date）。
     """
     observations: list[NormalizedObservation] = []
-    for metric_code, property_type, yoy_key in _METRIC_FIELDS:
+    for metric_code, property_type, value_key in _METRIC_FIELDS:
         sub = SourceRecord(
             source_id=record.source_id,
             object_type=record.object_type,
             object_id=record.object_id,
-            fields={**record.fields, "index_value": record.fields[yoy_key]},
+            fields={**record.fields, "index_value": record.fields[value_key]},
         )
         observations.append(
             normalize_record(

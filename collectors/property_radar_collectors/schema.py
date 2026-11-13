@@ -64,6 +64,28 @@ class NormalizedObservation:
     #: 价格指数值（price_type="official_index" 专用，100=基准；其余口径必须为 None）
     index_value: float | None = None
 
+    def to_ingest_item(self) -> dict[str, Any]:
+        """转 internal 批次 observations[] 明细项（TASK-04E）。
+
+        与服务端 OBSERVATION_ITEM_SCHEMA 逐键同口径（additionalProperties:false）：
+        source_id / object_type 不随明细（批次头已携带）；None → null 交服务端
+        04E 清洗规则（指数互斥、极端价格等）判定。
+        """
+        return {
+            "object_id": self.object_id,
+            "property_type": self.property_type,
+            "price_type": self.price_type,
+            "metric_code": self.metric_code,
+            "price_total_fen": self.price_total_fen,
+            "unit_price_yuan_sqm": self.unit_price_yuan_sqm,
+            "area_sqm": self.area_sqm,
+            "sample_count": self.sample_count,
+            "stat_date": self.stat_date,
+            "quality_status": self.quality_status,
+            "connector_version": self.connector_version,
+            "index_value": self.index_value,
+        }
+
 
 def _require(cond: bool, message: str) -> None:
     if not cond:

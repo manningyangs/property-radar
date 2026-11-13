@@ -49,8 +49,8 @@ function seedPublic(pub: DatabaseSync): void {
     .run();
   pub
     .prepare(
-      `INSERT INTO price_snapshots (snapshot_id, object_type, object_id, price_type, metric_code, median, sample_count, stat_date, source_id)
-       VALUES ('snap1', 'community', 'com1', 'listing_ask', 'median_unit_price', 20000, 5, '2026-11-01', 'src_demo')`,
+      `INSERT INTO price_snapshots (snapshot_id, object_type, object_id, price_type, metric_code, median, sample_count, stat_date, source_id, method_version)
+       VALUES ('snap1', 'community', 'com1', 'listing_ask', 'median_unit_price', 20000, 5, '2026-11-01', 'src_demo', '04e-aggregate-v2')`,
     )
     .run();
   pub
@@ -381,7 +381,7 @@ describe("TASK-04D：GET /public/communities/coverage 与验收字段", () => {
     );
   });
 
-  it("prices 端点返回 collected_at（逐小区复查字段）", async () => {
+  it("prices 端点返回 collected_at 与 method_version（口径版本化，spec R2）", async () => {
     const res = await app.request(
       "/api/v1/public/communities/com1/prices",
       {},
@@ -392,5 +392,6 @@ describe("TASK-04D：GET /public/communities/coverage 与验收字段", () => {
     };
     expect(b.items[0]?.["median"]).toBe(20000);
     expect(b.items[0]?.["collected_at"]).toBeTruthy();
+    expect(b.items[0]?.["method_version"]).toBe("04e-aggregate-v2");
   });
 });

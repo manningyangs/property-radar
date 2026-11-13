@@ -9,25 +9,15 @@
 //      median 等仍计算留痕，不静默删除）；无可聚合样本时不写快照（不造数）；
 //   4) object_type 一律 community（04D 无独立 listing 实体，样本挂在小区对象下）。
 import { sha256Hex } from "./auth";
-import { errors } from "./errors";
+import {
+  METHOD_VERSION,
+  MIN_VALID_SAMPLES,
+  OBS_TO_SNAPSHOT_METRIC,
+} from "./cleaning";
 import type { Env } from "./env";
 
 /** 观测对象层级（spec R2：04D 样本统一挂小区） */
 const OBJECT_TYPE = "community";
-
-/**
- * 观测指标 → 快照指标（spec R2：固定代码常量，禁止散落字符串）：
- * 逐套挂牌单价样本 → 小区挂牌单价中位数（PRD §4.2 小区指标）。
- */
-export const OBS_TO_SNAPSHOT_METRIC: Record<string, string> = {
-  listing_ask_unit: "community_ask_median_unit",
-};
-
-/** 聚合方法版本（快照留痕，04E 统计口径版本化时从此处演进） */
-const METHOD_VERSION = "04d-aggregate-v1";
-
-/** spec R2：小样本降级阈值 */
-const MIN_VALID_SAMPLES = 5;
 
 /** 单条观测输入（schema 见 schemas.ts OBSERVATION_ITEM_SCHEMA，字段口径与其一致） */
 export interface ObservationInput {
@@ -42,6 +32,8 @@ export interface ObservationInput {
   stat_date: string;
   quality_status?: string;
   connector_version?: string | null;
+  /** TASK-04E：指数口径值（0<v≤1000，仅 official_index 携带；列与 schema 随 0004 迁移就位） */
+  index_value?: number | null;
 }
 
 export interface WriteResult {
@@ -87,7 +79,7 @@ export function computeStats(values: number[]): Stats {
 
 /** 观测字段规范化 JSON（固定键序，跨运行/跨语言稳定 → payload_hash 稳定） */
 function canonicalObservation(o: ObservationInput): string {
-  return JSON.stringify({
+  const base = {
     object_type: OBJECT_TYPE,
     object_id: o.object_id,
     property_type: o.property_type ?? null,
@@ -100,7 +92,13 @@ function canonicalObservation(o: ObservationInput): string {
     stat_date: o.stat_date,
     quality_status: o.quality_status ?? "valid",
     connector_version: o.connector_version ?? null,
-  });
+  };
+  // TASK-04E：index_value 仅在非空时追加入键（末尾追加保既有键序）——既有价格观测的
+  // canonical 字符串不变 → payload_hash/observation_id 稳定（04D 幂等延续）；
+  // 指数观测携键，与 Python canonicalize 条件键口径一致（spec R3）。
+  return JSON.stringify(
+    o.index_value == null ? base : { ...base, index_value: o.index_value },
+  );
 }
 
 /** 确定性 observation_id（前 32 hex）与 payload_hash */
@@ -115,32 +113,6 @@ export async function observationIds(
     )
   ).slice(0, 32);
   return { observationId, payloadHash };
-}
-
-/**
- * 口径语义校验（JSON Schema 表达不了的两条，spec R2，与 Python normalize 同口径）：
- * 总价与单价至少一项非空；area_sqm 非空时必须 > 0。
- * @param prefix 字段路径前缀：批内数组为 "/observations/0"，admin 单条为 ""。
- */
-export function assertObservationSemantics(
-  observations: ObservationInput[],
-  prefix: string,
-): void {
-  const details: Array<{ field: string; message: string }> = [];
-  observations.forEach((o, i) => {
-    const at = prefix === "" ? "" : `${prefix}/${i}`;
-    const field = (key: string) => (at === "" ? `/${key}` : `${at}/${key}`);
-    if (o.price_total_fen == null && o.unit_price_yuan_sqm == null) {
-      details.push({
-        field: at === "" ? "/" : at,
-        message: "总价与单价至少一项非空",
-      });
-    }
-    if (o.area_sqm != null && o.area_sqm <= 0) {
-      details.push({ field: field("area_sqm"), message: "面积必须大于 0" });
-    }
-  });
-  if (details.length > 0) throw errors.validation(details);
 }
 
 /**
@@ -172,8 +144,8 @@ export async function writeObservations(
            (observation_id, source_id, object_type, object_id, property_type,
             price_type, metric_code, price_total_fen, unit_price_yuan_sqm,
             area_sqm, sample_count, stat_date, quality_status, payload_hash,
-            connector_version)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            connector_version, index_value)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (observation_id) DO UPDATE SET
            price_total_fen = excluded.price_total_fen,
            unit_price_yuan_sqm = excluded.unit_price_yuan_sqm,
@@ -182,6 +154,7 @@ export async function writeObservations(
            quality_status = excluded.quality_status,
            payload_hash = excluded.payload_hash,
            connector_version = excluded.connector_version,
+           index_value = excluded.index_value,
            collected_at = datetime('now')`,
       ).bind(
         observationId,
@@ -199,6 +172,7 @@ export async function writeObservations(
         o.quality_status ?? "valid",
         payloadHash,
         o.connector_version ?? null,
+        o.index_value ?? null,
       ),
     );
   }
@@ -221,6 +195,7 @@ export async function writeObservations(
 
   let snapshotsUpserted = 0;
   for (const o of groups.values()) {
+    // official_index 无映射且无单价样本（SQL 过滤 unit_price IS NOT NULL）→ 跳过不写快照
     const snapshotMetric =
       OBS_TO_SNAPSHOT_METRIC[o.metric_code] ?? o.metric_code;
     const rows = await env.DB_PUBLIC.prepare(

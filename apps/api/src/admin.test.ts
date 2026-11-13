@@ -587,7 +587,10 @@ describe("POST /admin/observations（手工补录单条观测）", () => {
       unit_price_yuan_sqm: 32000,
       area_sqm: 109,
       sample_count: 1,
-      stat_date: "2026-11-12",
+      // 04E 起清洗含未来日期与过期物化判定：固定日期会随时钟失效，统一取沪市昨日
+      stat_date: new Date(Date.now() - 86_400_000 + 8 * 3600_000)
+        .toISOString()
+        .slice(0, 10),
       quality_status: "valid",
       ...overrides,
     };
