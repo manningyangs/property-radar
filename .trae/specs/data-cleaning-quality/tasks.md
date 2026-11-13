@@ -23,10 +23,10 @@
 - [x] Task 6: 生产部署与 e2e
   - [x] SubTask 6.1: 远端 db:apply 0004 + `wrangler deploy`
   - [x] SubTask 6.2: 生产 e2e——run_daily fixture 回放落指数观测（幂等复跑不变）、过期/极端 400 冒烟、prices method_version 冒烟
-- [ ] Task 7: 验收报告与收尾
+- [x] Task 7: 验收报告与收尾
   - [x] SubTask 7.1: `docs/TASK-04E-数据清洗与质量管理验收报告.md`——六类 fixture 结果表（规则→构造→期望→实测）、口径版本说明（04e-aggregate-v2、阈值、分位数方法）、指数双口径落库证据
-  - [ ] SubTask 7.2: 中文 commit `TASK-04E: …`（UTF-8 `git commit -F`）→ push → 盯 CI 绿
-  - [ ] SubTask 7.3: §12.0 收尾报告 → checklist 勾选入库 → 更新记忆 topics.md / project_memory.md
+  - [x] SubTask 7.2: 中文 commit `TASK-04E: …`（UTF-8 `git commit -F`）→ push → 盯 CI 绿
+  - [x] SubTask 7.3: §12.0 收尾报告 → checklist 勾选入库 → 更新记忆 topics.md / project_memory.md
 
 # Task Dependencies
 
