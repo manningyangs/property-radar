@@ -118,7 +118,7 @@ snapshots:  { today_valid }                                      // public price
 
 ## DoD
 
-- [ ] R1–R7 实现且四门禁全绿
-- [ ] R8 测试全过 + e2e 两轮全过
-- [ ] 中文 commit + push + CI success
-- [ ] 记忆更新 + `docs/TASK-06B-系统总览和用户管理验收报告.md`
+- [x] R1–R7 实现且四门禁全绿
+- [x] R8 测试全过 + e2e 两轮全过
+- [x] 中文 commit + push + CI success
+- [x] 记忆更新 + `docs/TASK-06B-系统总览和用户管理验收报告.md`
