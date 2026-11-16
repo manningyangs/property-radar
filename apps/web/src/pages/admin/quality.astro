@@ -1,0 +1,527 @@
+---
+/**
+ * TASK-06D：数据质量中心（PRD 任务行 1368–1374 / §8.7 / spec R7，拍板 4：只读聚合）
+ * 真实 API 页面：GET /admin/quality/issues 三类异常（任务失败 / 来源健康 ≠ ok / 非 valid 观测）。
+ * 验收映射：每一异常可定位 source、batch、connector version、具体错误码=抽屉 locator 逐项展示；
+ *           标记误报/确认异常/重处理批次等写操作留后续任务（页面明示只读）。
+ * 门禁：AdminMfaGate + lib/admin-gate.ts；1440/1024 布局同 jobs 页。
+ * 本页不读取 PUBLIC_DEMO_DATA 演示数据（真实 API 页，无数据即空态）。
+ */
+import AppShell from "../../layouts/AppShell.astro";
+import AdminSidebar from "../../components/AdminSidebar.astro";
+import AdminMfaGate from "../../components/AdminMfaGate.astro";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+---
+
+<AppShell
+  title="数据质量中心"
+  demo={demoEnabled}
+  showNav={false}
+  variant="admin"
+>
+  <AdminSidebar slot="sidebar" active="数据质量中心" />
+
+  <div class="page admin-page">
+    <AdminMfaGate />
+
+    <div data-main hidden>
+      <!-- 三类异常计数条 -->
+      <div class="statusbar" role="status">
+        <span class="badge badge--danger" data-c-job>▲ 任务失败 —</span>
+        <span class="badge badge--warning" data-c-health>◍ 来源健康 —</span>
+        <span class="badge badge--neutral" data-c-obs>■ 观测异常 —</span>
+        <span class="meta">只读聚合视图；标记误报 / 重处理批次等处置操作将在后续任务提供</span>
+      </div>
+
+      <!-- 工具条：类型筛选 / 来源搜索 / 分页 -->
+      <div class="toolbar">
+        <h2 class="section-title">质量异常</h2>
+        <span class="meta" data-count-label></span>
+        <div class="toolbar-actions">
+          <div class="chip-row" role="group" aria-label="异常类型筛选">
+            <button type="button" class="chip is-active" data-kind="">全部</button>
+            <button type="button" class="chip" data-kind="job_failed">任务失败</button>
+            <button type="button" class="chip" data-kind="health">来源健康</button>
+            <button type="button" class="chip" data-kind="observation">观测异常</button>
+          </div>
+          <input
+            class="input"
+            data-src
+            type="search"
+            placeholder="按 source_id 精确筛选"
+            aria-label="来源筛选"
+          />
+        </div>
+      </div>
+
+      <div class="card table-card">
+        <div class="table-wrap">
+          <table class="ops-table">
+            <thead>
+              <tr>
+                <th>类型</th>
+                <th>来源</th>
+                <th>发生时间</th>
+                <th>定位要素</th>
+                <th>备注</th>
+              </tr>
+            </thead>
+            <tbody data-tbody>
+              <tr>
+                <td colspan="5" class="table-loading">加载中…</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pager">
+          <button type="button" class="btn btn--secondary btn--sm" data-prev>上一页</button>
+          <span class="meta" data-page-label></span>
+          <button type="button" class="btn btn--secondary btn--sm" data-next>下一页</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 异常详情抽屉（locator 定位要素逐项：source / batch / connector version / 错误码） -->
+    <aside class="drawer is-hidden" data-drawer role="dialog" aria-label="异常详情">
+      <div class="drawer-head">
+        <h2 class="drawer-title">异常详情</h2>
+        <button type="button" class="icon-btn" data-drawer-close aria-label="关闭详情抽屉">
+          <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M5 5 L15 15 M15 5 L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <dl class="drawer-fields" data-fields></dl>
+      <div class="card note-card">
+        <p class="field-label">定位与幂等</p>
+        <p class="meta">
+          每条异常均可定位来源、批次（观测类）、connector 版本与具体错误码；
+          重跑同批次/同观测由数据层幂等保护（duplicate 不重写、确定性 ID 不重复入库），
+          处置操作（标记误报、重处理批次）将在后续任务提供。
+        </p>
+      </div>
+    </aside>
+  </div>
+</AppShell>
+
+<script>
+  import {
+    adminQualityIssues,
+    ApiError,
+    type QualityIssue,
+  } from "../../lib/api";
+  import { initAdminGate } from "../../lib/admin-gate";
+
+  const $ = <T extends Element>(sel: string): T | null =>
+    document.querySelector<T>(sel);
+
+  const esc = (text: string): string =>
+    text
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
+
+  const toast = (message: string): void => {
+    window.dispatchEvent(new CustomEvent("app:toast", { detail: { message } }));
+  };
+
+  const PAGE_SIZE = 30;
+  let offset = 0;
+  let total = 0;
+  let kind = "";
+  let issues: QualityIssue[] = [];
+
+  const kindText = (k: string): string =>
+    k === "job_failed"
+      ? "任务失败"
+      : k === "health"
+        ? "来源健康"
+        : "观测异常";
+  const kindBadge = (k: string): string =>
+    k === "job_failed"
+      ? "badge badge--danger"
+      : k === "health"
+        ? "badge badge--warning"
+        : "badge badge--neutral";
+
+  function setText(sel: string, text: string): void {
+    const el = $<HTMLElement>(sel);
+    if (el) el.textContent = text;
+  }
+
+  const dash = (v: unknown): string =>
+    v === null || v === undefined || v === "" ? "—" : String(v);
+
+  /** 表格行内定位要素摘要（抽屉展示全量） */
+  function locatorBrief(issue: QualityIssue): string {
+    const l = issue.locator;
+    if (issue.issue_kind === "job_failed")
+      return `job ${dash(l.job_id)} · ${dash(l.error_code)}`;
+    if (issue.issue_kind === "health")
+      return `${dash(l.health_status)} · report ${dash(l.report_id)}`;
+    return `${dash(l.quality_status)} · batch ${dash(l.batch_id)}`;
+  }
+
+  async function refresh(): Promise<void> {
+    const tbody = $<HTMLElement>("[data-tbody]");
+    if (tbody)
+      tbody.innerHTML = `<tr><td colspan="5" class="table-loading">加载中…</td></tr>`;
+    try {
+      const res = await adminQualityIssues({
+        kind,
+        source_id: $<HTMLInputElement>("[data-src]")?.value.trim() ?? "",
+        limit: PAGE_SIZE,
+        offset,
+      });
+      issues = res.items;
+      total = res.count;
+      setText("[data-c-job]", `▲ 任务失败 ${res.counts.job_failed}`);
+      setText("[data-c-health]", `◍ 来源健康 ${res.counts.health}`);
+      setText("[data-c-obs]", `■ 观测异常 ${res.counts.observation}`);
+      setText("[data-count-label]", `共 ${total} 条，当前 ${issues.length} 条`);
+      const page = Math.floor(offset / PAGE_SIZE) + 1;
+      const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      setText("[data-page-label]", `第 ${page} / ${pages} 页`);
+      const prev = $<HTMLButtonElement>("[data-prev]");
+      const next = $<HTMLButtonElement>("[data-next]");
+      if (prev) prev.disabled = offset <= 0;
+      if (next) next.disabled = offset + PAGE_SIZE >= total;
+      renderTable();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return;
+      toast(`加载异常失败：${err instanceof Error ? err.message : String(err)}`);
+      if (tbody)
+        tbody.innerHTML =
+          `<tr><td colspan="5" class="table-loading">加载失败，请调整筛选重试</td></tr>`;
+    }
+  }
+
+  function renderTable(): void {
+    const tbody = $<HTMLElement>("[data-tbody]");
+    if (!tbody) return;
+    if (issues.length === 0) {
+      tbody.innerHTML =
+        `<tr><td colspan="5" class="table-loading">暂无质量异常</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = issues
+      .map(
+        (it, i) => `
+        <tr data-row="${i}" tabindex="0">
+          <td data-label="类型"><span class="${kindBadge(it.issue_kind)}">${kindText(it.issue_kind)}</span></td>
+          <td data-label="来源">${esc(it.source_name)}<span class="meta">（${esc(it.source_id)}）</span></td>
+          <td data-label="发生时间" class="num">${esc(it.occurred_at)}</td>
+          <td data-label="定位要素" class="num">${esc(locatorBrief(it))}</td>
+          <td data-label="备注">${esc(dash(it.note))}</td>
+        </tr>`,
+      )
+      .join("");
+  }
+
+  /** locator 键的中文标签（验收一定位要素逐项可读） */
+  const LOCATOR_LABELS: Record<string, string> = {
+    job_id: "Job ID",
+    error_code: "错误码",
+    connector_version: "Connector 版本",
+    workflow_url: "工作流",
+    run_type: "运行类型",
+    city_code: "城市",
+    records_fetched: "抓取记录",
+    records_accepted: "入库记录",
+    records_rejected: "拒绝记录",
+    report_id: "健康报告 ID",
+    health_status: "健康状态",
+    latency_ms: "延迟（ms）",
+    detail: "详情",
+    observation_id: "观测 ID",
+    batch_id: "批次 ID",
+    quality_status: "质量状态",
+    object_id: "对象 ID",
+    price_type: "价格类型",
+    metric_code: "指标",
+    stat_date: "统计日期",
+  };
+
+  function openDrawer(issue: QualityIssue): void {
+    const fields = $<HTMLElement>("[data-fields]");
+    if (!fields) return;
+    const rows: Array<[string, string]> = [
+      ["异常类型", kindText(issue.issue_kind)],
+      ["来源", `${issue.source_name}（${issue.source_id}）`],
+      ["发生时间", issue.occurred_at],
+    ];
+    for (const [key, value] of Object.entries(issue.locator)) {
+      rows.push([LOCATOR_LABELS[key] ?? key, dash(value)]);
+    }
+    if (issue.note) rows.push(["备注", issue.note]);
+    fields.innerHTML = rows
+      .map(
+        ([label, value]) =>
+          `<dt>${esc(label)}</dt><dd class="num">${esc(value)}</dd>`,
+      )
+      .join("");
+    $<HTMLElement>("[data-drawer]")?.classList.remove("is-hidden");
+  }
+
+  document.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    if (target.closest("[data-drawer-close]")) {
+      $<HTMLElement>("[data-drawer]")?.classList.add("is-hidden");
+      return;
+    }
+    const kindBtn = target.closest<HTMLButtonElement>("[data-kind]");
+    if (kindBtn) {
+      kind = kindBtn.dataset.kind ?? "";
+      offset = 0;
+      document
+        .querySelectorAll("[data-kind]")
+        .forEach((b) => b.classList.toggle("is-active", b === kindBtn));
+      void refresh();
+      return;
+    }
+    const row = target.closest<HTMLTableRowElement>("tr[data-row]");
+    if (row) {
+      const item = issues[Number(row.dataset.row)];
+      if (item) openDrawer(item);
+    }
+  });
+
+  $<HTMLButtonElement>("[data-prev]")?.addEventListener("click", () => {
+    offset = Math.max(0, offset - PAGE_SIZE);
+    void refresh();
+  });
+  $<HTMLButtonElement>("[data-next]")?.addEventListener("click", () => {
+    offset += PAGE_SIZE;
+    void refresh();
+  });
+
+  let srcTimer: number | undefined;
+  $<HTMLInputElement>("[data-src]")?.addEventListener("input", () => {
+    window.clearTimeout(srcTimer);
+    srcTimer = window.setTimeout(() => {
+      offset = 0;
+      void refresh();
+    }, 300);
+  });
+
+  initAdminGate(() => refresh());
+</script>
+
+<!-- 06D：同 jobs——动态 tr/td 不带 scope 属性，卡片视图 media 需全局样式命中 -->
+<style is:global>
+  [hidden] {
+    display: none !important;
+  }
+
+  .admin-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-top: var(--space-2);
+  }
+
+  .statusbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+
+  .toolbar-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+
+  .toolbar-actions .input {
+    width: 200px;
+  }
+
+  .chip-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .section-title {
+    margin: 0;
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .table-card {
+    padding: var(--space-1-5);
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  .ops-table {
+    width: 100%;
+    min-width: 860px;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+  }
+
+  .ops-table th {
+    text-align: left;
+    color: var(--color-muted);
+    font-weight: var(--weight-medium);
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--color-border);
+    white-space: nowrap;
+  }
+
+  .ops-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .ops-table tr[data-row] {
+    cursor: pointer;
+  }
+
+  .ops-table tr[data-row]:hover td {
+    background: var(--color-bg);
+  }
+
+  .table-loading {
+    color: var(--color-muted);
+    text-align: center;
+  }
+
+  .pager {
+    display: flex;
+    align-items: center;
+    justify-content: end;
+    gap: var(--space-1);
+    padding-top: var(--space-1);
+  }
+
+  .drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 85;
+    width: min(460px, 100%);
+    background: var(--color-surface, #fff);
+    border-left: 1px solid var(--color-border);
+    box-shadow: -8px 0 24px rgb(20 37 61 / 12%);
+    padding: var(--space-2);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1-5);
+  }
+
+  .drawer.is-hidden {
+    display: none;
+  }
+
+  .drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  .drawer-title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    margin: 0;
+  }
+
+  .drawer-fields {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 8px var(--space-1);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+
+  .drawer-fields dt {
+    color: var(--color-muted);
+  }
+
+  .drawer-fields dd {
+    margin: 0;
+    word-break: break-all;
+  }
+
+  .note-card {
+    padding: var(--space-1-5);
+    background: var(--color-bg);
+  }
+
+  .field-label {
+    margin: 0 0 4px;
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+  }
+
+  .meta {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: var(--text-sm);
+  }
+
+  @media (max-width: 1024px) {
+    .ops-table {
+      min-width: 0;
+    }
+
+    .ops-table thead {
+      display: none;
+    }
+
+    .ops-table,
+    .ops-table tbody,
+    .ops-table tr,
+    .ops-table td {
+      display: block;
+      width: auto;
+    }
+
+    .ops-table tr[data-row] {
+      margin-bottom: var(--space-1);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-card, 10px);
+      padding: 6px 10px;
+    }
+
+    .ops-table td {
+      border-bottom: none;
+      display: flex;
+      justify-content: space-between;
+      gap: var(--space-1);
+      white-space: normal;
+    }
+
+    .ops-table td::before {
+      content: attr(data-label);
+      color: var(--color-muted);
+      font-size: var(--text-xs);
+    }
+
+    .ops-table .table-loading {
+      text-align: left;
+    }
+  }
+</style>

@@ -341,6 +341,8 @@ export const ingestBatchSchema: JsonSchema = {
  * internal 任务开始（04B / §10.4 / §11.1-2）：object_level 供 source-gate 门禁校验，
  * 未 approved 来源连任务都起不来；任务本身不携带观测明细。
  */
+// TASK-06D：§8.6 全字段补齐——run_type/connector_version/workflow_url 可选
+// （04B 既有载荷不带，向后兼容）
 export const ingestJobStartSchema: JsonSchema = {
   type: "object",
   required: ["job_id", "source_id", "city_code", "object_level"],
@@ -350,10 +352,14 @@ export const ingestJobStartSchema: JsonSchema = {
     source_id: { type: "string", minLength: 1, maxLength: 64 },
     city_code: { type: "string", minLength: 1, maxLength: 32 },
     object_level: { type: "string", enum: OBJECT_LEVELS },
+    run_type: { type: "string", enum: ["scheduled", "manual", "retry"] },
+    connector_version: { type: "string", minLength: 1, maxLength: 64 },
+    workflow_url: { type: "string", maxLength: 500 },
   },
 };
 
-/** internal 任务完成：status 只允许成败二态；重复 finish 由端点幂等处理 */
+/** internal 任务完成：status 只允许成败二态；重复 finish 由端点幂等处理。
+ *  TASK-06D：§8.6 计数四字段可选（records_fetched/accepted/rejected、communities_covered） */
 export const ingestJobFinishSchema: JsonSchema = {
   type: "object",
   required: ["status"],
@@ -362,6 +368,10 @@ export const ingestJobFinishSchema: JsonSchema = {
     status: { type: "string", enum: ["succeeded", "failed"] },
     error_code: { type: "string", minLength: 1, maxLength: 64 },
     note: { type: "string", maxLength: 500 },
+    records_fetched: { type: "integer", minimum: 0 },
+    records_accepted: { type: "integer", minimum: 0 },
+    records_rejected: { type: "integer", minimum: 0 },
+    communities_covered: { type: "integer", minimum: 0 },
   },
 };
 

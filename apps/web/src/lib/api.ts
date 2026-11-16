@@ -761,3 +761,134 @@ export function adminAuditForSource(): Promise<{
   });
   return request(`/admin/audit?${query.toString()}`);
 }
+
+// ---------------- TASK-06D：任务和质量后台（§8.6 / §8.7 / 任务行 1368–1374） ----------------
+
+/** GET /admin/jobs item：§8.6 全字段（04B 旧行新列为 null） */
+export interface AdminJobItem {
+  job_id: string;
+  source_id: string;
+  source_name: string;
+  city_code: string;
+  run_type: string | null;
+  status: string;
+  started_at: string;
+  finished_at: string | null;
+  error_code: string | null;
+  note: string | null;
+  records_fetched: number | null;
+  records_accepted: number | null;
+  records_rejected: number | null;
+  communities_covered: number | null;
+  connector_version: string | null;
+  workflow_url: string | null;
+}
+
+export interface AdminJobsResult {
+  items: AdminJobItem[];
+  count: number;
+  limit: number;
+  offset: number;
+  summary: {
+    jobs_7d: { succeeded: number; failed: number; running: number };
+    success_rate: number | null;
+  };
+}
+
+export interface AdminJobsQuery {
+  source_id?: string;
+  status?: string;
+  city_code?: string;
+  q?: string;
+  sort?: "started_at" | "finished_at";
+  order?: "asc" | "desc";
+  limit?: number;
+  offset?: number;
+}
+
+/** GET /admin/jobs：采集任务日志（搜索/筛选/排序/分页 + 近 7 日摘要） */
+export function adminJobsList(
+  query: AdminJobsQuery = {},
+): Promise<AdminJobsResult> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  }
+  const qs = params.toString();
+  return request(`/admin/jobs${qs ? `?${qs}` : ""}`);
+}
+
+/** 质量异常统一形态（locator 随 issue_kind 变化——验收一定位要素） */
+export interface QualityIssue {
+  issue_kind: "job_failed" | "health" | "observation";
+  source_id: string;
+  source_name: string;
+  occurred_at: string;
+  note: string | null;
+  locator: Record<string, unknown>;
+}
+
+export interface QualityIssuesResult {
+  items: QualityIssue[];
+  count: number;
+  limit: number;
+  offset: number;
+  counts: { job_failed: number; health: number; observation: number };
+}
+
+/** GET /admin/quality/issues：三类异常只读聚合（拍板 4，无写操作） */
+export function adminQualityIssues(
+  query: {
+    kind?: string;
+    source_id?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<QualityIssuesResult> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  }
+  const qs = params.toString();
+  return request(`/admin/quality/issues${qs ? `?${qs}` : ""}`);
+}
+
+/** GET /admin/overview（06B 既有块 + 06D ops 四指标块） */
+export interface AdminOverviewResult {
+  users: {
+    total: number;
+    active: number;
+    frozen: number;
+    new_7d: number;
+    active_7d: number;
+  };
+  monitoring: {
+    watches_active: number;
+    by_object_type: Record<string, number>;
+    rules_enabled: number;
+  };
+  events: { today: number; last_7d: number };
+  email: {
+    last_7d: {
+      sent: number;
+      provider_error: number;
+      quota_deferred: number;
+      success_rate: number | null;
+    };
+  };
+  sources: { by_status: Record<string, number> };
+  jobs: { today: Record<string, number> };
+  snapshots: { today_valid: number };
+  ops: {
+    jobs_7d: { succeeded: number; failed: number; running: number };
+    success_rate_7d: number | null;
+    last_update_at: string | null;
+    communities_covered: number;
+    source_issue_count: number;
+  };
+}
+
+/** GET /admin/overview：总览聚合（零 PII；ops 为 06D 四指标卡数据源） */
+export function adminOverview(): Promise<AdminOverviewResult> {
+  return request("/admin/overview");
+}

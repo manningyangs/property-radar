@@ -526,8 +526,9 @@ interface HealthInfo {
 /**
  * 批量健康摘要：最新 source_health_reports.status + 最近 succeeded ingest_jobs.finished_at。
  * 同 checked_at 多行时按 report_id 字典序取最大（稳定）；无记录 → unknown/null。
+ * TASK-06D：导出供 admin-ops（quality/issues）与 overview ops 复用。
  */
-async function healthBySources(
+export async function healthBySources(
   c: Context<AppEnv>,
   ids: string[],
 ): Promise<Map<string, HealthInfo>> {

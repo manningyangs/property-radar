@@ -118,11 +118,15 @@ export async function observationIds(
 /**
  * 落库观测并重算受影响组的快照（幂等）。
  * 返回实际写入/更新行数与确定性 observation_id 列表。
+ * @param batchId TASK-06D：观测归属批次（internal 受理传入；admin 手工补录为 null）。
+ *   canonicalObservation 不含 batch_id——observation_id 确定性口径不变，
+ *   重跑同观测仅更新 batch_id/collected_at，不产生重复行。
  */
 export async function writeObservations(
   env: Env,
   sourceId: string,
   observations: ObservationInput[],
+  batchId: string | null = null,
 ): Promise<WriteResult> {
   if (observations.length === 0) {
     return {
@@ -144,8 +148,8 @@ export async function writeObservations(
            (observation_id, source_id, object_type, object_id, property_type,
             price_type, metric_code, price_total_fen, unit_price_yuan_sqm,
             area_sqm, sample_count, stat_date, quality_status, payload_hash,
-            connector_version, index_value)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            connector_version, index_value, batch_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (observation_id) DO UPDATE SET
            price_total_fen = excluded.price_total_fen,
            unit_price_yuan_sqm = excluded.unit_price_yuan_sqm,
@@ -155,6 +159,7 @@ export async function writeObservations(
            payload_hash = excluded.payload_hash,
            connector_version = excluded.connector_version,
            index_value = excluded.index_value,
+           batch_id = excluded.batch_id,
            collected_at = datetime('now')`,
       ).bind(
         observationId,
@@ -173,6 +178,7 @@ export async function writeObservations(
         payloadHash,
         o.connector_version ?? null,
         o.index_value ?? null,
+        batchId,
       ),
     );
   }

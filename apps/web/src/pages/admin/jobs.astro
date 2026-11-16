@@ -1,0 +1,558 @@
+---
+/**
+ * TASK-06D：采集任务与日志（PRD 任务行 1368–1374 / §8.6 / spec R7）
+ * 真实 API 页面：GET /admin/jobs（§8.6 全字段），搜索/筛选/排序/分页均走服务端。
+ * 门禁：AdminMfaGate + lib/admin-gate.ts（与 06C 同构状态机）。
+ * 验收映射：异常定位=抽屉展示 job/error_code/connector_version/workflow_url；
+ *           重跑幂等保护=抽屉固定说明块（拍板 3：无重跑路径，幂等由此前链路保证并有单测实证）；
+ *           1440/1024=表格横向滚动，≤1024px 行切卡片视图。
+ * 本页不读取 PUBLIC_DEMO_DATA 演示数据（真实 API 页，无数据即空态）。
+ */
+import AppShell from "../../layouts/AppShell.astro";
+import AdminSidebar from "../../components/AdminSidebar.astro";
+import AdminMfaGate from "../../components/AdminMfaGate.astro";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+---
+
+<AppShell
+  title="采集任务与日志"
+  demo={demoEnabled}
+  showNav={false}
+  variant="admin"
+>
+  <AdminSidebar slot="sidebar" active="采集任务与日志" />
+
+  <div class="page admin-page">
+    <AdminMfaGate />
+
+    <div data-main hidden>
+      <!-- 近 7 日摘要条（任务成功率指标卡同源） -->
+      <div class="statusbar" role="status">
+        <span class="badge badge--primary" data-sum-succeeded
+          >● 成功 —</span
+        >
+        <span class="badge badge--danger" data-sum-failed
+          >▲ 失败 —</span
+        >
+        <span class="badge badge--warning" data-sum-running
+          >◌ 运行中 —</span
+        >
+        <span class="meta"
+          >近 7 日成功率 <b class="num" data-sum-rate>—</b></span
+        >
+      </div>
+
+      <!-- 工具条：搜索 / 状态筛选 / 排序 -->
+      <div class="toolbar">
+        <h2 class="section-title">采集任务</h2>
+        <span class="meta" data-count-label></span>
+        <div class="toolbar-actions">
+          <input
+            class="input"
+            data-q
+            type="search"
+            placeholder="搜索 job_id / 来源…"
+            aria-label="搜索任务"
+          />
+          <select class="input" data-status aria-label="状态筛选">
+            <option value="">全部状态</option>
+            <option value="running">运行中</option>
+            <option value="succeeded">成功</option>
+            <option value="failed">失败</option>
+          </select>
+          <select class="input" data-sort aria-label="排序字段">
+            <option value="started_at">按开始时间</option>
+            <option value="finished_at">按完成时间</option>
+          </select>
+          <select class="input" data-order aria-label="排序方向">
+            <option value="desc">倒序</option>
+            <option value="asc">正序</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 任务表（≤1024px 行切卡片视图；宽屏横向滚动） -->
+      <div class="card table-card">
+        <div class="table-wrap">
+          <table class="ops-table">
+            <thead>
+              <tr>
+                <th>Job</th>
+                <th>来源</th>
+                <th>城市</th>
+                <th>类型</th>
+                <th>状态</th>
+                <th>开始时间</th>
+                <th>结束时间</th>
+                <th>抓取/入库/拒绝</th>
+                <th>Connector</th>
+                <th>错误码</th>
+              </tr>
+            </thead>
+            <tbody data-tbody>
+              <tr>
+                <td colspan="10" class="table-loading">加载中…</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pager">
+          <button type="button" class="btn btn--secondary btn--sm" data-prev>
+            上一页
+          </button>
+          <span class="meta" data-page-label></span>
+          <button type="button" class="btn btn--secondary btn--sm" data-next>
+            下一页
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 任务详情抽屉 -->
+    <aside class="drawer is-hidden" data-drawer role="dialog" aria-label="任务详情">
+      <div class="drawer-head">
+        <h2 class="drawer-title">任务详情</h2>
+        <button type="button" class="icon-btn" data-drawer-close aria-label="关闭详情抽屉">
+          <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M5 5 L15 15 M15 5 L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <dl class="drawer-fields" data-fields></dl>
+      <div class="card note-card">
+        <p class="field-label">重跑幂等保护</p>
+        <p class="meta">
+          同一 job 重复上报、同一 batch 重放均返回 duplicate
+          且不重写已留痕数据；观测按确定性 ID upsert，重跑不会重复插入价格快照（后端单测实证）。
+          实际重跑由外部 connector 工作流发起，后台不提供直接执行入口。
+        </p>
+      </div>
+    </aside>
+  </div>
+</AppShell>
+
+<script>
+  import {
+    adminJobsList,
+    ApiError,
+    type AdminJobItem,
+  } from "../../lib/api";
+  import { initAdminGate } from "../../lib/admin-gate";
+
+  const $ = <T extends Element>(sel: string): T | null =>
+    document.querySelector<T>(sel);
+
+  const esc = (text: string): string =>
+    text
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
+
+  const toast = (message: string): void => {
+    window.dispatchEvent(new CustomEvent("app:toast", { detail: { message } }));
+  };
+
+  const PAGE_SIZE = 20;
+  let offset = 0;
+  let total = 0;
+  let jobs: AdminJobItem[] = [];
+
+  const statusBadge = (status: string): string =>
+    status === "succeeded"
+      ? "badge badge--primary"
+      : status === "failed"
+        ? "badge badge--danger"
+        : "badge badge--warning";
+  const statusText = (status: string): string =>
+    status === "succeeded" ? "成功" : status === "failed" ? "失败" : "运行中";
+  const runTypeText = (v: string | null): string =>
+    v === "scheduled"
+      ? "定时"
+      : v === "manual"
+        ? "手动"
+        : v === "retry"
+          ? "重试"
+          : v ?? "—";
+  const dash = (v: string | number | null | undefined): string =>
+    v === null || v === undefined || v === "" ? "—" : String(v);
+
+  async function refresh(): Promise<void> {
+    const tbody = $<HTMLElement>("[data-tbody]");
+    if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="table-loading">加载中…</td></tr>`;
+    try {
+      const res = await adminJobsList({
+        q: $<HTMLInputElement>("[data-q]")?.value.trim() ?? "",
+        status: $<HTMLSelectElement>("[data-status]")?.value ?? "",
+        sort: ($<HTMLSelectElement>("[data-sort]")?.value ?? "started_at") as
+          | "started_at"
+          | "finished_at",
+        order: ($<HTMLSelectElement>("[data-order]")?.value ?? "desc") as
+          | "asc"
+          | "desc",
+        limit: PAGE_SIZE,
+        offset,
+      });
+      jobs = res.items;
+      total = res.count;
+      const s = res.summary.jobs_7d;
+      setText("[data-sum-succeeded]", `● 成功 ${s.succeeded}`);
+      setText("[data-sum-failed]", `▲ 失败 ${s.failed}`);
+      setText("[data-sum-running]", `◌ 运行中 ${s.running}`);
+      setText(
+        "[data-sum-rate]",
+        res.summary.success_rate === null
+          ? "无已完成任务"
+          : `${(res.summary.success_rate * 100).toFixed(1)}%`,
+      );
+      setText(
+        "[data-count-label]",
+        `共 ${total} 条，当前 ${jobs.length} 条`,
+      );
+      const page = Math.floor(offset / PAGE_SIZE) + 1;
+      const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      setText("[data-page-label]", `第 ${page} / ${pages} 页`);
+      const prev = $<HTMLButtonElement>("[data-prev]");
+      const next = $<HTMLButtonElement>("[data-next]");
+      if (prev) prev.disabled = offset <= 0;
+      if (next) next.disabled = offset + PAGE_SIZE >= total;
+      renderTable();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return;
+      toast(`加载任务失败：${err instanceof Error ? err.message : String(err)}`);
+      if (tbody)
+        tbody.innerHTML =
+          `<tr><td colspan="10" class="table-loading">加载失败，请调整筛选重试</td></tr>`;
+    }
+  }
+
+  function setText(sel: string, text: string): void {
+    const el = $<HTMLElement>(sel);
+    if (el) el.textContent = text;
+  }
+
+  function renderTable(): void {
+    const tbody = $<HTMLElement>("[data-tbody]");
+    if (!tbody) return;
+    if (jobs.length === 0) {
+      tbody.innerHTML =
+        `<tr><td colspan="10" class="table-loading">暂无任务记录</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = jobs
+      .map(
+        (j, i) => `
+        <tr data-row="${i}" tabindex="0">
+          <td data-label="Job" class="num">${esc(j.job_id)}</td>
+          <td data-label="来源">${esc(j.source_name)}</td>
+          <td data-label="城市" class="num">${esc(j.city_code)}</td>
+          <td data-label="类型">${esc(runTypeText(j.run_type))}</td>
+          <td data-label="状态"><span class="${statusBadge(j.status)}">${statusText(j.status)}</span></td>
+          <td data-label="开始" class="num">${esc(dash(j.started_at))}</td>
+          <td data-label="结束" class="num">${esc(dash(j.finished_at))}</td>
+          <td data-label="抓取/入库/拒绝" class="num">${dash(j.records_fetched)}/${dash(j.records_accepted)}/${dash(j.records_rejected)}</td>
+          <td data-label="Connector">${esc(dash(j.connector_version))}</td>
+          <td data-label="错误码" class="${j.error_code ? "err-code" : ""}">${esc(dash(j.error_code))}</td>
+        </tr>`,
+      )
+      .join("");
+  }
+
+  // 行点击 → 抽屉（§8.6 全字段 + 定位要素 + 幂等说明）
+  function openDrawer(j: AdminJobItem): void {
+    const fields = $<HTMLElement>("[data-fields]");
+    if (!fields) return;
+    const rows: Array<[string, string, boolean]> = [
+      ["Job ID", j.job_id, true],
+      ["来源", `${j.source_name}（${j.source_id}）`, false],
+      ["城市", j.city_code, true],
+      ["运行类型", runTypeText(j.run_type), false],
+      ["状态", statusText(j.status), false],
+      ["开始时间", dash(j.started_at), true],
+      ["结束时间", dash(j.finished_at), true],
+      ["抓取记录", dash(j.records_fetched), true],
+      ["入库记录", dash(j.records_accepted), true],
+      ["拒绝记录", dash(j.records_rejected), true],
+      ["覆盖小区", dash(j.communities_covered), true],
+      ["Connector 版本", dash(j.connector_version), true],
+      ["错误码", dash(j.error_code), true],
+      ["备注", dash(j.note), false],
+    ];
+    fields.innerHTML = rows
+      .map(
+        ([label, value, mono]) =>
+          `<dt>${esc(label)}</dt><dd class="${mono ? "num" : ""}">${esc(value)}</dd>`,
+      )
+      .join("");
+    if (j.workflow_url) {
+      const dt = document.createElement("dt");
+      dt.textContent = "工作流";
+      const dd = document.createElement("dd");
+      dd.className = "num";
+      const a = document.createElement("a");
+      a.href = j.workflow_url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.textContent = "查看工作流运行 ↗";
+      dd.append(a);
+      fields.append(dt, dd);
+    }
+    $<HTMLElement>("[data-drawer]")?.classList.remove("is-hidden");
+  }
+
+  document.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    if (target.closest("[data-drawer-close]")) {
+      $<HTMLElement>("[data-drawer]")?.classList.add("is-hidden");
+      return;
+    }
+    const row = target.closest<HTMLTableRowElement>("tr[data-row]");
+    if (row) {
+      const idx = Number(row.dataset.row);
+      const job = jobs[idx];
+      if (job) openDrawer(job);
+    }
+  });
+
+  $<HTMLButtonElement>("[data-prev]")?.addEventListener("click", () => {
+    offset = Math.max(0, offset - PAGE_SIZE);
+    void refresh();
+  });
+  $<HTMLButtonElement>("[data-next]")?.addEventListener("click", () => {
+    offset += PAGE_SIZE;
+    void refresh();
+  });
+
+  let searchTimer: number | undefined;
+  for (const sel of ["[data-q]", "[data-status]", "[data-sort]", "[data-order]"]) {
+    $<HTMLElement>(sel)?.addEventListener("input", () => {
+      window.clearTimeout(searchTimer);
+      searchTimer = window.setTimeout(() => {
+        offset = 0;
+        void refresh();
+      }, sel === "[data-q]" ? 300 : 0);
+    });
+  }
+
+  initAdminGate(() => refresh());
+</script>
+
+<!-- 06D：动态渲染的 tr/td 不带 Astro scope 属性，scoped 样式（含 ≤1024 卡片视图 media）
+     无法命中；本页样式独立成 global（页面 bundle 隔离，不泄漏他页） -->
+<style is:global>
+  [hidden] {
+    display: none !important;
+  }
+
+  .admin-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-top: var(--space-2);
+  }
+
+  .statusbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+
+  .toolbar-actions {
+    margin-left: auto;
+    display: flex;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+
+  .toolbar-actions .input {
+    width: 150px;
+  }
+
+  .section-title {
+    margin: 0;
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .table-card {
+    padding: var(--space-1-5);
+  }
+
+  /* 宽屏表格横向滚动；不遮挡操作 */
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  .ops-table {
+    width: 100%;
+    min-width: 980px;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+  }
+
+  .ops-table th {
+    text-align: left;
+    color: var(--color-muted);
+    font-weight: var(--weight-medium);
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--color-border);
+    white-space: nowrap;
+  }
+
+  .ops-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--color-border);
+    white-space: nowrap;
+  }
+
+  .ops-table tr[data-row] {
+    cursor: pointer;
+  }
+
+  .ops-table tr[data-row]:hover td {
+    background: var(--color-bg);
+  }
+
+  .err-code {
+    color: var(--color-danger, #c0392b);
+    font-weight: var(--weight-semibold);
+  }
+
+  .table-loading {
+    color: var(--color-muted);
+    text-align: center;
+  }
+
+  .pager {
+    display: flex;
+    align-items: center;
+    justify-content: end;
+    gap: var(--space-1);
+    padding-top: var(--space-1);
+  }
+
+  .drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 85;
+    width: min(460px, 100%);
+    background: var(--color-surface, #fff);
+    border-left: 1px solid var(--color-border);
+    box-shadow: -8px 0 24px rgb(20 37 61 / 12%);
+    padding: var(--space-2);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1-5);
+  }
+
+  .drawer.is-hidden {
+    display: none;
+  }
+
+  .drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  .drawer-title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    margin: 0;
+  }
+
+  .drawer-fields {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    gap: 8px var(--space-1);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+
+  .drawer-fields dt {
+    color: var(--color-muted);
+  }
+
+  .drawer-fields dd {
+    margin: 0;
+    word-break: break-all;
+  }
+
+  .note-card {
+    padding: var(--space-1-5);
+    background: var(--color-bg);
+  }
+
+  .field-label {
+    margin: 0 0 4px;
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+  }
+
+  .meta {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: var(--text-sm);
+  }
+
+  /* 平板端（≤1024px）：表格行切卡片视图，字段带标签，不横向溢出 */
+  @media (max-width: 1024px) {
+    .ops-table {
+      min-width: 0;
+    }
+
+    .ops-table thead {
+      display: none;
+    }
+
+    .ops-table,
+    .ops-table tbody,
+    .ops-table tr,
+    .ops-table td {
+      display: block;
+      width: auto;
+    }
+
+    .ops-table tr[data-row] {
+      margin-bottom: var(--space-1);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-card, 10px);
+      padding: 6px 10px;
+    }
+
+    .ops-table td {
+      border-bottom: none;
+      display: flex;
+      justify-content: space-between;
+      gap: var(--space-1);
+      white-space: normal;
+    }
+
+    .ops-table td::before {
+      content: attr(data-label);
+      color: var(--color-muted);
+      font-size: var(--text-xs);
+    }
+
+    .ops-table .table-loading {
+      text-align: left;
+    }
+  }
+</style>

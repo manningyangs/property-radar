@@ -9,6 +9,7 @@ import { meRoutes } from "./routes/me";
 import { adminRoutes } from "./routes/admin";
 import { adminAuthRoutes } from "./routes/admin-auth"; // TASK-06A：bootstrap / mfa/* / audit
 import { adminUsersRoutes } from "./routes/admin-users"; // TASK-06B：overview / users
+import { adminOpsRoutes } from "./routes/admin-ops"; // TASK-06D：jobs / quality/issues
 import { internalRoutes } from "./routes/internal";
 import { publicRoutes } from "./routes/public";
 
@@ -105,6 +106,8 @@ export function createApp(): Hono<AppEnv> {
   app.route("/api/v1/admin", adminAuthRoutes);
   // TASK-06B：系统总览与用户管理（requireAdminAccess 统一门禁，无豁免路径）
   app.route("/api/v1/admin", adminUsersRoutes);
+  // TASK-06D：任务与质量只读端点（jobs / quality/issues，requireAdminAccess 统一门禁）
+  app.route("/api/v1/admin", adminOpsRoutes);
   app.route("/api/v1/internal", internalRoutes);
   app.route("/api/v1/auth", authRoutes);
 

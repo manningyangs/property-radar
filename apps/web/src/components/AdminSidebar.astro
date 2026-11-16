@@ -1,14 +1,18 @@
 ---
 /**
  * TASK-06C：后台左侧深色导航（PRD §8.1 十项）。
- * 已建路由：数据运营总览 /admin、数据源中心 /admin/sources；其余标注「暂未开放」。
+ * 已建路由：数据运营总览 /admin、数据源中心 /admin/sources、
+ * 采集任务与日志 /admin/jobs、数据质量中心 /admin/quality（TASK-06D）；其余标注「暂未开放」。
  * 用法：<AdminSidebar slot="sidebar" active="数据源中心" />
  * （slot 必须直接放在 AppShell 子节点上——Astro 仅静态收集直接子级的 slot）
+ * bare：外壳用 display:contents 让子项直接参与外层 .side 弹性布局
+ * （/admin 总览页 demo/真实双分支共用一个 slot 包装时）。
  */
 interface Props {
   active: string;
+  bare?: boolean;
 }
-const { active } = Astro.props;
+const { active, bare = false } = Astro.props;
 
 const items: Array<{ label: string; href?: string }> = [
   { label: "数据运营总览", href: "/admin" },
@@ -16,53 +20,59 @@ const items: Array<{ label: string; href?: string }> = [
   { label: "行政区与小区目录" },
   { label: "数据源中心", href: "/admin/sources" },
   { label: "数据覆盖地图" },
-  { label: "采集任务与日志" },
-  { label: "数据质量中心" },
+  { label: "采集任务与日志", href: "/admin/jobs" },
+  { label: "数据质量中心", href: "/admin/quality" },
   { label: "事件与通知投递" },
   { label: "管理员角色与审计" },
   { label: "系统参数与费用用量" },
 ];
+
 ---
 
-<div class="side">
+<div class={bare ? "side-bare" : "side"}>
   <div class="side-brand">
-    <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true">
-      <rect width="32" height="32" rx="7" fill="#ffffff" fill-opacity="0.12" />
-      <path
-        d="M6 22 L13 14 L18 18 L26 9"
-        stroke="#7FB0FF"
-        stroke-width="3"
-        fill="none"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </svg>
-    <span>房价雷达 · 管理</span>
-  </div>
-  <nav class="side-nav" aria-label="后台导航">
-    {
-      items.map((item) =>
-        item.href ? (
-          <a
-            class:list={["side-link", { "is-active": item.label === active }]}
-            href={item.href}
-            aria-current={item.label === active ? "page" : undefined}
-          >
-            {item.label}
-          </a>
-        ) : (
-          <button type="button" class="side-link" data-soon={item.label}>
-            <span class="side-link-label">{item.label}</span>
-            <span class="badge badge--neutral">暂未开放</span>
-          </button>
-        ),
-      )
-    }
-  </nav>
-  <p class="side-foot">数据源中心 · 真实 API（需管理员 MFA）</p>
+      <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="7" fill="#ffffff" fill-opacity="0.12" />
+        <path
+          d="M6 22 L13 14 L18 18 L26 9"
+          stroke="#7FB0FF"
+          stroke-width="3"
+          fill="none"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+      <span>房价雷达 · 管理</span>
+    </div>
+    <nav class="side-nav" aria-label="后台导航">
+      {
+        items.map((item) =>
+          item.href ? (
+            <a
+              class:list={["side-link", { "is-active": item.label === active }]}
+              href={item.href}
+              aria-current={item.label === active ? "page" : undefined}
+            >
+              {item.label}
+            </a>
+          ) : (
+            <button type="button" class="side-link" data-soon={item.label}>
+              <span class="side-link-label">{item.label}</span>
+              <span class="badge badge--neutral">暂未开放</span>
+            </button>
+          ),
+        )
+      }
+    </nav>
+    <p class="side-foot">后台真实 API（需管理员 MFA）</p>
 </div>
 
 <style>
+  /* bare 模式：外壳不生成盒子，子项直接参与外层 .side 的弹性布局 */
+  .side-bare {
+    display: contents;
+  }
+
   .side {
     display: flex;
     flex-direction: column;

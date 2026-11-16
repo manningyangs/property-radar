@@ -1,28 +1,30 @@
 ---
 /**
- * 管理员总览 `/admin`（PRD 8.1 / 设计稿 §2.8 与 §四）：
- * 左侧深色导航（PRD 10 项，未建路由者标注“暂未开放”）→ 顶部状态条（城市范围 / 采集状态 /
- * 今日入库 / 管理员账户 / 导出审计）→ 4 张指标卡 → 对象目录数据表（搜索、状态筛选、行点击）
- * → 右侧详情抽屉（批准 / 停用 二次确认，写入会话审计日志）。
- * 默认构建不渲染任何行情数据，降级为 EmptyState。
+ * 管理员总览 `/admin`（PRD 8.1 / 8.2 / 任务行 1368–1374 / 设计稿 §2.8 与 §四）：
+ * 左侧深色导航（PRD 10 项，未建路由者标注“暂未开放”）→ 顶部状态条（城市选择 / 城市覆盖状态 /
+ * 系统健康状态，任务行 UI 要求）→ 4 张指标卡（任务成功率 / 数据更新时间 / 已覆盖小区数 /
+ * 来源异常数，数据源 GET /admin/overview ops 块）→ 快捷入口 + 来源许可分布。
+ * 默认构建（非 demo）为真实 API 页：AdminMfaGate 门禁 + lib/admin-gate.ts 状态机（TASK-06D）。
+ * PUBLIC_DEMO_DATA=1 时保留 M1 演示分支（对象目录表 + 抽屉 + 会话审计）。
  */
 import AppShell from "../layouts/AppShell.astro";
-import EmptyState from "../components/EmptyState.astro";
 import AdminDataTable from "../components/AdminDataTable.astro";
 import ConfirmDialog from "../components/ConfirmDialog.astro";
+import AdminSidebar from "../components/AdminSidebar.astro";
+import AdminMfaGate from "../components/AdminMfaGate.astro";
 
 const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
 const demo = demoEnabled ? (await import("../data/demo")).demoData : null;
 
-/** PRD 8.1 后台导航 10 项；“数据运营总览”“数据源中心”（TASK-06C）已建路由 */
+/** PRD 8.1 后台导航 10 项；总览/数据源中心（06C）/采集任务/数据质量（06D）已建路由 */
 const navItems: { label: string; href?: string; active?: boolean }[] = [
   { label: "数据运营总览", active: true },
   { label: "用户管理" },
   { label: "行政区与小区目录" },
   { label: "数据源中心", href: "/admin/sources" },
   { label: "数据覆盖地图" },
-  { label: "采集任务与日志" },
-  { label: "数据质量中心" },
+  { label: "采集任务与日志", href: "/admin/jobs" },
+  { label: "数据质量中心", href: "/admin/quality" },
   { label: "事件与通知投递" },
   { label: "管理员角色与审计" },
   { label: "系统参数与费用用量" },
@@ -44,39 +46,48 @@ const metrics = demo ? demo.admin.metrics : [];
 
 <AppShell title="管理后台" demo={demoEnabled} showNav={false} variant="admin">
   {/* 左侧深色导航必须是 AppShell 的直接子节点并带 slot 属性：
-      Astro 仅静态收集直接子级上的 slot，嵌入三元表达式/Fragment 会被静默丢弃 */}
+      Astro 仅静态收集直接子级上的 slot，嵌入三元表达式/Fragment 会被静默丢弃。
+      demo 分支渲染演示导航；真实分支复用 AdminSidebar（bare 模式，06D） */}
   <div slot="sidebar" class="side">
-    <div class="side-brand">
-      <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true">
-        <rect width="32" height="32" rx="7" fill="#ffffff" fill-opacity="0.12" />
-        <path
-          d="M6 22 L13 14 L18 18 L26 9"
-          stroke="#7FB0FF"
-          stroke-width="3"
-          fill="none"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-      </svg>
-      <span>房价雷达 · 管理</span>
-    </div>
-    <nav class="side-nav" aria-label="后台导航">
-      {navItems.map((item) =>
-        item.active ? (
-          <a class="side-link is-active" href="/admin" aria-current="page">
-            {item.label}
-          </a>
-        ) : item.href ? (
-          <a class="side-link" href={item.href}>{item.label}</a>
-        ) : (
-          <button type="button" class="side-link" data-soon={item.label}>
-            <span class="side-link-label">{item.label}</span>
-            <span class="badge badge--neutral">暂未开放</span>
-          </button>
-        ),
-      )}
-    </nav>
-    <p class="side-foot">{demo ? "演示构建 · 演示数据" : "未接入数据源 · 暂未覆盖"}</p>
+    {
+      demo ? (
+        <>
+          <div class="side-brand">
+            <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true">
+              <rect width="32" height="32" rx="7" fill="#ffffff" fill-opacity="0.12" />
+              <path
+                d="M6 22 L13 14 L18 18 L26 9"
+                stroke="#7FB0FF"
+                stroke-width="3"
+                fill="none"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span>房价雷达 · 管理</span>
+          </div>
+          <nav class="side-nav" aria-label="后台导航">
+            {navItems.map((item) =>
+              item.active ? (
+                <a class="side-link is-active" href="/admin" aria-current="page">
+                  {item.label}
+                </a>
+              ) : item.href ? (
+                <a class="side-link" href={item.href}>{item.label}</a>
+              ) : (
+                <button type="button" class="side-link" data-soon={item.label}>
+                  <span class="side-link-label">{item.label}</span>
+                  <span class="badge badge--neutral">暂未开放</span>
+                </button>
+              ),
+            )}
+          </nav>
+          <p class="side-foot">演示构建 · 演示数据</p>
+        </>
+      ) : (
+        <AdminSidebar bare active="数据运营总览" />
+      )
+    }
   </div>
 
   {
@@ -204,12 +215,60 @@ const metrics = demo ? demo.admin.metrics : [];
         </div>
     ) : (
       <div class="page admin-page">
-        <EmptyState
-          title="暂未覆盖，可提交覆盖申请"
-          description="未接入数据源时后台没有可运营的对象目录。此处不会用示例数据冒充真实状态。"
-          actionText="返回首页"
-          actionHref="/"
-        />
+        <AdminMfaGate />
+
+        <div data-main hidden>
+          {/* 顶部状态条：城市选择 / 城市覆盖状态 / 系统健康状态（任务行 UI 要求） */}
+          <div class="statusbar" role="status">
+            <label class="field-label" for="adm-city">城市选择</label>
+            <select id="adm-city" class="input input--sm" data-city>
+              <option value="">全部城市</option>
+            </select>
+            <span class="badge badge--neutral" data-city-coverage>覆盖状态 —</span>
+            <span class="badge badge--primary" data-sys-health>● 系统健康 —</span>
+          </div>
+
+          {/* 首屏四指标卡（任务行 1372；数据源 overview.ops） */}
+          <div class="grid-2 metric-grid">
+            <div class="metric-card">
+              <span class="metric-label">任务成功率（近 7 日）</span>
+              <span class="metric-value num" data-m-rate>—</span>
+              <span class="meta" data-m-rate-hint></span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">数据更新时间</span>
+              <span class="metric-value num" data-m-update>—</span>
+              <span class="meta">今日有效快照 <b class="num" data-m-snap>—</b> 条</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">已覆盖小区数</span>
+              <span class="metric-value num" data-m-comm>—</span>
+              <span class="meta">有效快照去重</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">来源异常数</span>
+              <span class="metric-value num" data-m-issue>—</span>
+              <span class="meta">健康 ≠ ok ∪ 近 7 日失败任务来源（去重）</span>
+            </div>
+          </div>
+
+          {/* 快捷入口（06C/06D 已建路由） */}
+          <section class="card quick-card" aria-label="快捷入口">
+            <div class="btn-row">
+              <a class="btn btn--primary btn--sm" href="/admin/sources">数据源中心</a>
+              <a class="btn btn--secondary btn--sm" href="/admin/jobs">采集任务与日志</a>
+              <a class="btn btn--secondary btn--sm" href="/admin/quality">数据质量中心</a>
+            </div>
+          </section>
+
+          {/* 来源许可分布（overview.sources.by_status） */}
+          <section class="card status-card" aria-labelledby="adm-src-title">
+            <h2 class="section-title" id="adm-src-title">来源许可分布</h2>
+            <div class="chip-row" data-src-status>
+              <span class="meta">加载中…</span>
+            </div>
+          </section>
+        </div>
       </div>
     )
   }
@@ -376,6 +435,145 @@ const metrics = demo ? demo.admin.metrics : [];
     item.append(time, body);
     list.prepend(item);
   }
+</script>
+
+<script>
+  // TASK-06D：真实总览（非 demo 构建）。initAdminGate 门禁 → GET /admin/overview + 城市目录。
+  // 四指标卡=overview.ops（成功率/更新时间/覆盖小区/来源异常）；
+  // 顶部状态条=城市选择/城市覆盖状态/系统健康状态（任务行 1372）。
+  import {
+    adminOverview,
+    ApiError,
+    searchCities,
+    type AdminOverviewResult,
+    type CityItem,
+  } from "../lib/api";
+  import { initAdminGate } from "../lib/admin-gate";
+
+  const $ = <T extends Element>(sel: string): T | null =>
+    document.querySelector<T>(sel);
+
+  const setText = (sel: string, text: string): void => {
+    const el = $<HTMLElement>(sel);
+    if (el) el.textContent = text;
+  };
+
+  const toast = (message: string): void => {
+    window.dispatchEvent(new CustomEvent("app:toast", { detail: { message } }));
+  };
+
+  let cities: CityItem[] = [];
+
+  const COVERAGE_TEXT: Record<string, string> = {
+    full: "全覆盖",
+    partial: "部分覆盖",
+    none: "未覆盖",
+  };
+
+  const SRC_STATUS_TEXT: Record<string, string> = {
+    approved_open: "公开已批准",
+    approved_licensed: "授权已批准",
+    discovered: "已发现",
+    pending_review: "待审核",
+    manual_only: "仅手动",
+    suspended: "已停用",
+    blocked: "已封禁",
+  };
+
+  function renderOps(b: AdminOverviewResult): void {
+    const ops = b.ops;
+    setText(
+      "[data-m-rate]",
+      ops.success_rate_7d === null
+        ? "无已完成任务"
+        : `${(ops.success_rate_7d * 100).toFixed(1)}%`,
+    );
+    setText(
+      "[data-m-rate-hint]",
+      `近 7 日成功 ${ops.jobs_7d.succeeded} / 失败 ${ops.jobs_7d.failed} / 运行中 ${ops.jobs_7d.running}`,
+    );
+    setText("[data-m-update]", ops.last_update_at ?? "尚无有效数据");
+    setText("[data-m-snap]", String(b.snapshots.today_valid));
+    setText("[data-m-comm]", String(ops.communities_covered));
+    setText("[data-m-issue]", String(ops.source_issue_count));
+
+    const health = $<HTMLElement>("[data-sys-health]");
+    if (health) {
+      if (ops.source_issue_count === 0) {
+        health.className = "badge badge--primary";
+        health.textContent = "● 系统健康";
+      } else {
+        health.className = "badge badge--danger";
+        health.textContent = `▲ ${ops.source_issue_count} 个来源异常`;
+      }
+    }
+
+    const box = $<HTMLElement>("[data-src-status]");
+    if (box) {
+      const entries = Object.entries(b.sources.by_status);
+      box.innerHTML =
+        entries.length === 0
+          ? `<span class="meta">暂无登记来源</span>`
+          : entries
+              .map(
+                ([status, n]) =>
+                  `<span class="badge badge--neutral">${escHtml(SRC_STATUS_TEXT[status] ?? status)} × ${String(n)}</span>`,
+              )
+              .join("");
+    }
+  }
+
+  const escHtml = (text: string): string =>
+    text
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
+
+  function renderCityOptions(): void {
+    const sel = $<HTMLSelectElement>("[data-city]");
+    if (!sel) return;
+    sel.innerHTML = `<option value="">全部城市</option>${cities
+      .map((c) => `<option value="${escHtml(c.city_code)}">${escHtml(c.name)}</option>`)
+      .join("")}`;
+  }
+
+  function renderCoverage(): void {
+    const code = $<HTMLSelectElement>("[data-city]")?.value ?? "";
+    const badge = $<HTMLElement>("[data-city-coverage]");
+    if (!badge) return;
+    const covered = cities.filter(
+      (c) => c.coverage_level === "full" || c.coverage_level === "partial",
+    ).length;
+    if (!code) {
+      badge.textContent = `城市覆盖：${String(covered)}/${String(cities.length)} 城`;
+      return;
+    }
+    const city = cities.find((c) => c.city_code === code);
+    badge.textContent = `${city?.name ?? code}：${COVERAGE_TEXT[city?.coverage_level ?? ""] ?? "未覆盖"}`;
+  }
+
+  async function loadAll(): Promise<void> {
+    try {
+      const [overview, cityRes] = await Promise.all([
+        adminOverview(),
+        searchCities(),
+      ]);
+      cities = cityRes.items;
+      renderOps(overview);
+      renderCityOptions();
+      renderCoverage();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return;
+      toast(`加载总览失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  $<HTMLSelectElement>("[data-city]")?.addEventListener("change", () => {
+    renderCoverage();
+  });
+
+  initAdminGate(() => loadAll());
 </script>
 
 <style>
@@ -601,6 +799,32 @@ const metrics = demo ? demo.admin.metrics : [];
     margin-top: auto;
     font-size: var(--text-xs);
     color: #8fa3bd;
+  }
+
+  /* ===== 真实总览分支（TASK-06D） ===== */
+  /* 06C 教训：卡片类带 display:flex 会覆盖 UA 的 [hidden]，页面兜底 */
+  [hidden] {
+    display: none !important;
+  }
+
+  .input--sm {
+    width: auto;
+    min-width: 140px;
+    min-height: 36px;
+    padding: 0 10px;
+    font-size: var(--text-sm);
+  }
+
+  .quick-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .status-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
   }
 
   @media (max-width: 767px) {

@@ -184,6 +184,11 @@ adminUsersRoutes.get("/overview", async (c) => {
     jobsRes,
     sourcesRes,
     snapRow,
+    jobs7dRes,
+    lastUpdateRow,
+    coveredRow,
+    failedSrcRes,
+    healthRes,
   ] = await Promise.all([
     priv
       .prepare(
@@ -261,6 +266,37 @@ adminUsersRoutes.get("/overview", async (c) => {
            WHERE date(collected_at) = date('now') AND quality_status = 'valid'`,
       )
       .first<{ n: number }>(),
+    // TASK-06D：总览四指标卡 ops 块（任务行 1372：成功率/更新时间/覆盖小区/来源异常）
+    priv
+      .prepare(
+        `SELECT status, COUNT(*) AS n FROM ingest_jobs
+           WHERE started_at >= datetime('now', '-7 day') GROUP BY status`,
+      )
+      .all<{ status: string; n: number }>(),
+    pub
+      .prepare(
+        `SELECT MAX(collected_at) AS t FROM price_snapshots
+           WHERE quality_status = 'valid'`,
+      )
+      .first<{ t: string | null }>(),
+    pub
+      .prepare(
+        `SELECT COUNT(DISTINCT object_id) AS n FROM price_snapshots
+           WHERE quality_status = 'valid' AND object_type = 'community'`,
+      )
+      .first<{ n: number }>(),
+    priv
+      .prepare(
+        `SELECT DISTINCT source_id FROM ingest_jobs
+           WHERE status = 'failed' AND started_at >= datetime('now', '-7 day')`,
+      )
+      .all<{ source_id: string }>(),
+    priv
+      .prepare(
+        `SELECT source_id, status FROM source_health_reports
+           ORDER BY checked_at DESC, report_id DESC LIMIT 2000`,
+      )
+      .all<{ source_id: string; status: string }>(),
   ]);
 
   const byObjectType: Record<string, number> = {
@@ -285,6 +321,32 @@ adminUsersRoutes.get("/overview", async (c) => {
   const sent = emailRow?.sent ?? 0;
   const providerError = emailRow?.provider_error ?? 0;
   const denom = sent + providerError;
+
+  // TASK-06D ops 指标：近 7 日成功率；来源异常数 = 最新健康 ≠ ok ∪ 近 7 日有 failed 任务（去重）
+  const jobs7d: { succeeded: number; failed: number; running: number } = {
+    succeeded: 0,
+    failed: 0,
+    running: 0,
+  };
+  for (const row of jobs7dRes.results) {
+    if (
+      row.status === "succeeded" ||
+      row.status === "failed" ||
+      row.status === "running"
+    )
+      jobs7d[row.status] = row.n;
+  }
+  const jobDenom = jobs7d.succeeded + jobs7d.failed;
+  const latestHealth = new Map<string, string>();
+  for (const row of healthRes.results) {
+    if (!latestHealth.has(row.source_id))
+      latestHealth.set(row.source_id, row.status);
+  }
+  const issueSources = new Set<string>();
+  for (const [sourceId, status] of latestHealth) {
+    if (status !== "ok") issueSources.add(sourceId);
+  }
+  for (const row of failedSrcRes.results) issueSources.add(row.source_id);
 
   return c.json({
     users: {
@@ -311,6 +373,16 @@ adminUsersRoutes.get("/overview", async (c) => {
     sources: { by_status: sourcesByStatus },
     jobs: { today: jobsToday },
     snapshots: { today_valid: snapRow?.n ?? 0 },
+    ops: {
+      jobs_7d: jobs7d,
+      success_rate_7d:
+        jobDenom === 0
+          ? null
+          : Number((jobs7d.succeeded / jobDenom).toFixed(4)),
+      last_update_at: lastUpdateRow?.t ?? null,
+      communities_covered: coveredRow?.n ?? 0,
+      source_issue_count: issueSources.size,
+    },
   });
 });
 

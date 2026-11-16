@@ -181,6 +181,7 @@ internalRoutes.post("/ingest/batch", async (c) => {
       c.env,
       input.source_id,
       clean.cleaned,
+      input.batch_id,
     );
 
     // TASK-05A：新快照入库后同步评估受影响对象的规则（03C 状态机；
@@ -224,16 +225,27 @@ internalRoutes.post("/jobs/start", async (c) => {
     source_id: string;
     city_code: string;
     object_level: string;
+    run_type?: string;
+    connector_version?: string;
+    workflow_url?: string;
   };
 
   await assertIngestAllowed(c.env, input);
 
   try {
+    // TASK-06D：§8.6 全字段落库（未带新字段的 04B 载荷 → NULL，向后兼容）
     await c.env.DB_PRIVATE.prepare(
-      `INSERT INTO ingest_jobs (job_id, source_id, city_code)
-       VALUES (?, ?, ?)`,
+      `INSERT INTO ingest_jobs (job_id, source_id, city_code, run_type, connector_version, workflow_url)
+       VALUES (?, ?, ?, ?, ?, ?)`,
     )
-      .bind(input.job_id, input.source_id, input.city_code)
+      .bind(
+        input.job_id,
+        input.source_id,
+        input.city_code,
+        input.run_type ?? null,
+        input.connector_version ?? null,
+        input.workflow_url ?? null,
+      )
       .run();
   } catch (e) {
     if (e instanceof Error && /UNIQUE constraint failed/i.test(e.message)) {
@@ -253,6 +265,10 @@ internalRoutes.post("/jobs/:id/finish", async (c) => {
     status: "succeeded" | "failed";
     error_code?: string;
     note?: string;
+    records_fetched?: number;
+    records_accepted?: number;
+    records_rejected?: number;
+    communities_covered?: number;
   };
   const jobId = c.req.param("id");
 
@@ -268,12 +284,24 @@ internalRoutes.post("/jobs/:id/finish", async (c) => {
   }
 
   // finished_at IS NULL 条件守卫：并发 finish 时只有一个真正写入
+  // TASK-06D：首次完成时同写 §8.6 计数四字段
   const result = await c.env.DB_PRIVATE.prepare(
     `UPDATE ingest_jobs
-        SET status = ?, finished_at = datetime('now'), error_code = ?, note = ?
+        SET status = ?, finished_at = datetime('now'), error_code = ?, note = ?,
+            records_fetched = ?, records_accepted = ?, records_rejected = ?,
+            communities_covered = ?
       WHERE job_id = ? AND finished_at IS NULL`,
   )
-    .bind(input.status, input.error_code ?? null, input.note ?? null, jobId)
+    .bind(
+      input.status,
+      input.error_code ?? null,
+      input.note ?? null,
+      input.records_fetched ?? null,
+      input.records_accepted ?? null,
+      input.records_rejected ?? null,
+      input.communities_covered ?? null,
+      jobId,
+    )
     .run();
   if (result.meta.changes === 0) {
     const current = await c.env.DB_PRIVATE.prepare(
