@@ -1,5 +1,6 @@
 // Worker 入口：Cloudflare 按 wrangler.jsonc 提供 D1 绑定（DB_PUBLIC / DB_PRIVATE）
 import { createApp } from "./app";
+import { purgeExpiredDeletions } from "./deletion";
 import { sendDailyDigest } from "./digest";
 import type { Env } from "./env";
 import { logError } from "./log";
@@ -46,6 +47,22 @@ async function scheduled(
         .catch((err: unknown) => {
           logError({
             request_id: "cron-push-cleanup",
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }),
+    );
+    // TASK-07B：随每日摘要执行注销到期硬删（冷静期 7 天已过 → 个人数据全删；
+    // 独立 waitUntil + catch，与前两任务互不阻塞）
+    ctx.waitUntil(
+      purgeExpiredDeletions(env.DB_PRIVATE)
+        .then((result) => {
+          console.log(
+            JSON.stringify({ request_id: "cron-deletion-purge", ...result }),
+          );
+        })
+        .catch((err: unknown) => {
+          logError({
+            request_id: "cron-deletion-purge",
             message: err instanceof Error ? err.message : String(err),
           });
         }),

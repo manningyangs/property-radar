@@ -239,7 +239,22 @@ authRoutes.post("/email/verify-code", async (c) => {
   )
     .bind(emailNormalized)
     .first<{ user_id: string; status: string; deleted_at: string | null }>();
-  if (user && (user.deleted_at || user.status !== "active")) {
+  // TASK-07B 冷静期撤销：deletion_pending 用户重新登录即撤销注销申请；
+  // 管理员删除（deleted_at）与冻结（frozen）维持拒绝
+  let deletionCancelled = false;
+  if (user && user.deleted_at) {
+    throw errors.unauthorized("账号不可用");
+  }
+  if (user && user.status === "deletion_pending") {
+    await c.env.DB_PRIVATE.prepare(
+      `UPDATE users SET status = 'active', deletion_requested_at = NULL
+       WHERE user_id = ?`,
+    )
+      .bind(user.user_id)
+      .run();
+    user = { ...user, status: "active" };
+    deletionCancelled = true;
+  } else if (user && user.status !== "active") {
     throw errors.unauthorized("账号不可用");
   }
   if (!user) {
@@ -289,6 +304,7 @@ authRoutes.post("/email/verify-code", async (c) => {
       email: emailNormalized,
       status: "active",
     },
+    ...(deletionCancelled ? { deletion_cancelled: true } : {}),
   });
 });
 

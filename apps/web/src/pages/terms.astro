@@ -1,0 +1,152 @@
+---
+/**
+ * 用户协议 `/terms`（TASK-07B / PRD 行 703、§2.1 产品性质）：
+ * 服务性质、账号规则、数据口径与免责、可接受使用、通知与配额、
+ * 服务变更与终止、争议解决。文本与当前实现一致。
+ */
+import AppShell from "../layouts/AppShell.astro";
+
+const TERMS_VERSION = "v1.0";
+const TERMS_DATE = "2026-11-16";
+---
+
+<AppShell title="用户协议" backHref="/account">
+  <div class="page legal-page">
+    <section class="card legal-head">
+      <h2 class="section-title">用户协议</h2>
+      <p class="meta">
+        版本 {TERMS_VERSION} · 生效日期 {TERMS_DATE} ·
+        <a class="legal-link" href="/privacy">隐私政策</a>
+      </p>
+      <p class="meta placeholder-note">
+        占位声明：本协议为上线前草案，签约主体信息与联系方式为占位，开放注册前必须替换并经专业人员审定。
+      </p>
+    </section>
+
+    <section class="card legal-sec">
+      <h3 class="legal-h3">一、服务性质</h3>
+      <p class="legal-p">
+        房价雷达是房产行情<strong>数据监控与提醒工具</strong>：聚合公开的统计口径与授权来源数据，
+        按你设置的监控对象与规则产生价格事件通知。本服务<strong>不是</strong>房地产经纪服务，
+        不提供房源交易，<strong>不构成</strong>任何投资建议或要约；购房决策请自行核实并咨询专业人士。
+      </p>
+    </section>
+
+    <section class="card legal-sec">
+      <h3 class="legal-h3">二、账号</h3>
+      <ul class="legal-ul">
+        <li>登录方式为邮箱验证码，不设密码；你须使用本人可接收邮件的邮箱。</li>
+        <li>账号仅限本人使用；因你保管不善（如邮箱被他人访问）导致的后果由你承担。</li>
+        <li>你可随时在账户页导出或删除你的数据、注销账号；注销后 7 天冷静期内重新登录可撤销。</li>
+      </ul>
+    </section>
+
+    <section class="card legal-sec">
+      <h3 class="legal-h3">三、数据口径与准确性</h3>
+      <ul class="legal-ul">
+        <li>页面展示的挂牌价、成交价、指数等口径以各页面「数据来源」标注为准；不同口径不可直接比较。</li>
+        <li>行情数据可能延迟、缺失或存在错误；演示环境数据为虚构，页面均有 DEMO 标识。</li>
+        <li>我们仅接入有合法授权或公开许可的数据来源，来源页面标注版权归原发布方。</li>
+      </ul>
+    </section>
+
+    <section class="card legal-sec">
+      <h3 class="legal-h3">四、可接受使用</h3>
+      <ul class="legal-ul">
+        <li>不得利用本服务抓取、转售或批量发布来源数据（超出来源许可范围的行为）。</li>
+        <li>不得干扰服务运行：包括但不限于绕过限流、伪造签名推送、恶意注册消耗通知配额、攻击鉴权与管理接口。</li>
+        <li>不得提交虚假监控对象或违法信息；违反者我们可冻结或注销账号。</li>
+      </ul>
+    </section>
+
+    <section class="card legal-sec">
+      <h3 class="legal-h3">五、通知与配额</h3>
+      <p class="legal-p">
+        邮件提醒与摘要受每日配额约束（防滥用）；配额耗尽时事件仍记录于站内，
+        可在「事件」页查看。浏览器推送依赖设备订阅状态，可随时关闭。
+      </p>
+    </section>
+
+    <section class="card legal-sec">
+      <h3 class="legal-h3">六、服务变更与终止</h3>
+      <p class="legal-p">
+        我们可能调整、中断或终止部分功能；重要变更将通过页面公告或注册邮箱通知。
+        你可随时停止使用并注销账号；本服务的开源代码按仓库许可证分发，与本条款无关。
+      </p>
+    </section>
+
+    <section class="card legal-sec">
+      <h3 class="legal-h3">七、责任限制</h3>
+      <p class="legal-p">
+        在法律允许的最大范围内，本服务按「现状」提供；对因使用行情数据或事件通知
+        作出的决策及其后果，我们不承担赔偿责任。本条款不排除依法不得排除的责任。
+      </p>
+    </section>
+
+    <section class="card legal-sec">
+      <h3 class="legal-h3">八、协议变更与争议</h3>
+      <p class="legal-p">
+        本协议更新后将在本页公布新版本与日期；继续使用视为接受变更。
+        争议解决方式与适用法律将在开放注册前由专业人员审定后补充。
+      </p>
+    </section>
+  </div>
+</AppShell>
+
+<style>
+  .legal-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--page-gutter);
+    max-width: 760px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  .legal-head .section-title {
+    margin: 0 0 var(--space-1);
+  }
+
+  .placeholder-note {
+    color: var(--color-warning-text, #8a5a00);
+    background: var(--color-warning-soft, #fff7e6);
+    border-radius: var(--radius-md);
+    padding: var(--space-2);
+    margin-top: var(--space-2);
+  }
+
+  .legal-h3 {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    margin: 0 0 var(--space-2);
+  }
+
+  .legal-p {
+    font-size: var(--text-sm);
+    color: var(--color-text);
+    line-height: 1.7;
+    margin: 0 0 var(--space-2);
+  }
+
+  .legal-p:last-child {
+    margin-bottom: 0;
+  }
+
+  .legal-ul {
+    margin: 0;
+    padding-left: 1.2em;
+    font-size: var(--text-sm);
+    line-height: 1.7;
+    color: var(--color-text);
+  }
+
+  .legal-ul li {
+    margin-bottom: var(--space-1);
+  }
+
+  .legal-link {
+    color: var(--color-primary);
+  }
+</style>

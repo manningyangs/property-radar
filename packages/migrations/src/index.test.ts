@@ -454,6 +454,24 @@ describe("Private D1（radar_private）", () => {
     expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   });
 
+  it("users.deletion_requested_at（TASK-07B）：0016 列存在、重复 up 幂等、down→up 可重建", () => {
+    const db = createDb();
+    applyMigrations(db, "private", "up");
+    expect(columnsOf(db, "users")).toContain("deletion_requested_at");
+    // 重复 up：+migrate-idempotent 容忍 duplicate column，既有行不丢
+    db.prepare(
+      "INSERT INTO users (user_id, email_normalized, status, deletion_requested_at) VALUES ('usr_del', 'del@example.com', 'deletion_pending', datetime('now'))",
+    ).run();
+    expect(() => applyMigrations(db, "private", "up")).not.toThrow();
+    expect(columnsOf(db, "users")).toContain("deletion_requested_at");
+    // down→down→up 全程可重复
+    applyMigrations(db, "private", "down");
+    expect(tablesOf(db)).toEqual([]);
+    expect(() => applyMigrations(db, "private", "down")).not.toThrow();
+    applyMigrations(db, "private", "up");
+    expect(columnsOf(db, "users")).toContain("deletion_requested_at");
+  });
+
   it("邮件配额账本可按滚动 24 小时求和（TASK-02C 硬上限依据）", () => {
     const db = createDb();
     applyMigrations(db, "private", "up");

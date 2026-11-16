@@ -1,0 +1,186 @@
+---
+/**
+ * 隐私政策 `/privacy`（TASK-07B / PRD 行 703 必备要素）：
+ * 处理者信息、处理目的、处理方式、个人信息类别、保存期限、
+ * 用户权利与行使入口、联系途径、第三方处理者、跨境说明。
+ * 文本如实反映当前实现（02C/05A/05C/06B/07A/07B），不虚构功能。
+ */
+import AppShell from "../layouts/AppShell.astro";
+
+const POLICY_VERSION = "v1.0";
+const POLICY_DATE = "2026-11-16";
+const CONTACT = "privacy@property-radar.example";
+---
+
+<AppShell title="隐私政策" backHref="/account">
+  <div class="page legal-page">
+    <section class="card legal-head">
+      <h2 class="section-title">隐私政策</h2>
+      <p class="meta">
+        版本 {POLICY_VERSION} · 生效日期 {POLICY_DATE} ·
+        <a class="legal-link" href="/terms">用户协议</a>
+      </p>
+      <p class="meta placeholder-note">
+        占位声明：本页运营者与联系方式为占位信息，开放注册前必须替换为真实主体与可用邮箱（上线检查清单硬性项）。
+      </p>
+    </section>
+
+    <section class="card legal-sec">
+      <h3 class="legal-h3">一、处理者信息</h3>
+      <p class="legal-p">
+        本应用「房价雷达（Property Radar）」由 <strong>房价雷达运营者</strong>
+        （占位，开放注册前替换为真实运营主体名称）开发与维护。个人信息保护联系途径：
+        <code>{CONTACT}</code>（占位邮箱，上线前替换）。
+      </p>
+    </section>
+
+    <section class="card legal-sec">
+      <h3 class="legal-h3">二、处理目的与个人信息类别</h3>
+      <p class="legal-p">我们仅处理实现以下目的所必需的最少信息：</p>
+      <ul class="legal-ul">
+        <li><strong>账号与登录</strong>：邮箱地址（用于发送登录验证码与识别账号）；不收集姓名、密码、手机号。</li>
+        <li><strong>监控服务</strong>：你创建的监控对象、目标价格与触发规则、分组与备注。</li>
+        <li><strong>通知服务</strong>：通知渠道偏好（邮件/浏览器推送/每日摘要开关）、Web Push 订阅的 endpoint 与加密密钥、事件阅读状态。</li>
+        <li><strong>安全与追责</strong>：登录会话；访问日志仅记录加盐哈希后的 IP 指纹（不可还原为原始 IP）；管理员操作审计日志。</li>
+        <li><strong>改进</strong>：城市覆盖申请（你主动提交的城市与对象名称）。</li>
+      </ul>
+      <p class="legal-p">
+        行情价格数据本身为公开统计或来源方发布内容，不属于你的个人信息；
+        我们不会向任何第三方出售个人信息，也不进行个性化广告画像。
+      </p>
+    </section>
+
+    <section class="card legal-sec">
+      <h3 class="legal-h3">三、处理方式</h3>
+      <p class="legal-p">
+        服务部署于 Cloudflare Workers / Pages / D1（SQLite 兼容数据库），全程 TLS
+        传输；登录验证码经人机验证（Cloudflare Turnstile）后通过 Google Apps
+        Script 邮件网关发送；会话使用 HttpOnly、Secure、SameSite=Lax Cookie；
+        验证码仅存哈希且短时效；推送消息载荷加密。
+      </p>
+    </section>
+
+    <section class="card legal-sec">
+      <h3 class="legal-h3">四、保存期限</h3>
+      <ul class="legal-ul">
+        <li>登录验证码：10 分钟有效；过期记录 1 天内自动清理。</li>
+        <li>登录会话：30 天；退出登录或注销申请提交时立即吊销。</li>
+        <li>浏览器推送订阅：连续 60 天未活跃自动删除。</li>
+        <li>注销申请冷静期：7 天；到期后监控对象、规则、事件、通知偏好、推送订阅、会话、验证码与账号（含邮箱）全部永久删除。</li>
+        <li>安全审计日志（管理员操作）：依合规追责需要保留，操作者账号注销后日志仍完整。</li>
+        <li>邮件发送配额账本：仅存模板名与计数，不含收件地址。</li>
+      </ul>
+    </section>
+
+    <section class="card legal-sec">
+      <h3 class="legal-h3">五、你的权利与行使入口</h3>
+      <ul class="legal-ul">
+        <li><strong>查阅与更正</strong>：账户页与监控/规则页可查看、修改、删除你的全部数据。</li>
+        <li><strong>导出</strong>：账户页「导出」调用数据导出接口，获得包含监控对象、规则、事件、通知偏好、推送订阅、同意记录的 JSON 文件。</li>
+        <li><strong>删除/注销</strong>：账户页「注销账号」提交注销申请；7 天冷静期内重新登录即撤销，到期云端数据永久删除。</li>
+        <li><strong>撤回同意</strong>：关闭邮件/推送/摘要开关或关闭浏览器推送即撤回对应通知同意，不影响其他功能。</li>
+        <li><strong>咨询与投诉</strong>：通过第一节联系邮箱行使权利；也可向有管辖权的数据保护监管机构投诉。</li>
+      </ul>
+    </section>
+
+    <section class="card legal-sec">
+      <h3 class="legal-h3">六、第三方处理者（受托处理）</h3>
+      <ul class="legal-ul">
+        <li><strong>Cloudflare, Inc.</strong>：应用托管（Workers/Pages）、D1 数据库、人机验证（Turnstile）、Web Push 投递。处理会话 Cookie、推送订阅 endpoint 与密钥、业务数据。</li>
+        <li><strong>Google LLC（Apps Script 邮件网关）</strong>：仅用于向你的邮箱发送验证码、事件提醒与摘要邮件。处理你的邮箱地址与邮件内容。</li>
+      </ul>
+      <p class="legal-p">
+        除上述受托方外，我们不向其他第三方提供个人信息；法律法规另有要求的除外。
+      </p>
+    </section>
+
+    <section class="card legal-sec">
+      <h3 class="legal-h3">七、跨境处理说明</h3>
+      <p class="legal-p">
+        当前基础设施（Cloudflare、Google）为境外服务，你的信息将在境外数据中心处理。
+        本产品目前为邀请/演示阶段，未开放公众注册；开放注册前，跨境提供的合规路径
+        （含安全评估与标准合同备案等适用要求）将由专业人员核验后另行更新本政策。
+      </p>
+    </section>
+
+    <section class="card legal-sec">
+      <h3 class="legal-h3">八、未成年人</h3>
+      <p class="legal-p">
+        本服务面向成年用户，不面向未成年人；我们不会主动收集未成年人信息。
+      </p>
+    </section>
+
+    <section class="card legal-sec">
+      <h3 class="legal-h3">九、政策变更</h3>
+      <p class="legal-p">
+        本政策更新后将在本页公布新版本号与日期；重大变更将通过注册邮箱通知。
+        历史版本可在账户数据导出与来源页核对机制下追溯。
+      </p>
+    </section>
+  </div>
+</AppShell>
+
+<style>
+  .legal-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--page-gutter);
+    max-width: 760px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  .legal-head .section-title {
+    margin: 0 0 var(--space-1);
+  }
+
+  .placeholder-note {
+    color: var(--color-warning-text, #8a5a00);
+    background: var(--color-warning-soft, #fff7e6);
+    border-radius: var(--radius-md);
+    padding: var(--space-2);
+    margin-top: var(--space-2);
+  }
+
+  .legal-h3 {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    margin: 0 0 var(--space-2);
+  }
+
+  .legal-p {
+    font-size: var(--text-sm);
+    color: var(--color-text);
+    line-height: 1.7;
+    margin: 0 0 var(--space-2);
+  }
+
+  .legal-p:last-child {
+    margin-bottom: 0;
+  }
+
+  .legal-ul {
+    margin: 0;
+    padding-left: 1.2em;
+    font-size: var(--text-sm);
+    line-height: 1.7;
+    color: var(--color-text);
+  }
+
+  .legal-ul li {
+    margin-bottom: var(--space-1);
+  }
+
+  .legal-link {
+    color: var(--color-primary);
+  }
+
+  code {
+    background: var(--color-surface-2, #f1f5f9);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    font-size: 0.9em;
+  }
+</style>

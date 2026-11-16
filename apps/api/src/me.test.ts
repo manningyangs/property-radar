@@ -668,7 +668,7 @@ describe("JSON Schema 校验与稳定错误码", () => {
     expect(okBody.preferences.email_enabled).toBe(false);
   });
 
-  it("未实现端点（export/delete-account）返回 501 not_implemented", async () => {
+  it("export/delete-account 已实现（TASK-07B 取代 02A 期 501 占位）", async () => {
     const res = await app.request(
       "/api/v1/me/export",
       {
@@ -678,10 +678,19 @@ describe("JSON Schema 校验与稳定错误码", () => {
       },
       ctx.env,
     );
-    expect(res.status).toBe(501);
-    expect(((await res.json()) as { error_code: string }).error_code).toBe(
-      "not_implemented",
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { schema_version?: number };
+    expect(body.schema_version).toBe(1);
+    const del = await app.request(
+      "/api/v1/me/delete-account",
+      {
+        method: "POST",
+        headers: jsonHeaders(TOK_A),
+        body: JSON.stringify({ confirm: "nope" }),
+      },
+      ctx.env,
     );
+    expect(del.status).toBe(400);
   });
 });
 

@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "exported_at": "2026-11-16T06:43:42.330Z",
+  "account": {
+    "user_id": "6b2b29b0-ba18-4d6c-aa2a-75ad9221e814",
+    "email_normalized": "e2e-07b@example.com",
+    "email_verified_at": "2026-11-16 06:36:26",
+    "status": "active",
+    "created_at": "2026-11-16 06:36:26",
+    "last_login_at": "2026-11-16 06:43:39"
+  },
+  "watch_items": [
+    {
+      "watch_id": "08280d9d-3bb1-4e3c-8e11-450656de62e7",
+      "user_id": "6b2b29b0-ba18-4d6c-aa2a-75ad9221e814",
+      "object_type": "community",
+      "object_id": "TEST-C-1101-01",
+      "display_name_snapshot": "TEST-晴川花园",
+      "priority": 0,
+      "status": "active",
+      "created_at": "2026-11-16 06:37:51",
+      "updated_at": "2026-11-16 06:37:51"
+    }
+  ],
+  "watch_rules": [
+    {
+      "rule_id": "08b0b4b8-bf42-4138-af8a-b781da2de131",
+      "watch_id": "08280d9d-3bb1-4e3c-8e11-450656de62e7",
+      "user_id": "6b2b29b0-ba18-4d6c-aa2a-75ad9221e814",
+      "rule_type": "community_unit_price_lte",
+      "metric_code": "community_ask_median_unit",
+      "price_type": "listing_ask",
+      "target_value": 20000,
+      "currency": "CNY",
+      "unit": "元/㎡",
+      "window_days": null,
+      "threshold_pct": null,
+      "hysteresis_pct": null,
+      "is_enabled": 1,
+      "armed_state": "armed",
+      "created_at": "2026-11-16 06:43:39",
+      "updated_at": "2026-11-16 06:43:39",
+      "version": 1
+    }
+  ],
+  "watch_rule_settings": [
+    {
+      "rule_id": "08b0b4b8-bf42-4138-af8a-b781da2de131",
+      "user_id": "6b2b29b0-ba18-4d6c-aa2a-75ad9221e814",
+      "valid_until": null,
+      "notify_email": 1,
+      "notify_digest": 1,
+      "notify_inapp": 1,
+      "created_at": "2026-11-16 06:43:39",
+      "updated_at": "2026-11-16 06:43:39"
+    }
+  ],
+  "watch_item_groups": [],
+  "alert_events": [],
+  "notification_preferences": [
+    {
+      "user_id": "6b2b29b0-ba18-4d6c-aa2a-75ad9221e814",
+      "email_enabled": 1,
+      "digest_enabled": 0,
+      "digest_time": "07:30",
+      "browser_push_enabled": 0,
+      "timezone": "Asia/Shanghai",
+      "updated_at": "2026-11-16 06:43:39"
+    }
+  ],
+  "push_subscriptions": [],
+  "city_coverage_requests": [],
+  "user_cities": [],
+  "user_consents": []
+}

@@ -55,6 +55,9 @@ export const errors = {
   ) => new AppError(400, "validation_failed", message, details),
   unauthorized: (message = "需要登录后访问") =>
     new AppError(401, "unauthorized", message),
+  /** TASK-07B：会话有效但业务规则禁止（如管理员角色未撤销时注销） */
+  forbidden: (message = "操作不被允许") =>
+    new AppError(403, "forbidden", message),
   notFound: (message = "资源不存在") => new AppError(404, "not_found", message),
   conflict: (message = "资源已存在或状态冲突") =>
     new AppError(409, "conflict", message),

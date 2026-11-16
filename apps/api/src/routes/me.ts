@@ -1,20 +1,23 @@
 // TASK-02B：用户 API（PRD §10.3 /me/*）——强制登录，所有读写按 user_id 隔离。
 // 跨用户访问一律返回 404（不泄露他人资源是否存在，PRD §12.0-5/验收）。
 import { Hono, type Context } from "hono";
+import { deleteCookie } from "hono/cookie";
 import {
   validateRuleBinding,
   type RuleBindingInput,
   type RuleObjectType,
 } from "@property-radar/shared";
 import { requireSession } from "../auth";
+import { DELETION_COOLDOWN_DAYS } from "../deletion";
 import { errors } from "../errors";
-import { type AppEnv } from "../env";
+import { SESSION_COOKIE, type AppEnv } from "../env";
 import { EVENT_TYPES, type EventType } from "../events";
 import { readJsonBody, validateOrThrow } from "../validation";
 import {
   createPushSubscriptionSchema,
   createRuleSchema,
   createWatchItemSchema,
+  deleteAccountSchema,
   deletePushSubscriptionSchema,
   eventReadSchema,
   patchPreferencesSchema,
@@ -1150,12 +1153,91 @@ meRoutes.delete("/push-subscriptions", async (c) => {
 // GET /me/digests —— 摘要生成属后续任务，框架先返回空列表（不造数）
 meRoutes.get("/digests", (c) => c.json({ items: [], count: 0 }));
 
-// POST /me/export / POST /me/delete-account —— 合同已定义，功能后续任务实现
+// POST /me/export —— TASK-07B：个人数据导出（JSON 单文件，PRD 行 703 可携带权）。
+// 仅 session 用户数据（IDOR 天然隔离）；空对象 body（合同统一 JSON 体）。
 meRoutes.post("/export", async (c) => {
   await jsonBody(c);
-  throw errors.notImplemented();
+  const userId = c.get("userId");
+  const db = c.env.DB_PRIVATE;
+  const account = await db
+    .prepare(
+      `SELECT user_id, email_normalized, email_verified_at, status,
+              created_at, last_login_at
+       FROM users WHERE user_id = ?`,
+    )
+    .bind(userId)
+    .first<Record<string, unknown>>();
+  if (!account) throw errors.notFound("用户不存在");
+  const all = async (table: string): Promise<Record<string, unknown>[]> =>
+    (
+      await db
+        .prepare(`SELECT * FROM ${table} WHERE user_id = ?`)
+        .bind(userId)
+        .all<Record<string, unknown>>()
+    ).results;
+  const payload = {
+    schema_version: 1,
+    exported_at: new Date().toISOString(),
+    account,
+    watch_items: await all("watch_items"),
+    watch_rules: await all("watch_rules"),
+    watch_rule_settings: await all("watch_rule_settings"),
+    watch_item_groups: await all("watch_item_groups"),
+    alert_events: await all("alert_events"),
+    notification_preferences: await all("notification_preferences"),
+    push_subscriptions: await all("push_subscriptions"),
+    city_coverage_requests: await all("city_coverage_requests"),
+    user_cities: await all("user_cities"),
+    user_consents: await all("user_consents"),
+  };
+  c.header(
+    "Content-Disposition",
+    `attachment; filename="property-radar-export-${new Date().toISOString().slice(0, 10)}.json"`,
+  );
+  return c.json(payload);
 });
+
+// POST /me/delete-account —— TASK-07B：注销（冷静期 7 天 + 到期硬删，spec 2.2）。
+// 请求即：标记 deletion_pending、吊销全部会话、清 cookie；期内重新登录撤销；
+// 事件/邮件自动停止（requireSession 与 rules-engine/digest 只认 status='active'）。
+// 幂等：重复调用返回同响应。
 meRoutes.post("/delete-account", async (c) => {
-  await jsonBody(c);
-  throw errors.notImplemented();
+  const body = await jsonBody(c);
+  validateOrThrow(deleteAccountSchema, body);
+  const userId = c.get("userId");
+  const db = c.env.DB_PRIVATE;
+  const user = await db
+    .prepare("SELECT user_id, status, deleted_at FROM users WHERE user_id = ?")
+    .bind(userId)
+    .first<{ user_id: string; status: string; deleted_at: string | null }>();
+  if (!user || user.deleted_at !== null) throw errors.notFound("用户不存在");
+  const admin = await db
+    .prepare(
+      "SELECT admin_id FROM admin_roles WHERE user_id = ? AND revoked_at IS NULL LIMIT 1",
+    )
+    .bind(userId)
+    .first();
+  if (admin) throw errors.forbidden("管理员账号须先撤销角色后再注销");
+  if (user.status !== "deletion_pending") {
+    await db
+      .prepare(
+        `UPDATE users
+         SET status = 'deletion_pending', deletion_requested_at = datetime('now')
+         WHERE user_id = ?`,
+      )
+      .bind(userId)
+      .run();
+  }
+  await db
+    .prepare(
+      `UPDATE sessions SET revoked_at = datetime('now')
+       WHERE user_id = ? AND revoked_at IS NULL`,
+    )
+    .bind(userId)
+    .run();
+  deleteCookie(c, SESSION_COOKIE, { path: "/" });
+  return c.json({
+    status: "deletion_pending",
+    purge_after_days: DELETION_COOLDOWN_DAYS,
+  });
 });

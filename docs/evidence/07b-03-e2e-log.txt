@@ -1,0 +1,15 @@
+LOGIN-OK user=6b2b29b0-ba18-4d6c-aa2a-75ad9221e814 token=4168fad9...
+WATCH-ITEM 409 {"error_code":"conflict","message":"资源已存在或状态冲突","request_id":"81d1ef7b-5265-4076-a881-f6e57b5366bd"}
+WATCH-ITEM 已存在，复用 08280d9d-3bb1-4e3c-8e11-450656de62e7
+RULE 201 {"item":{"rule_id":"08b0b4b8-bf42-4138-af8a-b781da2de131","watch_id":"08280d9d-3bb1-4e3c-8e11-450656de62e7","rule_type":"community_unit_price_lte","metric_code"
+PREFS 200
+SHOT privacy
+SHOT terms
+DOWNLOAD saved=undefined suggested=property-radar-export-2026-11-16.json
+SHOT account-export
+SHOT delete-toast
+OLD-TOKEN-AFTER-DELETE 401（预期 401）
+RELOGIN deletion_cancelled=true（预期 true）
+SHOT cancelled
+SHOT community
+SHOT events

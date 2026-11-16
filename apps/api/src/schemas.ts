@@ -135,6 +135,16 @@ export const emptyObjectSchema: JsonSchema = {
   additionalProperties: false,
 };
 
+/** TASK-07B：POST /me/delete-account —— 关键动作二次确认（PRD §7.6），confirm 必须为 true */
+export const deleteAccountSchema: JsonSchema = {
+  type: "object",
+  required: ["confirm"],
+  additionalProperties: false,
+  properties: {
+    confirm: { enum: [true] },
+  },
+};
+
 /** TASK-05A：PATCH /me/events/:id/read —— { read?: boolean }，缺省/true=已读，false=标记未读 */
 export const eventReadSchema: JsonSchema = {
   type: "object",

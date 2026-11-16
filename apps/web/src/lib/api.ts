@@ -225,6 +225,29 @@ export function getMe(): Promise<{ user: SessionUser }> {
   return request("/auth/me");
 }
 
+// ---------------- 数据合规（TASK-07B） ----------------
+
+/** POST /me/export——导出个人数据（JSON 单文件；401 由调用方提示，不跳登录） */
+export function exportData(): Promise<Record<string, unknown>> {
+  return request("/me/export", {
+    method: "POST",
+    body: JSON.stringify({}),
+    skipAuthRedirect: true,
+  });
+}
+
+/** POST /me/delete-account——申请注销（冷静期 7 天，到期云端数据永久删除） */
+export function deleteAccount(): Promise<{
+  status: string;
+  purge_after_days: number;
+}> {
+  return request("/me/delete-account", {
+    method: "POST",
+    body: JSON.stringify({ confirm: true }),
+    skipAuthRedirect: true,
+  });
+}
+
 // ---------------- 监控对象 ----------------
 
 /** GET /me/watch-items——按状态/类型/分组筛选与排序查询监控列表 */
