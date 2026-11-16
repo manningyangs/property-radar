@@ -17,6 +17,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # TASK-07A：Secrets 泄露门禁（PRD §7.6 / 上线门槛：明文密钥不进仓库）
+  secrets-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Scan tracked files for secrets
+        run: node scripts/check-secrets.mjs
+
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 15

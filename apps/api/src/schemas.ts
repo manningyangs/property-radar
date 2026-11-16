@@ -105,7 +105,8 @@ export const createPushSubscriptionSchema: JsonSchema = {
   required: ["endpoint", "keys"],
   additionalProperties: false,
   properties: {
-    endpoint: { type: "string", pattern: "^https?://", maxLength: 2048 },
+    // TASK-07A：endpoint 由 Worker 服务端 fetch，强制 https（SSRF/明文防护）
+    endpoint: { type: "string", pattern: "^https://", maxLength: 2048 },
     keys: {
       type: "object",
       required: ["p256dh", "auth"],

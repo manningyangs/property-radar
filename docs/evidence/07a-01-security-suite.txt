@@ -1,0 +1,376 @@
+﻿.                                        |  WARN  Unsupported engine: wanted: {"node":">=22.12"} (current: {"node":"v20.18.1","pnpm":"9.15.9"})
+
+[1m[46m RUN [49m[22m [36mv3.2.7 [39m[90mE:/desktop/home_search/apps/api[39m
+
+node.exe : (node:5980) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+所在位置 e:\desktop\wechat_sync\.tools\node-v20.18.1-win-x64\pnpm.ps1:16 字符: 5
++     & "$basedir/node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs"  ...
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ((node:5980) Exp...nge at any time:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(Use `node --trace-warnings ...` to show where the warning was created)
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mIDOR：对象归属只从 session 解析[2m > [22m[2mB 访问 A 的 watch/rule/event/subscription 一律 404
+[22m[39m{"level":"info","evt":"http_request","request_id":"14c3bec5-a1a2-462e-9378-5b40caefe5aa","method":"POST","path":"/api/v1/me/watch-items","status":201,"duration_ms":6,"ip":"203.0.113.1"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mIDOR：对象归属只从 session 解析[2m > [22m[2mB 访问 A 的 watch/rule/event/subscription 一律 404
+[22m[39m{"level":"info","evt":"http_request","request_id":"06979aad-e57b-4282-981a-7a6b7c999268","method":"POST","path":"/api/v1/me/watch-items/4b8ca363-76a5-446e-a0c7-d54eb35cd5d3/rules","status":201,"duration_ms":1,"ip":"203.0.113.2"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mIDOR：对象归属只从 session 解析[2m > [22m[2mB 访问 A 的 watch/rule/event/subscription 一律 404
+[22m[39m{"level":"info","evt":"http_request","request_id":"f6c23ca3-96c2-4099-a4bc-95a36c32dc26","method":"PATCH","path":"/api/v1/me/watch-items/4b8ca363-76a5-446e-a0c7-d54eb35cd5d3","status":404,"duration_ms":1,"ip":"203.0.113.3"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mIDOR：对象归属只从 session 解析[2m > [22m[2mB 访问 A 的 watch/rule/event/subscription 一律 404
+[22m[39m{"level":"info","evt":"http_request","request_id":"15005bfc-9656-46d1-a112-22a46bd5efa0","method":"DELETE","path":"/api/v1/me/watch-items/4b8ca363-76a5-446e-a0c7-d54eb35cd5d3","status":404,"duration_ms":1,"ip":"203.0.113.4"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mIDOR：对象归属只从 session 解析[2m > [22m[2mB 访问 A 的 watch/rule/event/subscription 一律 404
+[22m[39m{"level":"info","evt":"http_request","request_id":"f9eb61f2-91f9-4607-b8d3-3aeac35e2e3e","method":"PATCH","path":"/api/v1/me/rules/6975da69-947d-41b6-a61d-a040e624989f","status":404,"duration_ms":1,"ip":"203.0.113.5"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mIDOR：对象归属只从 session 解析[2m > [22m[2mB 访问 A 的 watch/rule/event/subscription 一律 404
+[22m[39m{"level":"info","evt":"http_request","request_id":"4de65add-ddc8-4a51-b15b-e539197865f1","method":"DELETE","path":"/api/v1/me/rules/6975da69-947d-41b6-a61d-a040e624989f","status":404,"duration_ms":2,"ip":"203.0.113.6"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mIDOR：对象归属只从 session 解析[2m > [22m[2mB 访问 A 的 watch/rule/event/subscription 一律 404
+[22m[39m{"level":"info","evt":"http_request","request_id":"7c3d696c-717e-4cc4-9349-43f3a49dda3e","method":"PATCH","path":"/api/v1/me/events/evt_a_07a/read","status":404,"duration_ms":1,"ip":"203.0.113.7"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mIDOR：对象归属只从 session 解析[2m > [22m[2mB 访问 A 的 watch/rule/event/subscription 一律 404
+[22m[39m{"level":"info","evt":"http_request","request_id":"651bcdea-02e8-4ca7-969e-34b5f0fccec6","method":"DELETE","path":"/api/v1/me/push-subscriptions","status":404,"duration_ms":1,"ip":"203.0.113.8"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mIDOR：对象归属只从 session 解析[2m > [22m[2mB 访问 A 的 watch/rule/event/subscription 一律 404
+[22m[39m{"level":"info","evt":"http_request","request_id":"b3229338-5a30-4510-9962-adff3a05554e","method":"GET","path":"/api/v1/me/watch-items","status":200,"duration_ms":2,"ip":"203.0.113.9"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mIDOR：对象归属只从 session 解析[2m > [22m[2m写端点 body 携带 user_id 一律 400（strict schema，归属不接受客户端传入）
+[22m[39m{"level":"info","evt":"http_request","request_id":"c448c7ff-5d7e-4420-986c-75437b44bb64","method":"POST","path":"/api/v1/me/watch-items","status":400,"duration_ms":0,"ip":"203.0.113.10"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mIDOR：对象归属只从 session 解析[2m > [22m[2m写端点 body 携带 user_id 一律 400（strict schema，归属不接受客户端传入）
+[22m[39m{"level":"info","evt":"http_request","request_id":"4485e265-aa2c-4da1-90c6-5734a2c1dc30","method":"PATCH","path":"/api/v1/me/notification-preferences","status":400,"duration_ms":1,"ip":"203.0.113.11"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mCSRF：cookie 唯一凭证 + SameSite + 跨站无放行头[2m > [22m[2m会话 cookie 恒 HttpOnly / Secure / SameSite=Lax / Path=/
+[22m[39m{"level":"info","evt":"http_request","request_id":"ba8c8931-ff7f-4b43-b93c-466223acbd3a","method":"POST","path":"/api/v1/auth/email/request-code","status":200,"duration_ms":3,"ip":"203.0.113.12"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mCSRF：cookie 唯一凭证 + SameSite + 跨站无放行头[2m > [22m[2m会话 cookie 恒 HttpOnly / Secure / SameSite=Lax / Path=/
+[22m[39m{"level":"info","evt":"http_request","request_id":"7b1791da-615d-4d97-806b-8eb4dbf27b56","method":"POST","path":"/api/v1/auth/email/verify-code","status":200,"duration_ms":1,"ip":"203.0.113.13"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mCSRF：cookie 唯一凭证 + SameSite + 跨站无放行头[2m > [22m[2m会话 cookie 恒 HttpOnly / Secure / SameSite=Lax / Path=/
+[22m[39m{"level":"info","evt":"http_request","request_id":"7cff9207-ea35-4b8d-853e-bc07a60c2124","method":"POST","path":"/api/v1/auth/email/verify-code","status":401,"duration_ms":0,"ip":"203.0.113.14"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mCSRF：cookie 唯一凭证 + SameSite + 跨站无放行头[2m > [22m[2m会话 cookie 恒 HttpOnly / Secure / SameSite=Lax / Path=/
+[22m[39m{"level":"info","evt":"http_request","request_id":"4b6391a8-2792-47ba-a7c3-15425d7da2e8","method":"POST","path":"/api/v1/auth/email/request-code","status":200,"duration_ms":1,"ip":"203.0.113.15"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mCSRF：cookie 唯一凭证 + SameSite + 跨站无放行头[2m > [22m[2m会话 cookie 恒 HttpOnly / Secure / SameSite=Lax / Path=/
+[22m[39m{"level":"info","evt":"http_request","request_id":"66685fd4-c9e5-4318-acb6-0c1b25c2a5a7","method":"POST","path":"/api/v1/auth/email/verify-code","status":200,"duration_ms":1,"ip":"203.0.113.16"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mCSRF：cookie 唯一凭证 + SameSite + 跨站无放行头[2m > [22m[2m跨站 Origin 的写请求：无 cookie → 401；响应不带任何 CORS 放行头
+[22m[39m{"level":"info","evt":"http_request","request_id":"4198fb45-af35-4ee2-b4e8-6185c4fafe82","method":"POST","path":"/api/v1/me/watch-items","status":401,"duration_ms":0,"ip":"203.0.113.17"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mCSRF：cookie 唯一凭证 + SameSite + 跨站无放行头[2m > [22m[2m写语义端点不挂在 GET 上（GET logout / GET 创建 → 404）
+[22m[39m{"level":"info","evt":"http_request","request_id":"bf5d2e4b-410f-4193-a190-7dcdfd9a86e3","method":"GET","path":"/api/v1/auth/logout","status":404,"duration_ms":0,"ip":"203.0.113.18"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mCSRF：cookie 唯一凭证 + SameSite + 跨站无放行头[2m > [22m[2m写语义端点不挂在 GET 上（GET logout / GET 创建 → 404）
+[22m[39m{"level":"info","evt":"http_request","request_id":"5e5a1a02-1dce-44aa-8d60-b00de2b7ad3d","method":"GET","path":"/api/v1/me/watch-items","status":401,"duration_ms":0,"ip":"203.0.113.19"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mCSRF：cookie 唯一凭证 + SameSite + 跨站无放行头[2m > [22m[2m写语义端点不挂在 GET 上（GET logout / GET 创建 → 404）
+[22m[39m{"level":"info","evt":"http_request","request_id":"46f933b9-640b-403b-abe0-5f3f553c88c0","method":"GET","path":"/api/v1/me/watch-items","status":200,"duration_ms":0,"ip":"unknown"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mXSS：恶意 HTML 原样存为文本，响应恒 JSON[2m > [22m[2m用户字段注入 HTML：存储/回读原样文本，Content-Type 为 application/json
+[22m[39m{"level":"info","evt":"http_request","request_id":"e560473f-3153-4845-85c5-96631bedd5e0","method":"POST","path":"/api/v1/me/watch-items","status":201,"duration_ms":1,"ip":"203.0.113.20"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mXSS：恶意 HTML 原样存为文本，响应恒 JSON[2m > [22m[2m用户字段注入 HTML：存储/回读原样文本，Content-Type 为 application/json
+[22m[39m{"level":"info","evt":"http_request","request_id":"4d57ffe3-4f5c-4b8c-a5d8-4c12661dce00","method":"GET","path":"/api/v1/me/watch-items","status":200,"duration_ms":1,"ip":"203.0.113.21"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mXSS：恶意 HTML 原样存为文本，响应恒 JSON[2m > [22m[2m管理员来源登记注入 HTML：同样只作数据文本存储
+[22m[39m{"level":"info","evt":"http_request","request_id":"eea5c4f0-bf25-4fe3-ad56-d3561df9038e","method":"POST","path":"/api/v1/admin/sources","status":403,"duration_ms":1,"ip":"203.0.113.22"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mXSS：恶意 HTML 原样存为文本，响应恒 JSON[2m > [22m[2m错误响应也是 JSON 信封，不回显请求 HTML
+[22m[39m{"level":"info","evt":"http_request","request_id":"cda8cb07-6675-4964-a71a-f7aae858fe35","method":"POST","path":"/api/v1/me/watch-items","status":400,"duration_ms":0,"ip":"203.0.113.23"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSQL Injection：prepared statements，注入串无效果[2m > [22m[2m路径参数注入 → 404 且库结构完好
+[22m[39m{"level":"info","evt":"http_request","request_id":"488b2b8b-8563-4cc3-a661-a8e663aab798","method":"PATCH","path":"/api/v1/me/watch-items/'%20OR%20'1'%3D'1","status":404,"duration_ms":1,"ip":"203.0.113.24"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSQL Injection：prepared statements，注入串无效果[2m > [22m[2m路径参数注入 → 404 且库结构完好
+[22m[39m{"level":"info","evt":"http_request","request_id":"00dcca76-3029-4e7f-b8e8-5e8f5e5d58e2","method":"PATCH","path":"/api/v1/me/watch-items/'%3B%20DROP%20TABLE%20users%3B--","status":404,"duration_ms":0,"ip":"203.0.113.25"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSQL Injection：prepared statements，注入串无效果[2m > [22m[2m路径参数注入 → 404 且库结构完好
+[22m[39m{"level":"info","evt":"http_request","request_id":"4106c210-05e3-43b1-aaef-a141f42118cc","method":"PATCH","path":"/api/v1/me/watch-items/1%3B%20DELETE%20FROM%20sessions","status":404,"duration_ms":0,"ip":"203.0.113.26"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSQL Injection：prepared statements，注入串无效果[2m > [22m[2m路径参数注入 → 404 且库结构完好
+[22m[39m{"level":"info","evt":"http_request","request_id":"2e93ac94-9044-4598-99cd-3216211384fc","method":"PATCH","path":"/api/v1/me/watch-items/1'%20UNION%20SELECT%20token_hash%20FROM%20sessions--","status":404,"duration_ms":0,"ip":"203.0.113.27"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSQL Injection：prepared statements，注入串无效果[2m > [22m[2m路径参数注入 → 404 且库结构完好
+[22m[39m{"level":"info","evt":"http_request","request_id":"dfdc6263-3ac2-4776-8b5d-6b6d3dcf6384","method":"GET","path":"/api/v1/auth/me","status":200,"duration_ms":0,"ip":"203.0.113.28"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSQL Injection：prepared statements，注入串无效果[2m > [22m[2mbody 字段注入 → 原样存为字符串值，不执行
+[22m[39m{"level":"info","evt":"http_request","request_id":"60ed65a4-7c89-486f-b8b2-b45f25a54b69","method":"POST","path":"/api/v1/me/watch-items","status":201,"duration_ms":0,"ip":"203.0.113.29"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSQL Injection：prepared statements，注入串无效果[2m > [22m[2mbody 字段注入 → 原样存为字符串值，不执行
+[22m[39m{"level":"info","evt":"http_request","request_id":"4264ac35-9aff-40cb-9f5c-b7163aa622d4","method":"GET","path":"/api/v1/me/watch-items","status":200,"duration_ms":0,"ip":"203.0.113.30"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSQL Injection：prepared statements，注入串无效果[2m > [22m[2m查询串注入 → 400 枚举校验，不触碰 SQL 语义
+[22m[39m{"level":"info","evt":"http_request","request_id":"26afed9d-418b-44f2-8fe2-fe38f3fd0a84","method":"GET","path":"/api/v1/me/events","status":400,"duration_ms":0,"ip":"203.0.113.31"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSQL Injection：prepared statements，注入串无效果[2m > [22m[2m认证邮箱注入形态 → 400 或统一文案，OTP 表不受影响
+[22m[39m{"level":"info","evt":"http_request","request_id":"3f5bafc0-95d9-42f9-ba14-cb260f4a66f7","method":"POST","path":"/api/v1/auth/email/request-code","status":400,"duration_ms":0,"ip":"203.0.113.32"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSSRF：用户输入 URL 不触发服务端 fetch[2m > [22m[2m展示型 URL 字段填内网/元数据地址：仅存储，零外部 fetch
+[22m[39m{"level":"info","evt":"http_request","request_id":"9d8af5fd-e305-4cff-a2f0-5efd22acdcc5","method":"POST","path":"/api/v1/admin/mfa/setup","status":200,"duration_ms":1,"ip":"203.0.113.33"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSSRF：用户输入 URL 不触发服务端 fetch[2m > [22m[2m展示型 URL 字段填内网/元数据地址：仅存储，零外部 fetch
+[22m[39m{"level":"info","evt":"http_request","request_id":"85bb0772-d576-403d-bff2-110964233100","method":"POST","path":"/api/v1/admin/mfa/verify","status":200,"duration_ms":1,"ip":"203.0.113.34"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSSRF：用户输入 URL 不触发服务端 fetch[2m > [22m[2m展示型 URL 字段填内网/元数据地址：仅存储，零外部 fetch
+[22m[39m{"level":"info","evt":"http_request","request_id":"28f82029-1697-4f5e-a776-7f28f000383a","method":"POST","path":"/api/v1/admin/sources","status":201,"duration_ms":2,"ip":"203.0.113.35"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSSRF：用户输入 URL 不触发服务端 fetch[2m > [22m[2m推送订阅 endpoint：仅 https 且拒绝 IP 字面量/回环/元数据/内网名（TASK-07A 修复）
+[22m[39m{"level":"info","evt":"http_request","request_id":"c3600b49-24de-45ee-b5c4-1849c356e775","method":"POST","path":"/api/v1/me/push-subscriptions","status":400,"duration_ms":0,"ip":"203.0.113.36"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSSRF：用户输入 URL 不触发服务端 fetch[2m > [22m[2m推送订阅 endpoint：仅 https 且拒绝 IP 字面量/回环/元数据/内网名（TASK-07A 修复）
+[22m[39m{"level":"info","evt":"http_request","request_id":"e97e64a4-8ee8-4275-bab3-95f6e42a1a01","method":"POST","path":"/api/v1/me/push-subscriptions","status":400,"duration_ms":0,"ip":"203.0.113.37"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSSRF：用户输入 URL 不触发服务端 fetch[2m > [22m[2m推送订阅 endpoint：仅 https 且拒绝 IP 字面量/回环/元数据/内网名（TASK-07A 修复）
+[22m[39m{"level":"info","evt":"http_request","request_id":"04b72b42-f6e7-4bc9-9616-f029ecbda092","method":"POST","path":"/api/v1/me/push-subscriptions","status":400,"duration_ms":1,"ip":"203.0.113.38"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSSRF：用户输入 URL 不触发服务端 fetch[2m > [22m[2m推送订阅 endpoint：仅 https 且拒绝 IP 字面量/回环/元数据/内网名（TASK-07A 修复）
+[22m[39m{"level":"info","evt":"http_request","request_id":"0b5520e0-ac88-44ad-8416-f5745a32a12b","method":"POST","path":"/api/v1/me/push-subscriptions","status":400,"duration_ms":1,"ip":"203.0.113.39"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSSRF：用户输入 URL 不触发服务端 fetch[2m > [22m[2m推送订阅 endpoint：仅 https 且拒绝 IP 字面量/回环/元数据/内网名（TASK-07A 修复）
+[22m[39m{"level":"info","evt":"http_request","request_id":"8070a78a-905a-4144-8e24-807001f71fb9","method":"POST","path":"/api/v1/me/push-subscriptions","status":400,"duration_ms":0,"ip":"203.0.113.40"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSSRF：用户输入 URL 不触发服务端 fetch[2m > [22m[2m推送订阅 endpoint：仅 https 且拒绝 IP 字面量/回环/元数据/内网名（TASK-07A 修复）
+[22m[39m{"level":"info","evt":"http_request","request_id":"2f2ca611-7907-4312-b02d-32534e951b07","method":"POST","path":"/api/v1/me/push-subscriptions","status":400,"duration_ms":0,"ip":"203.0.113.41"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSSRF：用户输入 URL 不触发服务端 fetch[2m > [22m[2m推送订阅 endpoint：仅 https 且拒绝 IP 字面量/回环/元数据/内网名（TASK-07A 修复）
+[22m[39m{"level":"info","evt":"http_request","request_id":"b2c2c020-c59b-47de-9705-40e74262ab0f","method":"POST","path":"/api/v1/me/push-subscriptions","status":400,"duration_ms":1,"ip":"203.0.113.42"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSSRF：用户输入 URL 不触发服务端 fetch[2m > [22m[2m推送订阅 endpoint：仅 https 且拒绝 IP 字面量/回环/元数据/内网名（TASK-07A 修复）
+[22m[39m{"level":"info","evt":"http_request","request_id":"95f8d6f0-ff18-4697-9f1e-428e4dc418bb","method":"POST","path":"/api/v1/me/push-subscriptions","status":400,"duration_ms":1,"ip":"203.0.113.43"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSSRF：用户输入 URL 不触发服务端 fetch[2m > [22m[2m推送订阅 endpoint：仅 https 且拒绝 IP 字面量/回环/元数据/内网名（TASK-07A 修复）
+[22m[39m{"level":"info","evt":"http_request","request_id":"f4a11aba-151b-4b09-bd88-5b462c58a377","method":"POST","path":"/api/v1/me/push-subscriptions","status":400,"duration_ms":0,"ip":"203.0.113.44"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSSRF：用户输入 URL 不触发服务端 fetch[2m > [22m[2m推送订阅 endpoint：仅 https 且拒绝 IP 字面量/回环/元数据/内网名（TASK-07A 修复）
+[22m[39m{"level":"info","evt":"http_request","request_id":"c4b1432b-1f37-49c8-99f4-e8c459496025","method":"POST","path":"/api/v1/me/push-subscriptions","status":400,"duration_ms":0,"ip":"203.0.113.45"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSSRF：用户输入 URL 不触发服务端 fetch[2m > [22m[2m推送订阅 endpoint：仅 https 且拒绝 IP 字面量/回环/元数据/内网名（TASK-07A 修复）
+[22m[39m{"level":"info","evt":"http_request","request_id":"4057b481-926a-4057-8070-19156a2876c1","method":"POST","path":"/api/v1/me/push-subscriptions","status":201,"duration_ms":1,"ip":"203.0.113.46"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSSRF：用户输入 URL 不触发服务端 fetch[2m > [22m[2m认证链路外部调用仅限固定 env 端点（Turnstile + Apps Script）
+[22m[39m{"level":"info","evt":"http_request","request_id":"985138e8-b8c4-47db-8f8e-58f88c8bf66c","method":"POST","path":"/api/v1/auth/email/request-code","status":200,"duration_ms":1,"ip":"203.0.113.47"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSSRF：用户输入 URL 不触发服务端 fetch[2m > [22m[2m认证链路外部调用仅限固定 env 端点（Turnstile + Apps Script）
+[22m[39m{"level":"info","evt":"http_request","request_id":"afd76ba7-b88e-44dc-b35d-62f324f44460","method":"POST","path":"/api/v1/auth/email/verify-code","status":200,"duration_ms":1,"ip":"203.0.113.48"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mOTP 暴力破解：5 次错误锁定 + 申请限频[2m > [22m[2m同码 5 次错误后锁定，此后正确码也被拒绝
+[22m[39m{"level":"info","evt":"http_request","request_id":"eb41ef8f-c291-4fd6-b4cd-d80ab1631a05","method":"POST","path":"/api/v1/auth/email/request-code","status":200,"duration_ms":2,"ip":"203.0.113.49"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mOTP 暴力破解：5 次错误锁定 + 申请限频[2m > [22m[2m同码 5 次错误后锁定，此后正确码也被拒绝
+[22m[39m{"level":"info","evt":"http_request","request_id":"cbb549f0-d826-467a-9ad1-8c81280a23c5","method":"POST","path":"/api/v1/auth/email/verify-code","status":401,"duration_ms":1,"ip":"203.0.113.50"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mOTP 暴力破解：5 次错误锁定 + 申请限频[2m > [22m[2m同码 5 次错误后锁定，此后正确码也被拒绝
+[22m[39m{"level":"info","evt":"http_request","request_id":"8f7919a7-fd22-4288-869d-4ca6cef3c66a","method":"POST","path":"/api/v1/auth/email/verify-code","status":401,"duration_ms":0,"ip":"203.0.113.51"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mOTP 暴力破解：5 次错误锁定 + 申请限频[2m > [22m[2m同码 5 次错误后锁定，此后正确码也被拒绝
+[22m[39m{"level":"info","evt":"http_request","request_id":"90f75055-ab62-4123-9775-099ce2cf6816","method":"POST","path":"/api/v1/auth/email/verify-code","status":401,"duration_ms":0,"ip":"203.0.113.52"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mOTP 暴力破解：5 次错误锁定 + 申请限频[2m > [22m[2m同码 5 次错误后锁定，此后正确码也被拒绝
+[22m[39m{"level":"info","evt":"http_request","request_id":"f1c07353-aec7-48fc-bd15-576de9df1312","method":"POST","path":"/api/v1/auth/email/verify-code","status":401,"duration_ms":1,"ip":"203.0.113.53"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mOTP 暴力破解：5 次错误锁定 + 申请限频[2m > [22m[2m同码 5 次错误后锁定，此后正确码也被拒绝
+[22m[39m{"level":"info","evt":"http_request","request_id":"0c9bed66-a2f4-46f5-9477-e55413268073","method":"POST","path":"/api/v1/auth/email/verify-code","status":401,"duration_ms":1,"ip":"203.0.113.54"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mOTP 暴力破解：5 次错误锁定 + 申请限频[2m > [22m[2m同码 5 次错误后锁定，此后正确码也被拒绝
+[22m[39m{"level":"info","evt":"http_request","request_id":"048dd119-a117-4fb1-8b9b-546411fb5f33","method":"POST","path":"/api/v1/auth/email/verify-code","status":429,"duration_ms":0,"ip":"203.0.113.55"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mOTP 暴力破解：5 次错误锁定 + 申请限频[2m > [22m[2m同邮箱 60 秒冷却：第二次申请 429
+[22m[39m{"level":"info","evt":"http_request","request_id":"44bad4fd-2ec5-4bbe-a02e-94f0690bd7a2","method":"POST","path":"/api/v1/auth/email/request-code","status":200,"duration_ms":2,"ip":"203.0.113.56"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mOTP 暴力破解：5 次错误锁定 + 申请限频[2m > [22m[2m同邮箱 60 秒冷却：第二次申请 429
+[22m[39m{"level":"info","evt":"http_request","request_id":"06659895-8db7-4fd0-bf86-af232a4ddf95","method":"POST","path":"/api/v1/auth/email/request-code","status":429,"duration_ms":0,"ip":"203.0.113.57"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m邮箱枚举：存在与不存在不可区分[2m > [22m[2mrequest-code 对已注册/未注册邮箱响应字节级一致
+[22m[39m{"level":"info","evt":"http_request","request_id":"ab365386-76ee-4433-b53f-4447701d20ad","method":"POST","path":"/api/v1/auth/email/request-code","status":200,"duration_ms":1,"ip":"203.0.113.58"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m邮箱枚举：存在与不存在不可区分[2m > [22m[2mrequest-code 对已注册/未注册邮箱响应字节级一致
+[22m[39m{"level":"info","evt":"http_request","request_id":"eef1f1aa-d246-4998-957c-0716d7b83e24","method":"POST","path":"/api/v1/auth/email/request-code","status":200,"duration_ms":0,"ip":"203.0.113.59"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m邮箱枚举：存在与不存在不可区分[2m > [22m[2mverify-code：无 OTP 邮箱与错码文案一致（401 同 message）
+[22m[39m{"level":"info","evt":"http_request","request_id":"7ab836af-3120-4f42-810a-0f465b1823e0","method":"POST","path":"/api/v1/auth/email/verify-code","status":401,"duration_ms":0,"ip":"203.0.113.60"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m邮箱枚举：存在与不存在不可区分[2m > [22m[2mverify-code：无 OTP 邮箱与错码文案一致（401 同 message）
+[22m[39m{"level":"info","evt":"http_request","request_id":"0747a07d-ba78-47c4-a9f7-d4d19a095c3e","method":"POST","path":"/api/v1/auth/email/request-code","status":200,"duration_ms":1,"ip":"203.0.113.61"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m邮箱枚举：存在与不存在不可区分[2m > [22m[2mverify-code：无 OTP 邮箱与错码文案一致（401 同 message）
+[22m[39m{"level":"info","evt":"http_request","request_id":"d0ce2fba-ff9c-4bc2-add1-c92456fd2568","method":"POST","path":"/api/v1/auth/email/verify-code","status":401,"duration_ms":0,"ip":"203.0.113.62"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSession fixation：登录必发新 token，伪造 cookie 不沿用[2m > [22m[2m客户端预置 pr_session=fixed 值：登录后签发的是新 token，fixed 值始终无效
+[22m[39m{"level":"info","evt":"http_request","request_id":"1f02aaf3-99b2-4a8e-9af8-b3debc0f6206","method":"POST","path":"/api/v1/auth/email/request-code","status":200,"duration_ms":4,"ip":"203.0.113.63"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSession fixation：登录必发新 token，伪造 cookie 不沿用[2m > [22m[2m客户端预置 pr_session=fixed 值：登录后签发的是新 token，fixed 值始终无效
+[22m[39m{"level":"info","evt":"http_request","request_id":"79daeee0-48ba-484e-8993-639e6ef5eff1","method":"POST","path":"/api/v1/auth/email/verify-code","status":200,"duration_ms":1,"ip":"unknown"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSession fixation：登录必发新 token，伪造 cookie 不沿用[2m > [22m[2m客户端预置 pr_session=fixed 值：登录后签发的是新 token，fixed 值始终无效
+[22m[39m{"level":"info","evt":"http_request","request_id":"39fe56b0-66d1-4dca-b48a-07da87788ece","method":"GET","path":"/api/v1/auth/me","status":401,"duration_ms":1,"ip":"203.0.113.64"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSession fixation：登录必发新 token，伪造 cookie 不沿用[2m > [22m[2m客户端预置 pr_session=fixed 值：登录后签发的是新 token，fixed 值始终无效
+[22m[39m{"level":"info","evt":"http_request","request_id":"e847c627-8646-4e90-b87f-bea7f193218b","method":"GET","path":"/api/v1/auth/me","status":200,"duration_ms":0,"ip":"203.0.113.65"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSession fixation：登录必发新 token，伪造 cookie 不沿用[2m > [22m[2m两次登录 token 互不相同；logout 后旧 token 立即失效
+[22m[39m{"level":"info","evt":"http_request","request_id":"4aa64f38-6fd4-4cbe-8d24-d80e216cbab2","method":"POST","path":"/api/v1/auth/email/request-code","status":200,"duration_ms":1,"ip":"203.0.113.66"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSession fixation：登录必发新 token，伪造 cookie 不沿用[2m > [22m[2m两次登录 token 互不相同；logout 后旧 token 立即失效
+[22m[39m{"level":"info","evt":"http_request","request_id":"82f1949e-5a25-4f70-a10d-bfc805297c82","method":"POST","path":"/api/v1/auth/email/verify-code","status":200,"duration_ms":1,"ip":"203.0.113.67"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSession fixation：登录必发新 token，伪造 cookie 不沿用[2m > [22m[2m两次登录 token 互不相同；logout 后旧 token 立即失效
+[22m[39m{"level":"info","evt":"http_request","request_id":"673eec0d-75db-4eb6-9962-53b5c772e1b7","method":"POST","path":"/api/v1/auth/email/request-code","status":200,"duration_ms":1,"ip":"203.0.113.68"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSession fixation：登录必发新 token，伪造 cookie 不沿用[2m > [22m[2m两次登录 token 互不相同；logout 后旧 token 立即失效
+[22m[39m{"level":"info","evt":"http_request","request_id":"1736b1c4-0bf4-412c-a06d-ab30b2d2546b","method":"POST","path":"/api/v1/auth/email/verify-code","status":200,"duration_ms":0,"ip":"203.0.113.69"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSession fixation：登录必发新 token，伪造 cookie 不沿用[2m > [22m[2m两次登录 token 互不相同；logout 后旧 token 立即失效
+[22m[39m{"level":"info","evt":"http_request","request_id":"c294fda6-ef26-42c6-9b0c-f416f0407f2f","method":"GET","path":"/api/v1/auth/me","status":200,"duration_ms":0,"ip":"203.0.113.70"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSession fixation：登录必发新 token，伪造 cookie 不沿用[2m > [22m[2m两次登录 token 互不相同；logout 后旧 token 立即失效
+[22m[39m{"level":"info","evt":"http_request","request_id":"c976e7be-2239-47ea-bdd5-5dcb608b091a","method":"POST","path":"/api/v1/auth/logout","status":200,"duration_ms":1,"ip":"203.0.113.71"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSession fixation：登录必发新 token，伪造 cookie 不沿用[2m > [22m[2m两次登录 token 互不相同；logout 后旧 token 立即失效
+[22m[39m{"level":"info","evt":"http_request","request_id":"b78bae52-a734-463b-ab4f-0fc0de4d791c","method":"GET","path":"/api/v1/auth/me","status":401,"duration_ms":0,"ip":"203.0.113.72"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSession fixation：登录必发新 token，伪造 cookie 不沿用[2m > [22m[2m两次登录 token 互不相同；logout 后旧 token 立即失效
+[22m[39m{"level":"info","evt":"http_request","request_id":"3ef49f02-39d4-4e47-bab0-f883aecc8aeb","method":"GET","path":"/api/v1/auth/me","status":200,"duration_ms":1,"ip":"203.0.113.73"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m管理员越权：/admin/* 门禁矩阵[2m > [22m[2m未登录 401 / 普通用户 403 admin_required / 管理员未过 MFA 403 mfa_required
+[22m[39m{"level":"info","evt":"http_request","request_id":"e6cdf82a-6c2b-4b3c-bef1-7ac544329cf3","method":"GET","path":"/api/v1/admin/sources","status":401,"duration_ms":0,"ip":"203.0.113.74"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m管理员越权：/admin/* 门禁矩阵[2m > [22m[2m未登录 401 / 普通用户 403 admin_required / 管理员未过 MFA 403 mfa_required
+[22m[39m{"level":"info","evt":"http_request","request_id":"7d889613-aaf9-463d-9857-aa994675f2d0","method":"GET","path":"/api/v1/admin/sources","status":403,"duration_ms":0,"ip":"203.0.113.75"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m管理员越权：/admin/* 门禁矩阵[2m > [22m[2m未登录 401 / 普通用户 403 admin_required / 管理员未过 MFA 403 mfa_required
+[22m[39m{"level":"info","evt":"http_request","request_id":"c89e50eb-951b-436c-bd6a-7b3e13863e7d","method":"GET","path":"/api/v1/admin/sources","status":403,"duration_ms":0,"ip":"203.0.113.76"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m管理员越权：/admin/* 门禁矩阵[2m > [22m[2m未登录 401 / 普通用户 403 admin_required / 管理员未过 MFA 403 mfa_required
+[22m[39m{"level":"info","evt":"http_request","request_id":"a366ce8a-c9cf-4c0c-a8ca-a579c87011d9","method":"GET","path":"/api/v1/admin/users","status":401,"duration_ms":0,"ip":"203.0.113.77"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m管理员越权：/admin/* 门禁矩阵[2m > [22m[2m未登录 401 / 普通用户 403 admin_required / 管理员未过 MFA 403 mfa_required
+[22m[39m{"level":"info","evt":"http_request","request_id":"87fdb4a4-bf79-4a6c-8cab-42a15dcf2c24","method":"GET","path":"/api/v1/admin/users","status":403,"duration_ms":0,"ip":"203.0.113.78"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m管理员越权：/admin/* 门禁矩阵[2m > [22m[2m未登录 401 / 普通用户 403 admin_required / 管理员未过 MFA 403 mfa_required
+[22m[39m{"level":"info","evt":"http_request","request_id":"5f108c05-c72a-410d-a44c-c448336215e8","method":"GET","path":"/api/v1/admin/users","status":403,"duration_ms":1,"ip":"203.0.113.79"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m管理员越权：/admin/* 门禁矩阵[2m > [22m[2m未登录 401 / 普通用户 403 admin_required / 管理员未过 MFA 403 mfa_required
+[22m[39m{"level":"info","evt":"http_request","request_id":"0f749a75-b538-462c-821b-58ec16d1c47d","method":"GET","path":"/api/v1/admin/overview","status":401,"duration_ms":0,"ip":"203.0.113.80"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m管理员越权：/admin/* 门禁矩阵[2m > [22m[2m未登录 401 / 普通用户 403 admin_required / 管理员未过 MFA 403 mfa_required
+[22m[39m{"level":"info","evt":"http_request","request_id":"8242e7ca-5350-46ce-9d85-d4f15088512a","method":"GET","path":"/api/v1/admin/overview","status":403,"duration_ms":0,"ip":"203.0.113.81"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m管理员越权：/admin/* 门禁矩阵[2m > [22m[2m未登录 401 / 普通用户 403 admin_required / 管理员未过 MFA 403 mfa_required
+[22m[39m{"level":"info","evt":"http_request","request_id":"5bdebfb4-a7f7-4330-a6a4-d76099735609","method":"GET","path":"/api/v1/admin/overview","status":403,"duration_ms":0,"ip":"203.0.113.82"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m管理员越权：/admin/* 门禁矩阵[2m > [22m[2m未登录 401 / 普通用户 403 admin_required / 管理员未过 MFA 403 mfa_required
+[22m[39m{"level":"info","evt":"http_request","request_id":"5eae691b-d304-4ff8-9494-ffe4fd34ccbe","method":"GET","path":"/api/v1/admin/jobs","status":401,"duration_ms":0,"ip":"203.0.113.83"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m管理员越权：/admin/* 门禁矩阵[2m > [22m[2m未登录 401 / 普通用户 403 admin_required / 管理员未过 MFA 403 mfa_required
+[22m[39m{"level":"info","evt":"http_request","request_id":"f907eaaf-32be-480a-a407-ed258044bba9","method":"GET","path":"/api/v1/admin/jobs","status":403,"duration_ms":0,"ip":"203.0.113.84"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m管理员越权：/admin/* 门禁矩阵[2m > [22m[2m未登录 401 / 普通用户 403 admin_required / 管理员未过 MFA 403 mfa_required
+[22m[39m{"level":"info","evt":"http_request","request_id":"1ea8d839-f52d-4d90-a44a-c286b71ca8d6","method":"GET","path":"/api/v1/admin/jobs","status":403,"duration_ms":0,"ip":"203.0.113.85"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m管理员越权：/admin/* 门禁矩阵[2m > [22m[2m未登录 401 / 普通用户 403 admin_required / 管理员未过 MFA 403 mfa_required
+[22m[39m{"level":"info","evt":"http_request","request_id":"aec53938-6843-4c09-b098-427e04b6b4c6","method":"GET","path":"/api/v1/admin/quality/issues","status":401,"duration_ms":0,"ip":"203.0.113.86"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m管理员越权：/admin/* 门禁矩阵[2m > [22m[2m未登录 401 / 普通用户 403 admin_required / 管理员未过 MFA 403 mfa_required
+[22m[39m{"level":"info","evt":"http_request","request_id":"003f8983-aab3-45ab-8299-20f6bd88277e","method":"GET","path":"/api/v1/admin/quality/issues","status":403,"duration_ms":0,"ip":"203.0.113.87"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m管理员越权：/admin/* 门禁矩阵[2m > [22m[2m未登录 401 / 普通用户 403 admin_required / 管理员未过 MFA 403 mfa_required
+[22m[39m{"level":"info","evt":"http_request","request_id":"8a60338b-e52d-4a5b-a0c9-235ad8f455e1","method":"GET","path":"/api/v1/admin/quality/issues","status":403,"duration_ms":1,"ip":"203.0.113.88"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m管理员越权：/admin/* 门禁矩阵[2m > [22m[2m未登录 401 / 普通用户 403 admin_required / 管理员未过 MFA 403 mfa_required
+[22m[39m{"level":"info","evt":"http_request","request_id":"fd3b20c5-77f7-4713-b68a-d7f98280ba6e","method":"GET","path":"/api/v1/admin/audit","status":401,"duration_ms":0,"ip":"203.0.113.89"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m管理员越权：/admin/* 门禁矩阵[2m > [22m[2m未登录 401 / 普通用户 403 admin_required / 管理员未过 MFA 403 mfa_required
+[22m[39m{"level":"info","evt":"http_request","request_id":"136a1f28-5a2a-411b-a541-2a2072c740b4","method":"GET","path":"/api/v1/admin/audit","status":403,"duration_ms":0,"ip":"203.0.113.90"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m管理员越权：/admin/* 门禁矩阵[2m > [22m[2m未登录 401 / 普通用户 403 admin_required / 管理员未过 MFA 403 mfa_required
+[22m[39m{"level":"info","evt":"http_request","request_id":"ffa275a2-7582-4b9f-a19d-e22685bc0e91","method":"GET","path":"/api/v1/admin/audit","status":403,"duration_ms":0,"ip":"203.0.113.91"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m管理员越权：/admin/* 门禁矩阵[2m > [22m[2m普通用户伪装 admin 参数/头无效（角色只认数据库）
+[22m[39m{"level":"info","evt":"http_request","request_id":"7f2f4f43-f61f-4b06-9c51-c5c1067d5075","method":"GET","path":"/api/v1/admin/users","status":403,"duration_ms":0,"ip":"203.0.113.92"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSecrets 泄露：响应与错误信封不含任何密钥哨兵[2m > [22m[2m公开/认证/用户端点正常与错误响应均无哨兵
+[22m[39m{"level":"info","evt":"http_request","request_id":"83afca25-a782-4988-aca2-263433da6c04","method":"GET","path":"/api/health","status":200,"duration_ms":1,"ip":"203.0.113.93"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSecrets 泄露：响应与错误信封不含任何密钥哨兵[2m > [22m[2m公开/认证/用户端点正常与错误响应均无哨兵
+[22m[39m{"level":"info","evt":"http_request","request_id":"59b0e4bc-59a1-4b84-8475-9136d32b860b","method":"GET","path":"/api/v1/public/cities","status":200,"duration_ms":0,"ip":"203.0.113.94"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSecrets 泄露：响应与错误信封不含任何密钥哨兵[2m > [22m[2m公开/认证/用户端点正常与错误响应均无哨兵
+[22m[39m{"level":"info","evt":"http_request","request_id":"cb6a089e-1d88-4b6d-a805-906997c0cf0b","method":"GET","path":"/api/v1/auth/me","status":401,"duration_ms":0,"ip":"203.0.113.95"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSecrets 泄露：响应与错误信封不含任何密钥哨兵[2m > [22m[2m公开/认证/用户端点正常与错误响应均无哨兵
+[22m[39m{"level":"info","evt":"http_request","request_id":"6ebfef33-aa35-48a9-b829-c12f96a7525d","method":"POST","path":"/api/v1/auth/email/request-code","status":200,"duration_ms":1,"ip":"203.0.113.96"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSecrets 泄露：响应与错误信封不含任何密钥哨兵[2m > [22m[2m公开/认证/用户端点正常与错误响应均无哨兵
+[22m[39m{"level":"info","evt":"http_request","request_id":"18225f15-52f0-4cd6-a16e-94f9cf71d50b","method":"POST","path":"/api/v1/auth/email/verify-code","status":401,"duration_ms":0,"ip":"203.0.113.97"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSecrets 泄露：响应与错误信封不含任何密钥哨兵[2m > [22m[2m公开/认证/用户端点正常与错误响应均无哨兵
+[22m[39m{"level":"info","evt":"http_request","request_id":"ac0a7854-6fda-4101-9534-c32e61d4235a","method":"GET","path":"/api/v1/me/watch-items","status":200,"duration_ms":0,"ip":"203.0.113.98"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSecrets 泄露：响应与错误信封不含任何密钥哨兵[2m > [22m[2m公开/认证/用户端点正常与错误响应均无哨兵
+[22m[39m{"level":"info","evt":"http_request","request_id":"1d28cb55-ffc0-415c-b37e-9f570fef78cb","method":"GET","path":"/api/v1/nope","status":404,"duration_ms":0,"ip":"203.0.113.99"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSecrets 泄露：响应与错误信封不含任何密钥哨兵[2m > [22m[2minternal 端点：缺签名/错签名错误响应不含 INGEST 哨兵
+[22m[39m{"level":"info","evt":"http_request","request_id":"96ebe1b5-32db-44f8-8a9a-b92cf7c9b960","method":"POST","path":"/api/v1/internal/ingest/batch","status":403,"duration_ms":1,"ip":"unknown"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSecrets 泄露：响应与错误信封不含任何密钥哨兵[2m > [22m[2minternal 端点：缺签名/错签名错误响应不含 INGEST 哨兵
+[22m[39m{"level":"info","evt":"http_request","request_id":"c66676a0-9299-4613-890e-70a97bef0349","method":"POST","path":"/api/v1/internal/ingest/batch","status":403,"duration_ms":1,"ip":"unknown"}
+
+[90mstderr[2m | src/security.test.ts[2m > [22m[2mSecrets 泄露：响应与错误信封不含任何密钥哨兵[2m > [22m[2m存储故障 → 500 信封只含 interna
+l_error，不外泄异常与哨兵
+[22m[39m{"level":"error","evt":"unhandled_error","request_id":"16542c25-e77e-4089-a031-7d4b8117ceee","message":"datab
+ase is not open","stack":"Error: database is not open\n    at Object.first (E:\\desktop\\home_search\\apps\\api\\src\\t
+est-utils\\fake-d1.ts:26:17)\n    at requireSession (E:\\desktop\\home_search\\apps\\api\\src\\auth.ts:44:6)\n    at di
+spatch (file:///E:/desktop/home_search/node_modules/.pnpm/***/node_modules/hono/dist/compose.js:35:11)\n    at E:\\desk
+top\\home_search\\apps\\api\\src\\app.ts:80:5\n    at dispatch (file:///E:/desktop/home_search/node_modules/.pnpm/***/n
+ode_modules/hono/dist/compose.js:35:11)\n    at E:\\desktop\\home_search\\apps\\api\\src\\app.ts:73:5\n    at dispatch 
+(file:///E:/desktop/home_search/node_modules/.pnpm/***/node_modules/hono/dist/compose.js:35:11)\n    at E:\\desktop\\ho
+me_search\\apps\\api\\src\\app.ts:48:5\n    at dispatch (file:///E:/desktop/home_search/node_modules/.pnpm/***/node_mod
+ules/hono/dist/compose.js:35:11)\n    at E:\\desktop\\home_search\\apps\\api\\src\\app.ts:28:5"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mSecrets 泄露：响应与错误信封不含任何密钥哨兵[2m > [22m[2m存储故障 → 500 信封只含 internal_error，不外泄异常与哨兵
+[22m[39m{"level":"info","evt":"http_request","request_id":"16542c25-e77e-4089-a031-7d4b8117ceee","method":"GET","path":"/api/v1/me/watch-items","status":500,"duration_ms":5,"ip":"203.0.113.100"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mCORS：白名单精确回显，绝不通配[2m > [22m[2m白名单 Origin 回显 + credentials；非白名单零放行头
+[22m[39m{"level":"info","evt":"http_request","request_id":"339a2636-b95f-45c5-8b7c-0d5c0f5c3a74","method":"GET","path":"/api/v1/public/cities","status":200,"duration_ms":0,"ip":"203.0.113.101"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mCORS：白名单精确回显，绝不通配[2m > [22m[2m白名单 Origin 回显 + credentials；非白名单零放行头
+[22m[39m{"level":"info","evt":"http_request","request_id":"e2b9773a-d96d-4cf2-8e03-d6d17c307bd2","method":"GET","path":"/api/v1/public/cities","status":200,"duration_ms":1,"ip":"203.0.113.102"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mCORS：白名单精确回显，绝不通配[2m > [22m[2m任何响应都不出现 Access-Control-Allow-Origin: *
+[22m[39m{"level":"info","evt":"http_request","request_id":"3bad5fc7-3ae3-4fa1-98b4-16d3c396c42d","method":"GET","path":"/api/health","status":200,"duration_ms":0,"ip":"203.0.113.103"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mCORS：白名单精确回显，绝不通配[2m > [22m[2m任何响应都不出现 Access-Control-Allow-Origin: *
+[22m[39m{"level":"info","evt":"http_request","request_id":"cd537686-4138-4f60-bd0b-29903b455923","method":"GET","path":"/api/health","status":200,"duration_ms":0,"ip":"203.0.113.104"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2mCORS：白名单精确回显，绝不通配[2m > [22m[2m任何响应都不出现 Access-Control-Allow-Origin: *
+[22m[39m{"level":"info","evt":"http_request","request_id":"2fbe64f0-5f95-4a40-ae07-2cdeec4c5026","method":"GET","path":"/api/health","status":200,"duration_ms":1,"ip":"203.0.113.105"}
+
+[90mstderr[2m | src/security.test.ts[2m > [22m[2m错误日志泄露：500 信封最小化，日志不含凭证[2m > [22m[2m500 信封仅 internal_error + r
+equest_id，无 stack/SQL/异常消息
+[22m[39m{"level":"error","evt":"unhandled_error","request_id":"79ba1b90-1ca8-42b0-aadc-83f48397187e","message":"datab
+ase is not open","stack":"Error: database is not open\n    at Object.first (E:\\desktop\\home_search\\apps\\api\\src\\t
+est-utils\\fake-d1.ts:26:17)\n    at requireSession (E:\\desktop\\home_search\\apps\\api\\src\\auth.ts:44:6)\n    at di
+spatch (file:///E:/desktop/home_search/node_modules/.pnpm/***/node_modules/hono/dist/compose.js:35:11)\n    at E:\\desk
+top\\home_search\\apps\\api\\src\\app.ts:80:5\n    at dispatch (file:///E:/desktop/home_search/node_modules/.pnpm/***/n
+ode_modules/hono/dist/compose.js:35:11)\n    at E:\\desktop\\home_search\\apps\\api\\src\\app.ts:73:5\n    at dispatch 
+(file:///E:/desktop/home_search/node_modules/.pnpm/***/node_modules/hono/dist/compose.js:35:11)\n    at E:\\desktop\\ho
+me_search\\apps\\api\\src\\app.ts:48:5\n    at dispatch (file:///E:/desktop/home_search/node_modules/.pnpm/***/node_mod
+ules/hono/dist/compose.js:35:11)\n    at E:\\desktop\\home_search\\apps\\api\\src\\app.ts:28:5"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m错误日志泄露：500 信封最小化，日志不含凭证[2m > [22m[2m500 信封仅 internal_error + request_id，无 stack/SQL/异常消息
+[22m[39m{"level":"info","evt":"http_request","request_id":"79ba1b90-1ca8-42b0-aadc-83f48397187e","method":"GET","path":"/api/v1/auth/me","status":500,"duration_ms":1,"ip":"203.0.113.106"}
+
+[90mstdout[2m | src/security.test.ts[2m > [22m[2m错误日志泄露：500 信封最小化，日志不含凭证[2m > [22m[2m404/401 信封不含堆栈与内部字段名
+[22m[39m{"level":"info","evt":"http_request","request_id":"ab9b4056-5c0b-4d87-9827-495f8acd6d04","method":"GET","path":"/api/v1/does-not-exist","status":404,"duration_ms":1,"ip":"203.0.113.110"}
+
+ [32m✓[39m src/security.test.ts [2m([22m[2m32 tests[22m[2m)[22m[33m 488[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m32 passed[39m[22m[90m (32)[39m
+[2m   Start at [22m 14:02:19
+[2m   Duration [22m 1.65s[2m (transform 306ms, setup 0ms, collect 762ms, tests 488ms, environment 0ms, prepare 165ms)[22m
+

@@ -1,0 +1,6 @@
+﻿packages/shared test: [2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+packages/shared test: [2m      Tests [22m [1m[32m18 passed[39m[22m[90m (18)[39m
+packages/migrations test: [2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+packages/migrations test: [2m      Tests [22m [1m[32m26 passed[39m[22m[90m (26)[39m
+apps/api test: [2m Test Files [22m [1m[32m18 passed[39m[22m[90m (18)[39m
+apps/api test: [2m      Tests [22m [1m[32m318 passed[39m[22m[90m (318)[39m

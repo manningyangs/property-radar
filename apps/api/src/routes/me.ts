@@ -1045,15 +1045,28 @@ meRoutes.post("/push-subscriptions", async (c) => {
     endpoint: string;
     keys: { p256dh: string; auth: string };
   };
-  // schema pattern 已保证 http(s) 前缀，这里做 URL 语义校验（非法 URL → 400）
+  // TASK-07A（SSRF 修复，PRD §7.6）：endpoint 会被服务端 fetch 投递，
+  // 强制 https 并拒绝 IP 字面量 / 回环 / 链路本地（元数据）/ 私网段 / 内网名形态。
   try {
     const url = new URL(input.endpoint);
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      throw new Error("protocol");
+    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    const isIpv4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+    const isIpv6 = host.includes(":");
+    const isPrivate =
+      isIpv4 ||
+      isIpv6 ||
+      host === "localhost" ||
+      /\.(localhost|local|internal|localdomain|lan|home)$/.test(host) ||
+      !host.includes(".") || // 单标签内网主机名
+      /^169\.254\./.test(host) ||
+      /^(10\.|127\.|192\.168\.)/.test(host) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+    if (url.protocol !== "https:" || isPrivate) {
+      throw new Error("unsafe endpoint host");
     }
   } catch {
     throw errors.validation([
-      { field: "/endpoint", message: "必须是合法的 http(s) URL" },
+      { field: "/endpoint", message: "必须是公网 https 推送端点 URL" },
     ]);
   }
   const userId = c.get("userId");
