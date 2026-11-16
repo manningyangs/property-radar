@@ -16,6 +16,8 @@
 - public `0005_obs_batch.up.sql`：`ALTER TABLE price_observations ADD COLUMN batch_id TEXT` + 索引 `ix_price_obs_batch (batch_id)`；down DROP
 - D1 迁移随 CI/部署执行；旧行新列为 NULL，读取端以 null 兜底
 
+> **收尾偏差补注（实测后修正）**：本段原写「0009_jobs_detail 一个多语句迁移 + public 0005 带索引」——多语句合一文件违反迁移测试「重复执行幂等」断言，已按 0004 先例改为**每列一个单语句迁移 + `-- +migrate-idempotent` 指令**：private `0009_job_run_type`…`0015_job_workflow_url` 七对，public `0005_obs_batch`（列）+`0006_obs_batch_index`（索引）两对；`package.json` db 链同步。语义与验收不变（迁移测试 26 全绿）。
+
 ## R2 internal 端点扩展（routes/internal.ts + schemas.ts）
 
 - `ingestJobStartSchema`：可选 `run_type`（enum scheduled/manual/retry）、`connector_version`（≤64）、`workflow_url`（≤500）；jobs/start 落库
@@ -79,3 +81,8 @@
 - §8.7 写操作（标记误报/确认异常/暂停指标/重处理批次）
 - 重跑实际执行路径（Worker 不执行 connector）
 - sources.astro 重构为共享门禁（保持 06C 原样，避免回归）
+
+## 收尾实测补注
+
+- 宽视口双档截图用 playwright-core + Edge 无头（内嵌浏览器面板 ~610px 不够）；Edge 无头到不了 CF Turnstile 挂件域，登录改走真实 API 链路（OTP 桩发码→verify-code→mfa/verify TOTP）后注入 pr_session——认证全程真实，仅挂件渲染环节不可达
+- 实测发现并修复：Astro scoped 样式不命中 JS 动态插入的 tr/td，≤1024 卡片视图 media 失效——jobs/quality 两页样式块改 `<style is:global>`
