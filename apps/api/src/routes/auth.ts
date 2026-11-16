@@ -290,10 +290,24 @@ authRoutes.post("/email/verify-code", async (c) => {
       `+${SESSION_TTL_DAYS} days`,
     )
     .run();
+  // 08A 上线：生产前端（*.pages.dev）与 API（*.workers.dev）跨站，
+  // 会话 cookie 必须 SameSite=None 才能随跨站 fetch（credentials:include）回传；
+  // 同主机名（本地开发 localhost / 无 Origin 的直接调用）保持更严格的 Lax。
+  const originHost = (() => {
+    const raw = c.req.header("Origin");
+    if (!raw) return "";
+    try {
+      return new URL(raw).hostname;
+    } catch {
+      return "";
+    }
+  })();
+  const crossSite =
+    originHost !== "" && originHost !== new URL(c.req.url).hostname;
   setCookie(c, SESSION_COOKIE, token, {
     httpOnly: true,
     secure: true,
-    sameSite: "Lax",
+    sameSite: crossSite ? "None" : "Lax",
     path: "/",
     maxAge: SESSION_TTL_DAYS * 24 * 60 * 60,
   });

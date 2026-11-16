@@ -1,0 +1,41 @@
+TASK-08A 生产整体上线证据（2026-11-16，Asia/Shanghai）
+====================================================
+
+一、生产资源操作（均经 api.cloudflare.com 控制面成功）
+1. Pages 项目创建：wrangler pages project create property-radar-web --production-branch main
+   → 生产域名 https://property-radar-web.pages.dev
+2. Worker Secrets：wrangler secret put SESSION_SIGNING_SECRET（随机 32 字节 hex，管道写入，未落盘未回显）
+   生产 secrets 现含：SESSION_SIGNING_SECRET / INGEST_HMAC_SECRET / VAPID_PRIVATE_KEY / VAPID_PUBLIC_KEY
+   仍缺（等用户手动配置）：TURNSTILE_SECRET_KEY / APPS_SCRIPT_WEB_APP_URL / APPS_SCRIPT_HMAC_SECRET / ADMIN_BOOTSTRAP_CODE
+3. Worker vars（wrangler.jsonc）：新增 CORS_ALLOWED_ORIGINS="https://property-radar-web.pages.dev,http://localhost:4321"
+   与 WEB_BASE_URL="https://property-radar-web.pages.dev"；本地开发由 .dev.vars 覆盖为仅 localhost。
+4. Worker 重新部署：wrangler deploy → Version ID d822fd07-f7ba-448c-898c-cf71e45ead44
+   实际生产域名（纠正手册旧笔误 manningyangs.…）：https://property-radar-api.yang1-75.workers.dev
+5. 前端生产构建：PUBLIC_API_BASE=https://property-radar-api.yang1-75.workers.dev/api/v1，无 PUBLIC_DEMO_DATA；
+   产物校验：dist 内仅出现生产 API 地址（api.*.js 1 处），无 localhost:8789。
+6. Pages 部署：wrangler pages deploy dist --project-name property-radar-web --branch main
+   → 48 文件上传成功，部署别名 https://ce64bf37.property-radar-web.pages.dev（production=main）
+
+二、代码变更（上线阻断修复）
+- apps/api/src/routes/auth.ts：会话 cookie 按请求 Origin 判定——跨站主机名 → SameSite=None+Secure
+  （生产 pages.dev→workers.dev 必须 None 才能携带会话）；同主机/无 Origin → 保持 Lax。
+- security.test.ts 新增用例「跨站 Origin 登录：会话 cookie 为 SameSite=None+Secure」→ 通过。
+
+三、四门禁（根目录）
+typecheck exit=0 | lint exit=0 | test exit=0 | build exit=0
+apps/api 测试 19 个文件全绿（含新增跨站 cookie 用例）。
+
+四、数据面实测（本机 TLS 阻断已消失，07C 遗留项补验）
+- GET https://property-radar-api.yang1-75.workers.dev/api/health → 200
+  {"status":"ok","service":"property-radar-api","time":"2026-11-16T08:03:50.149Z"}
+- GET https://property-radar-web.pages.dev/ → 200
+- GET /api/v1/public/regions（Origin: https://property-radar-web.pages.dev）→ 200
+  Access-Control-Allow-Origin: https://property-radar-web.pages.dev
+  Access-Control-Allow-Credentials: true
+
+五、上线后生产功能状态
+- 游客浏览：可用（Pages + 公共 API + CORS 全链路 200）。
+- 注册/登录：禁用态——前端未注入 PUBLIC_TURNSTILE_SITEKEY（表单禁用并提示），
+  Worker 缺 TURNSTILE_SECRET_KEY（503）、缺 Apps Script 网关两 Secrets（gateway_not_configured）。
+  待用户完成手动配置清单后重建前端 + 挂 Secrets 即通。
+- CI：deploy-web.yml 已就位；GitHub 未配置 CLOUDFLARE_API_TOKEN/ACCOUNT_ID 前该 job 自动跳过。

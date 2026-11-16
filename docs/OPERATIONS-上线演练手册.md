@@ -13,6 +13,7 @@
 | 来源一键停用 | 本地 e2e（suspend → 门禁 403 + 审计） | PASS | `07c-04-source-suspend-drill.txt` + 截图 |
 | Worker 版本回滚 | 生产真实回滚 + 切回 | PASS | `07c-05-worker-rollback.txt` |
 | Pages 前端部署 | 生产只读核实 | 未部署（阻塞项） | `07c-06-pages-check.txt` |
+| Pages 前端部署（补） | TASK-08A 实际部署 + 数据面实测 | PASS：`property-radar-web.pages.dev` | `08a-01-production-launch.txt` |
 
 ## 1. 数据库备份 SOP（手动，PII 红线）
 
@@ -22,7 +23,7 @@ node scripts/db-backup.mjs
 ```
 
 - 产物：`backups/<UTC时间戳>/{public,private}.sql` + `manifest.json`（SHA256、字节数、wrangler 版本）。
-- 实现：`wrangler d1 export --remote` 对 `property-radar-public` / `property-radar-private` 双库全量导出。
+- 实现：`wrangler d1 export --remote` 对 `radar_public` / `radar_private` 双库全量导出（以 wrangler.jsonc 绑定名为准）。
 - **红线：`backups/` 已在 .gitignore，备份含用户 PII，绝不提交 GitHub、绝不放入 CI artifacts**；
   转存只允许加密私有存储（如本人 Google Drive 加密文件夹），保留最近 7 份。
 - 频率：开放注册前每次生产迁移/发布前手动执行一次；稳定期建议每周一次。
@@ -43,8 +44,8 @@ node scripts/db-restore-drill.mjs
 ```powershell
 cd apps/api
 # 标准方式（迁移记录表可用时优先）：
-node ..\..\node_modules\wrangler\bin\wrangler.js d1 migrations apply property-radar-private --remote
-node ..\..\node_modules\wrangler\bin\wrangler.js d1 migrations apply property-radar-public --remote
+node ..\..\node_modules\wrangler\bin\wrangler.js d1 migrations apply radar_private --remote
+node ..\..\node_modules\wrangler\bin\wrangler.js d1 migrations apply radar_public --remote
 # 若迁移台账不可用，退回逐文件方式（幂等 up 文件逐个应用）：
 # node ...\wrangler.js d1 execute <DB> --remote --file migrations/00XX-*.sql
 ```
@@ -64,12 +65,12 @@ node ...\wrangler.js deployments status          # 验证 100% 流量已切换
 
 - 实测：`96c92dc9… → e305339d… → 96c92dc9…` 两次切换均即时生效（`07c-05`）。
 - **注意：版本回滚不会回滚 D1 数据**。若新代码已写入不兼容数据，回滚代码后须按 §2 恢复或前滚修复。
-- 数据面验证：`https://manningyangs.property-radar-api.workers.dev/api/health`。
-  当前办公网络对 `*.workers.dev` 存在 TLS 阻断（ECONNRESET），需在无阻断网络或 Dashboard Live 上补验。
+- 数据面验证：`https://property-radar-api.yang1-75.workers.dev/api/health`（旧记录 `manningyangs.…` 为笔误，08A 更正）。
+  07C 时办公网络对 `*.workers.dev` TLS 阻断；2026-11-16（08A）复测阻断已消失，`/api/health` 返回 200。
 
 ### 3.2 前端回滚
 
-Pages 尚未部署（见 §7 阻塞项）。部署后回滚走 Pages → Deployments → 历史 production 分支 "Switch to this deployment"。
+Pages 已部署（08A，项目 `property-radar-web`，生产分支 main）。回滚：Pages → Deployments → 历史 production 部署 → "Switch to this deployment"；或手动重跑 `deploy-web.yml` 部署旧构建。
 
 ### 3.3 采集器回滚
 
@@ -128,10 +129,10 @@ POST /admin/sources/{id}/suspend   body: { "reason": "必填：投诉/撤销依�
 ## 7. 开放注册前硬性检查清单（上线门槛，逐项签字）
 
 1. ☐ **生产创建管理员账号**：本次演练发现生产 `admin_roles` 为 0 行——需 `/admin/bootstrap` 创建 + MFA 绑定，并立即撤销 bootstrap code。
-2. ☐ **Pages 前端部署**：创建 Pages 项目、配置 `API_BASE` 生产环境变量、CI 增加部署步骤（当前 `07c-06` 未部署）。
+2. ☑ **Pages 前端部署**（2026-11-16 TASK-08A）：项目 `property-radar-web` 已部署；`PUBLIC_API_BASE` 构建期注入生产 Worker；CI `deploy-web.yml` 已加。**残留**：GitHub 仓库 secrets 需用户配置 `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`（配置前 CI 部署 job 自动跳过，发布走本地 wrangler）。
 3. ☐ **占位邮箱替换**：`support@` 等占位邮箱换成真实可达邮箱（07B 遗留）。
 4. ☐ **Turnstile 生产密钥**：`.dev.vars` 当前为 Cloudflare 测试密钥（恒过），生产必须换正式 sitekey/secret 并挂到 Worker secrets。
-5. ☐ **workers.dev 数据面验证**：在无 TLS 阻断网络下 curl `/api/health` 确认 200（本次仅控制面验证）。
+5. ☑ **workers.dev 数据面验证**（2026-11-16 TASK-08A）：`/api/health` 200、Pages 200、CORS 正确回显 `property-radar-web.pages.dev` 且带 credentials（证据 `08a-01`）。
 6. ☐ **Dashboard Spend Alerts**：Cloudflare 账单页设置消费提醒阈值。
 7. ☐ **数据来源跨境/合规核验**：房天下等 portal_listing 来源授权状态人工复核（07B 遗留）。
 8. ☐ **法务审阅**：隐私政策/服务条款文本经法务确认（07B 遗留）。

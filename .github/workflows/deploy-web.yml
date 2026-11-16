@@ -1,0 +1,61 @@
+# TASK-08A：Pages 前端生产部署工作流（上线手册 §7-2 的 CI 步骤）。
+# 触发：main 分支前端改动 push 或手动 dispatch。
+# 前置（用户手动，一次性）：Repository Settings → Secrets and variables → Actions 添加
+#   CLOUDFLARE_API_TOKEN（Pages:Edit + Workers:Edit 权限的自定义 Token）
+#   CLOUDFLARE_ACCOUNT_ID（Cloudflare Dashboard 右下方账户 ID）
+# 未配置上述 secrets 时本工作流自动跳过（job if），不影响 CI 主流程。
+# 红线：不部署 Worker（Worker 发布仍走本地 wrangler deploy + 版本回滚 SOP）；
+#       第三方 Action 固定 commit SHA（与 ci.yml 相同）。
+name: Deploy Web (Pages)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - ".github/workflows/deploy-web.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-web
+  cancel-in-progress: false
+
+jobs:
+  pages-deploy:
+    name: Build & deploy apps/web to Cloudflare Pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+    env:
+      # 生产 API 地址（非敏感；构建期注入 PUBLIC_API_BASE）
+      PUBLIC_API_BASE: "https://property-radar-api.yang1-75.workers.dev/api/v1"
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+        with:
+          version: 9.15.9
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web (production, no demo data)
+        run: pnpm --filter @property-radar/web build
+
+      - name: Deploy to Pages (project property-radar-web, branch main)
+        run: npx --yes wrangler@4.160.0 pages deploy apps/web/dist --project-name property-radar-web --branch main

@@ -385,6 +385,22 @@ describe("CSRF：cookie 唯一凭证 + SameSite + 跨站无放行头", () => {
     expect(token).toBeTruthy();
   });
 
+  it("跨站 Origin 登录：会话 cookie 为 SameSite=None+Secure（08A 生产 pages.dev→workers.dev）", async () => {
+    forceOtpCode(KNOWN_OTP);
+    await req("POST", "/api/v1/auth/email/request-code", {
+      body: { email: "csrf3-07a@example.com", turnstile_token: "t" },
+    });
+    const res = await req("POST", "/api/v1/auth/email/verify-code", {
+      origin: "https://property-radar-web.pages.dev",
+      body: { email: "csrf3-07a@example.com", code: KNOWN_OTP },
+    });
+    const setCookie = res.headers.get("Set-Cookie") ?? "";
+    expect(setCookie).toContain("SameSite=None");
+    expect(setCookie).toContain("HttpOnly");
+    expect(setCookie).toContain("Secure");
+    expect(setCookie).toContain("Path=/");
+  });
+
   it("跨站 Origin 的写请求：无 cookie → 401；响应不带任何 CORS 放行头", async () => {
     const res = await req("POST", "/api/v1/me/watch-items", {
       origin: "https://evil.example.com",

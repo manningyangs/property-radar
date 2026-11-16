@@ -16,7 +16,11 @@
     "EMAIL_DAILY_HARD_CAP": "80",
     "OTP_DAILY_RESERVED_CAP": "60",
     // TASK-05C：VAPID 联系方（非敏感，spec §3：缺省 mailto:admin@example.com）；两把 VAPID 密钥用 wrangler secret put
-    "VAPID_SUBJECT": "mailto:admin@example.com"
+    "VAPID_SUBJECT": "mailto:admin@example.com",
+    // TASK-08A 生产上线：CORS 白名单 = Pages 生产域名 + 本地开发；邮件内页链接根地址。
+    // 本地开发用 .dev.vars 覆盖为仅 localhost（wrangler dev 优先 .dev.vars）。
+    "CORS_ALLOWED_ORIGINS": "https://property-radar-web.pages.dev,http://localhost:4321",
+    "WEB_BASE_URL": "https://property-radar-web.pages.dev"
   },
   // TASK-05A §6.6：每日系统事件评估（更新延迟/数据异常）——UTC 00:30 = 北京 08:30
   "triggers": { "crons": ["30 0 * * *", "30 23 * * *"] }, // 北京08:30事件评估（05A）+ 北京07:30每日摘要（05B）
