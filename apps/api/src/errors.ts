@@ -23,7 +23,15 @@ export type ErrorCode =
   | "stale_timestamp"
   | "replay_detected"
   // ---- TASK-04B：任务与健康记录 ----
-  | "job_not_found";
+  | "job_not_found"
+  // ---- TASK-06A：后台认证与权限（管理员 MFA / bootstrap / 审计查询） ----
+  | "mfa_required"
+  | "mfa_not_enrolled"
+  | "mfa_invalid_code"
+  | "mfa_conflict"
+  | "bootstrap_not_configured"
+  | "bootstrap_code_invalid"
+  | "bootstrap_target_not_found";
 
 /** 业务/协议错误：携带 HTTP 状态与稳定 error_code，绝不携带内部结构（SQL、表名等） */
 export class AppError extends Error {
@@ -89,6 +97,28 @@ export const errors = {
   /** finish 的 job_id 在 ingest_jobs 中不存在 */
   jobNotFound: (message = "采集任务不存在") =>
     new AppError(404, "job_not_found", message),
+  // ---- TASK-06A：后台认证与权限 ----
+  /** 管理员会话未完成 TOTP 二次验证（每登录会话独立验证） */
+  mfaRequired: (message = "请先完成管理员二次验证") =>
+    new AppError(403, "mfa_required", message),
+  /** 该管理员尚未绑定 TOTP 密钥（需先 setup） */
+  mfaNotEnrolled: (message = "尚未绑定验证器，请先完成设置") =>
+    new AppError(403, "mfa_not_enrolled", message),
+  /** TOTP 验证码错误、格式非法或已过期（含重放拒绝） */
+  mfaInvalidCode: (message = "验证码错误或已过期") =>
+    new AppError(400, "mfa_invalid_code", message),
+  /** 已绑定且确认的密钥重复 setup（需先 disable） */
+  mfaConflict: (message = "已绑定验证器，请先解除后再重新绑定") =>
+    new AppError(409, "mfa_conflict", message),
+  /** ADMIN_BOOTSTRAP_CODE 未配置，首次创建管理员端点禁用 */
+  bootstrapNotConfigured: (message = "管理员初始化端点未启用") =>
+    new AppError(503, "bootstrap_not_configured", message),
+  /** bootstrap code 缺失或不匹配 */
+  bootstrapCodeInvalid: (message = "初始化代码无效") =>
+    new AppError(403, "bootstrap_code_invalid", message),
+  /** bootstrap 目标邮箱不存在 */
+  bootstrapTargetNotFound: (message = "目标用户不存在") =>
+    new AppError(404, "bootstrap_target_not_found", message),
 };
 
 /** 统一错误响应信封（不含任何私有 DB 结构信息） */

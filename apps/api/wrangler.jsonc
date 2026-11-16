@@ -10,6 +10,7 @@
   ],
   // 非敏感配置（PRD 附录 A：这些是 vars，不得作为 Secret 混淆）；
   // Secrets（SESSION_SIGNING_SECRET / TURNSTILE_SECRET_KEY / APPS_SCRIPT_* / INGEST_HMAC_SECRET ）用 wrangler secret put
+  // TASK-06A：ADMIN_BOOTSTRAP_CODE 也是 Secret（缺省 = /admin/bootstrap 503 禁用；首次建管理员后立即撤销删除）
   "vars": {
     "EMAIL_PROVIDER": "google_apps_script_mail",
     "EMAIL_DAILY_HARD_CAP": "80",

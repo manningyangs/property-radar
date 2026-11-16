@@ -1,8 +1,10 @@
 // TASK-04A：管理端数据源登记与审批验收（PRD 任务行 1280–1286 / §10.5 / §5.2 状态机 / §5.3 审核清单）
 // 覆盖：管理员角色门禁（401/403）、登记与 PATCH 边界、审批证据四写、状态机 409、
 //       coverage 范围收敛、suspend 同步与审计、公开来源页只暴露公开字段。
+// TASK-06A：/admin/* 加 MFA 门禁——beforeEach 走真实 setup+verify 流程放行（既有断言不改）。
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app";
+import { generate } from "./totp";
 import {
   authCookie,
   createTestEnv,
@@ -26,8 +28,21 @@ beforeEach(async () => {
   await seedUser(ctx.priv, ADMIN, "admin-04a@example.com", TOK_ADMIN);
   await seedUser(ctx.priv, USER, "user-04a@example.com", TOK_USER);
   grantAdmin(ADMIN);
+  await enableAdminMfa(TOK_ADMIN);
   seedCity(CITY, "active");
 });
+
+/** TASK-06A：管理员会话过 TOTP 二次验证（setup → verify 真实接口流） */
+async function enableAdminMfa(token: string): Promise<void> {
+  const setup = await req("POST", "/api/v1/admin/mfa/setup", token, {});
+  expect(setup.status).toBe(200);
+  const { secret } = (await setup.json()) as { secret: string };
+  const code = await generate(secret);
+  const verified = await req("POST", "/api/v1/admin/mfa/verify", token, {
+    code,
+  });
+  expect(verified.status).toBe(200);
+}
 
 function grantAdmin(userId: string): void {
   ctx.priv

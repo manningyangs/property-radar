@@ -19,6 +19,8 @@ const PUBLIC_TABLES = [
 ];
 
 const PRIVATE_TABLES = [
+  "admin_mfa_secrets",
+  "admin_mfa_sessions",
   "admin_roles",
   "alert_events",
   "audit_logs",
@@ -368,7 +370,7 @@ describe("Public D1（radar_public）", () => {
 });
 
 describe("Private D1（radar_private）", () => {
-  it("up 建出全部 22 张表，且重复执行（幂等）不报错", () => {
+  it("up 建出全部 24 张表，且重复执行（幂等）不报错", () => {
     const db = createDb();
     applyMigrations(db, "private", "up");
     expect(tablesOf(db).sort()).toEqual(PRIVATE_TABLES);
@@ -424,6 +426,31 @@ describe("Private D1（radar_private）", () => {
     // 删除用户级联清空订阅（安全存储生命周期）
     db.prepare("DELETE FROM users WHERE user_id = 'usr_push'").run();
     expect(db.prepare("SELECT * FROM push_subscriptions").all()).toEqual([]);
+    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+  });
+
+  it("admin_mfa 两表（TASK-06A）：confirmed_at 可空、删会话/删用户级联", () => {
+    const db = createDb();
+    applyMigrations(db, "private", "up");
+    db.prepare(
+      "INSERT INTO users (user_id, email_normalized) VALUES ('usr_mfa', 'mfa.admin@example.com')",
+    ).run();
+    db.prepare(
+      "INSERT INTO sessions (session_id, user_id, token_hash, expires_at) VALUES ('ses_mfa', 'usr_mfa', 'th', datetime('now', '+1 hour'))",
+    ).run();
+    // setup 后未 verify：confirmed_at 允许 NULL
+    db.prepare(
+      "INSERT INTO admin_mfa_secrets (user_id, secret_base32) VALUES ('usr_mfa', 'JBSWY3DPEHPK3PXP')",
+    ).run();
+    db.prepare(
+      "INSERT INTO admin_mfa_sessions (session_id, user_id) VALUES ('ses_mfa', 'usr_mfa')",
+    ).run();
+    // 撤销会话 → MFA 标记级联失效
+    db.prepare("DELETE FROM sessions WHERE session_id = 'ses_mfa'").run();
+    expect(db.prepare("SELECT * FROM admin_mfa_sessions").all()).toEqual([]);
+    // 删除用户 → 密钥级联清理
+    db.prepare("DELETE FROM users WHERE user_id = 'usr_mfa'").run();
+    expect(db.prepare("SELECT * FROM admin_mfa_secrets").all()).toEqual([]);
     expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   });
 

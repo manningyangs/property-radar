@@ -7,6 +7,7 @@ import { clientIp, FixedWindowRateLimiter } from "./rate-limit";
 import { authRoutes } from "./routes/auth";
 import { meRoutes } from "./routes/me";
 import { adminRoutes } from "./routes/admin";
+import { adminAuthRoutes } from "./routes/admin-auth"; // TASK-06A：bootstrap / mfa/* / audit
 import { internalRoutes } from "./routes/internal";
 import { publicRoutes } from "./routes/public";
 
@@ -97,8 +98,10 @@ export function createApp(): Hono<AppEnv> {
   // PRD §10 统一前缀 /api/v1
   app.route("/api/v1/public", publicRoutes);
   app.route("/api/v1/me", meRoutes);
-  // TASK-04A：管理端（会话+admin_roles）与 internal 批次端点（HMAC）
+  // TASK-04A：管理端（requireAdminAccess 统一门禁）与 internal 批次端点（HMAC）
   app.route("/api/v1/admin", adminRoutes);
+  // TASK-06A：须在 adminRoutes 之后挂载——其 use("*") 先行匹配，bootstrap/mfa 豁免规则生效
+  app.route("/api/v1/admin", adminAuthRoutes);
   app.route("/api/v1/internal", internalRoutes);
   app.route("/api/v1/auth", authRoutes);
 

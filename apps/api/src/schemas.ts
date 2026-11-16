@@ -408,3 +408,26 @@ export const createObservationSchema: JsonSchema = {
     price_type: { type: "string", enum: ["user_reported", "listing_ask"] },
   },
 };
+
+// ---------------- TASK-06A：后台认证与权限（PRD 任务行 1346–1352 / §10.5） ----------------
+
+/** 首次创建管理员：bootstrap code + 目标邮箱（PRD §2.1.3 ADMIN_BOOTSTRAP_CODE） */
+export const bootstrapAdminSchema: JsonSchema = {
+  type: "object",
+  required: ["bootstrap_code", "email"],
+  additionalProperties: false,
+  properties: {
+    bootstrap_code: { type: "string", minLength: 8, maxLength: 128 },
+    email: { type: "string", pattern: EMAIL_PATTERN, maxLength: 254 },
+  },
+};
+
+/** TOTP 验证码（6 位数字，setup/verify/disable 场景共用） */
+export const mfaCodeSchema: JsonSchema = {
+  type: "object",
+  required: ["code"],
+  additionalProperties: false,
+  properties: {
+    code: { type: "string", pattern: "^[0-9]{6}$" },
+  },
+};

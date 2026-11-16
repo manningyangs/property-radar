@@ -37,6 +37,9 @@ export interface Env {
   VAPID_PUBLIC_KEY?: string;
   /** VAPID JWT 的 sub（mailto: 或 https: 联系方式；缺省 mailto:admin@example.com） */
   VAPID_SUBJECT?: string;
+  // ---- TASK-06A：后台认证与权限 ----
+  /** 首次创建管理员的初始化代码（Secret；缺省 = bootstrap 端点禁用 503。创建成功后应立即撤销/删除该值） */
+  ADMIN_BOOTSTRAP_CODE?: string;
 }
 
 export type AppEnv = {
@@ -44,6 +47,8 @@ export type AppEnv = {
   Variables: {
     requestId: string;
     userId: string;
+    /** TASK-06A：当前会话 ID（requireSession 填充，管理员 MFA 会话标记按它校验） */
+    sessionId: string;
   };
 };
 

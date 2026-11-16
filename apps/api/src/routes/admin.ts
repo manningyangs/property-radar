@@ -1,13 +1,13 @@
 // TASK-04A：管理端数据源 API（PRD 任务行 1284–1286 / §10.5 / §5.2 状态机 / §5.3 审核清单）
-// 认证：登录会话 + admin_roles 有效角色（最小 requireAdmin；MFA/RBAC 细化与 Cloudflare Access 留 TASK-06A）。
+// 认证：requireAdminAccess 统一门禁（会话 + admin_roles + MFA，TASK-06A）。
 // 设计要点：
 //   - 状态只能经 approve/suspend 变更（PATCH 不含 status）；非法状态转换 409，不写库；
 //   - 审批记录（证据/字段/用途/范围/频率/保存期限/审批人）只 INSERT，append-only；
 //   - approve 的 coverage 即最新授权范围：payload 行 upsert 为已批准，source 既有但不在本次范围的行降为 suspended；
 //   - 过期授权由 source-gate.resolveLicense 惰性自动 suspend（GET 列表同样触发）；
-//   - 所有状态变更写 audit_logs（查询端点属 TASK-06C，本任务只写不读）。
+//   - 所有状态变更写 audit_logs（查询端点 GET /admin/audit 属 TASK-06A，见 routes/admin-auth.ts）。
 import { Hono, type Context } from "hono";
-import { requireSession } from "../auth";
+import { requireAdminAccess } from "../auth";
 import { errors } from "../errors";
 import { type AppEnv } from "../env";
 import { readJsonBody, validateOrThrow } from "../validation";
@@ -30,17 +30,9 @@ import { evaluateRulesForObjects } from "../rules-engine";
 
 export const adminRoutes = new Hono<AppEnv>();
 
-// 所有 /admin/* 先过会话（401），再过管理员角色（403 admin_required）
-adminRoutes.use("*", requireSession);
-adminRoutes.use("*", async (c, next) => {
-  const role = await c.env.DB_PRIVATE.prepare(
-    "SELECT admin_id FROM admin_roles WHERE user_id = ? AND revoked_at IS NULL LIMIT 1",
-  )
-    .bind(c.get("userId"))
-    .first();
-  if (!role) throw errors.adminRequired();
-  await next();
-});
+// TASK-06A：/admin/* 统一门禁（会话 401 → 角色 403 admin_required → MFA 403 mfa_required；
+// bootstrap 与 mfa setup/verify/status 豁免规则见 auth.requireAdminAccess）
+adminRoutes.use("*", requireAdminAccess);
 
 /** 允许直接审批为 approved_* 的来源状态（blocked 必须显式解除后才可审批） */
 const APPROVE_FROM = new Set([
@@ -244,6 +236,18 @@ adminRoutes.post("/sources", async (c) => {
       "INSERT INTO source_license_state (source_id) VALUES (?)",
     ).bind(input.source_id),
   ]);
+  // TASK-06A：登记属管理员敏感操作（spec R5 补 04A 漏写）
+  await c.env.DB_PRIVATE.prepare(
+    `INSERT INTO audit_logs (audit_id, actor_user_id, actor_role, action, resource_type, resource_id, reason)
+     VALUES (?, ?, 'admin', 'source.create', 'data_source', ?, ?)`,
+  )
+    .bind(
+      crypto.randomUUID(),
+      c.get("userId"),
+      input.source_id,
+      `${input.name} (${input.source_type})`,
+    )
+    .run();
   return c.json({ source: await sourceItem(c, input.source_id!) }, 201);
 });
 
@@ -263,6 +267,18 @@ adminRoutes.patch("/sources/:id", async (c) => {
      WHERE source_id = ?`,
   )
     .bind(...keys.map((k) => input[k]), sourceId)
+    .run();
+  // TASK-06A：元数据修改属管理员敏感操作（spec R5 补 04A 漏写；reason 记改动字段集）
+  await c.env.DB_PRIVATE.prepare(
+    `INSERT INTO audit_logs (audit_id, actor_user_id, actor_role, action, resource_type, resource_id, reason)
+     VALUES (?, ?, 'admin', 'source.update', 'data_source', ?, ?)`,
+  )
+    .bind(
+      crypto.randomUUID(),
+      c.get("userId"),
+      sourceId,
+      `fields=${keys.join(",")}`,
+    )
     .run();
   return c.json({ source: await sourceItem(c, sourceId) });
 });

@@ -27,6 +27,8 @@ export default tseslint.config(
         fetch: "readonly",
         TextEncoder: "readonly",
         TextDecoder: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
       },
     },
   },
