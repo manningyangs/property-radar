@@ -1,0 +1,1256 @@
+---
+/**
+ * TASK-06C：数据源中心（PRD 任务行 1362–1368 / §8.4 / spec R4）
+ * 真实 API 页面：来源、许可状态、覆盖、更新时间、许可到期、启停可视化。
+ * 门禁：getMe（401 由 api.ts 统一跳 /login?next=）→ MFA 面板（未绑定 setup / 待验证 TOTP）→ 数据。
+ * 验收映射：未审批不能启用=审批按钮仅对可审批状态显示 + 后端 409 兜底；
+ *           审批记录不可无痕修改=append-only 历史全量展示；暂停阻止 connector=后端门禁 + 状态徽章同步。
+ * 本页不读取 PUBLIC_DEMO_DATA 演示数据（真实 API 页，无数据即空态）。
+ */
+import AppShell from "../../layouts/AppShell.astro";
+import AdminSidebar from "../../components/AdminSidebar.astro";
+import ConfirmDialog from "../../components/ConfirmDialog.astro";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+---
+
+<AppShell
+  title="数据源中心"
+  demo={demoEnabled}
+  showNav={false}
+  variant="admin"
+>
+  <AdminSidebar slot="sidebar" active="数据源中心" />
+
+  <div class="page admin-page">
+    <!-- ===== MFA 门禁面板 ===== -->
+    <section class="card mfa-panel" data-mfa hidden>
+      <h2 class="section-title">管理员二次验证（MFA）</h2>
+      <p class="meta" data-mfa-hint>
+        访问后台数据需要先完成 TOTP 动态口令验证。
+      </p>
+      <div data-mfa-setup hidden>
+        <p class="meta">
+          首次使用：点击下方按钮生成密钥，将「密钥」添加到身份验证器 App
+          （Google Authenticator / Microsoft Authenticator 等），再输入 6 位口令完成绑定。
+        </p>
+        <button type="button" class="btn btn--secondary btn--sm" data-mfa-gen>
+          生成 TOTP 密钥
+        </button>
+      </div>
+      <div data-mfa-secret-box hidden>
+        <p class="field-label">密钥（Base32）</p>
+        <p class="num secret-text" data-mfa-secret></p>
+        <p class="field-label">otpauth URI（可选，供手动导入）</p>
+        <p class="num secret-text" data-mfa-uri></p>
+      </div>
+      <div class="mfa-code-row" data-mfa-code hidden>
+        <label class="field-label" for="mfa-input">6 位动态口令</label>
+        <input
+          id="mfa-input"
+          class="input"
+          data-mfa-input
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          maxlength="6"
+          placeholder="000000"
+        />
+        <button type="button" class="btn btn--primary btn--sm" data-mfa-verify>
+          验证并进入
+        </button>
+      </div>
+      <p class="error-text" data-mfa-error hidden></p>
+    </section>
+
+    <!-- ===== 主区（门禁通过后显示） ===== -->
+    <div data-main hidden>
+      <div class="toolbar">
+        <h2 class="section-title">数据源中心</h2>
+        <span class="meta" data-count-label></span>
+        <div class="toolbar-actions">
+          <button type="button" class="btn btn--secondary btn--sm" data-refresh>
+            刷新
+          </button>
+          <button type="button" class="btn btn--primary btn--sm" data-create-open>
+            登记新来源
+          </button>
+        </div>
+      </div>
+
+      <!-- 登记表单（默认收起） -->
+      <section class="card form-card" data-create-form hidden>
+        <h3 class="form-title">登记新来源</h3>
+        <p class="meta">
+          新来源一律落「已发现」状态；进入采集必须先完成审批（未审批不能启用）。
+        </p>
+        <div class="form-grid">
+          <label class="field-label">source_id（小写字母开头，下划线/数字）
+            <input class="input" data-c-source_id placeholder="official_stats_bj" />
+          </label>
+          <label class="field-label">名称
+            <input class="input" data-c-name placeholder="北京市统计局" />
+          </label>
+          <label class="field-label">类型
+            <select class="input" data-c-source_type>
+              <option value="api">api</option>
+              <option value="html">html</option>
+              <option value="manual">manual</option>
+            </select>
+          </label>
+          <label class="field-label">官网链接（可选）
+            <input class="input" data-c-official_url placeholder="https://…" />
+          </label>
+          <label class="field-label">数据范围说明（可选）
+            <input class="input" data-c-data_scope />
+          </label>
+          <label class="field-label">许可说明链接（可选）
+            <input class="input" data-c-license_note_url />
+          </label>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn btn--secondary btn--sm" data-create-cancel>
+            取消
+          </button>
+          <button type="button" class="btn btn--primary btn--sm" data-create-submit>
+            提交登记
+          </button>
+        </div>
+      </section>
+
+      <div class="table-tools">
+        <input
+          class="input"
+          data-search
+          placeholder="搜索名称 / source_id…"
+          aria-label="搜索来源"
+        />
+        <div class="chip-row" role="group" aria-label="许可状态筛选">
+          <button type="button" class="chip is-active" data-f-status="">全部</button>
+          <button type="button" class="chip" data-f-status="discovered">已发现</button>
+          <button type="button" class="chip" data-f-status="pending_review">待审核</button>
+          <button type="button" class="chip" data-f-status="approved">已批准</button>
+          <button type="button" class="chip" data-f-status="suspended">已停用</button>
+          <button type="button" class="chip" data-f-status="expired">已过期</button>
+        </div>
+      </div>
+
+      <div class="card table-card">
+        <table class="src-table">
+          <thead>
+            <tr>
+              <th scope="col">来源</th>
+              <th scope="col">类型</th>
+              <th scope="col">许可状态</th>
+              <th scope="col">到期</th>
+              <th scope="col">覆盖</th>
+              <th scope="col">健康</th>
+              <th scope="col">最近成功采集</th>
+              <th scope="col">更新时间</th>
+            </tr>
+          </thead>
+          <tbody data-tbody>
+            <tr data-loading-row>
+              <td colspan="8" class="table-loading">加载中…</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="meta table-foot">共 <span class="num" data-shown-count>0</span> 条 · 行点击查看覆盖、审批历史与启停操作</p>
+      </div>
+
+      <div class="card empty-card" data-empty hidden>
+        <p class="empty-title">暂无已登记的数据源</p>
+        <p class="meta">使用「登记新来源」创建；未审批来源不会进入公开数据与自动采集。</p>
+      </div>
+    </div>
+
+    <!-- ===== 详情抽屉 ===== -->
+    <aside class="drawer is-hidden" data-drawer role="dialog" aria-label="来源详情">
+      <div class="drawer-head">
+        <h2 class="drawer-title" data-d-name>—</h2>
+        <button type="button" class="icon-btn" data-drawer-close aria-label="关闭详情抽屉">
+          <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M5 5 L15 15 M15 5 L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+
+      <dl class="drawer-fields" data-d-fields></dl>
+
+      <h3 class="form-title">授权覆盖</h3>
+      <div data-d-coverage class="meta">—</div>
+
+      <h3 class="form-title">操作</h3>
+      <div class="btn-row" data-d-actions>
+        <button type="button" class="btn btn--primary btn--sm" data-approve-toggle hidden>审批启用</button>
+        <button type="button" class="btn btn--danger btn--sm" data-suspend-toggle hidden>停用</button>
+        <button type="button" class="btn btn--secondary btn--sm" data-edit-toggle>编辑元数据</button>
+      </div>
+      <p class="meta" data-d-hint>
+        审批必须附证据、字段、用途、频率与保存期限；停用后恢复须重新审批；全部操作写入审计。
+      </p>
+
+      <!-- 审批表单 -->
+      <form class="card form-card" data-approve-form hidden>
+        <h3 class="form-title">审批（写入 append-only 审批记录）</h3>
+        <div class="form-grid">
+          <label class="field-label">审批结论
+            <select class="input" data-a-status>
+              <option value="approved_licensed">授权已批准（approved_licensed）</option>
+              <option value="approved_open">公开已批准（approved_open）</option>
+            </select>
+          </label>
+          <label class="field-label">证据引用 evidence_ref（必填 ≥3 字）
+            <input class="input" data-a-evidence placeholder="授权邮件/页面存档链接或编号" />
+          </label>
+          <label class="field-label">允许字段（逗号分隔）
+            <input class="input" data-a-fields placeholder="community_ask_median_unit" />
+          </label>
+          <label class="field-label">允许用途（逗号分隔）
+            <input class="input" data-a-purposes placeholder="display" />
+          </label>
+          <label class="field-label">采集频率
+            <input class="input" data-a-frequency placeholder="daily" />
+          </label>
+          <label class="field-label">保存期限
+            <input class="input" data-a-retention placeholder="180d" />
+          </label>
+          <label class="field-label">授权到期日（留空=不设到期）
+            <input class="input" type="date" data-a-valid_until />
+          </label>
+          <label class="field-label">备注（可选）
+            <input class="input" data-a-note />
+          </label>
+        </div>
+        <label class="field-label">覆盖范围（每行一条：城市|层级|指标1,指标2）
+          <textarea class="input" data-a-coverage rows="3" placeholder="TEST-0001|community|community_ask_median_unit"></textarea>
+        </label>
+        <p class="error-text" data-a-error hidden></p>
+        <div class="btn-row">
+          <button type="button" class="btn btn--secondary btn--sm" data-approve-cancel>取消</button>
+          <button type="button" class="btn btn--primary btn--sm" data-approve-submit>提交审批</button>
+        </div>
+      </form>
+
+      <!-- 停用表单 -->
+      <form class="card form-card" data-suspend-form hidden>
+        <h3 class="form-title">停用来源</h3>
+        <label class="field-label">停用理由（必填，写入审计）
+          <input class="input" data-s-reason placeholder="许可到期未续 / 数据异常…" />
+        </label>
+        <p class="error-text" data-s-error hidden></p>
+        <div class="btn-row">
+          <button type="button" class="btn btn--secondary btn--sm" data-suspend-cancel>取消</button>
+          <button type="button" class="btn btn--danger btn--sm" data-suspend-submit>提交停用</button>
+        </div>
+      </form>
+
+      <!-- 元数据编辑表单 -->
+      <form class="card form-card" data-edit-form hidden>
+        <h3 class="form-title">编辑元数据（不含状态）</h3>
+        <div class="form-grid">
+          <label class="field-label">名称
+            <input class="input" data-e-name />
+          </label>
+          <label class="field-label">类型
+            <input class="input" data-e-source_type />
+          </label>
+          <label class="field-label">官网链接
+            <input class="input" data-e-official_url />
+          </label>
+          <label class="field-label">数据范围说明
+            <input class="input" data-e-data_scope />
+          </label>
+          <label class="field-label">许可说明链接
+            <input class="input" data-e-license_note_url />
+          </label>
+          <label class="field-label">展示范围说明
+            <input class="input" data-e-display_scope />
+          </label>
+        </div>
+        <p class="error-text" data-e-error hidden></p>
+        <div class="btn-row">
+          <button type="button" class="btn btn--secondary btn--sm" data-edit-cancel>取消</button>
+          <button type="button" class="btn btn--primary btn--sm" data-edit-submit>保存修改</button>
+        </div>
+      </form>
+
+      <h3 class="form-title">
+        审批历史
+        <span class="badge badge--neutral">append-only · 不可无痕修改</span>
+      </h3>
+      <ul class="hist-list" data-d-approvals>
+        <li class="meta">加载中…</li>
+      </ul>
+
+      <h3 class="form-title">操作审计</h3>
+      <ul class="hist-list" data-d-audit>
+        <li class="meta">加载中…</li>
+      </ul>
+    </aside>
+
+    <ConfirmDialog
+      id="src-confirm"
+      title="确认操作"
+      message="该操作将写入审批记录与审计日志，且不可无痕修改。"
+      confirmText="确认执行"
+      danger
+    />
+  </div>
+</AppShell>
+
+<script>
+  import {
+    ApiError,
+    adminAuditForSource,
+    adminMfaSetup,
+    adminMfaStatus,
+    adminMfaVerify,
+    adminSourceApprovals,
+    adminSourceApprove,
+    adminSourceCreate,
+    adminSourcePatch,
+    adminSourceSuspend,
+    adminSourcesList,
+    getMe,
+  } from "../../lib/api";
+  import type {
+    AdminSourceItem,
+    ApproveSourceInput,
+    ApprovalRecord,
+    AuditLogItem,
+  } from "../../lib/api";
+
+  /** 允许审批为 approved_* 的来源状态（与后端 APPROVE_FROM 一致；blocked 须先解除） */
+  const APPROVE_FROM = new Set([
+    "discovered",
+    "pending_review",
+    "manual_only",
+    "suspended",
+  ]);
+
+  const STATUS_META: Record<string, { label: string; cls: string }> = {
+    discovered: { label: "已发现", cls: "badge--neutral" },
+    pending_review: { label: "待审核", cls: "badge--warning" },
+    manual_only: { label: "仅人工", cls: "badge--warning" },
+    approved_open: { label: "公开已批准", cls: "badge--primary" },
+    approved_licensed: { label: "授权已批准", cls: "badge--primary" },
+    suspended: { label: "已停用", cls: "badge--danger" },
+    blocked: { label: "已封禁", cls: "badge--danger" },
+  };
+  const HEALTH_META: Record<string, { label: string; cls: string }> = {
+    ok: { label: "正常", cls: "badge--primary" },
+    degraded: { label: "降级", cls: "badge--warning" },
+    down: { label: "故障", cls: "badge--danger" },
+    unknown: { label: "未知", cls: "badge--neutral" },
+  };
+
+  const statusBadge = (status: string): string => {
+    const m = STATUS_META[status] ?? { label: status, cls: "badge--neutral" };
+    return `<span class="badge ${m.cls}">${m.label}</span>`;
+  };
+  const healthBadge = (health: string): string => {
+    const m = HEALTH_META[health] ?? { label: health, cls: "badge--neutral" };
+    return `<span class="badge ${m.cls}">${m.label}</span>`;
+  };
+  const esc = (s: string): string =>
+    s
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
+
+  const $ = <T extends HTMLElement>(sel: string): T | null =>
+    document.querySelector<T>(sel);
+  const show = (sel: string, on: boolean): void => {
+    const el = $<HTMLElement>(sel);
+    if (el) el.hidden = !on;
+  };
+  const setText = (sel: string, text: string): void => {
+    const el = $<HTMLElement>(sel);
+    if (el) el.textContent = text;
+  };
+  const setHtml = (sel: string, html: string): void => {
+    const el = $<HTMLElement>(sel);
+    if (el) el.innerHTML = html;
+  };
+  const val = (sel: string): string =>
+    ($<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(sel)?.value ??
+      "").trim();
+  const toast = (message: string): void => {
+    window.dispatchEvent(new CustomEvent("app:toast", { detail: { message } }));
+  };
+
+  let sources: AdminSourceItem[] = [];
+  let current: AdminSourceItem | null = null;
+  let filterStatus = "";
+  let search = "";
+  let pendingConfirm:
+    | { kind: "approve"; sourceId: string; payload: ApproveSourceInput }
+    | { kind: "suspend"; sourceId: string; reason: string }
+    | null = null;
+
+  // ---------------- MFA 门禁 ----------------
+
+  const mfaFail = (message: string): void => {
+    const el = $<HTMLElement>("[data-mfa-error]");
+    if (el) {
+      el.textContent = message;
+      el.hidden = false;
+    }
+  };
+
+  async function enterMain(): Promise<void> {
+    show("[data-mfa]", false);
+    show("[data-main]", true);
+    await refresh();
+  }
+
+  async function boot(): Promise<void> {
+    try {
+      await getMe(); // 401 已由 api.ts 统一跳转 /login?next=
+      const st = await adminMfaStatus();
+      if (st.session_verified) {
+        await enterMain();
+        return;
+      }
+      show("[data-mfa]", true);
+      if (st.confirmed) {
+        show("[data-mfa-code]", true);
+      } else {
+        show("[data-mfa-setup]", true);
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return; // 跳转中
+      mfaFail(err instanceof Error ? err.message : String(err));
+      show("[data-mfa]", true);
+    }
+  }
+
+  $<HTMLButtonElement>("[data-mfa-gen]")?.addEventListener("click", async () => {
+    try {
+      const setup = await adminMfaSetup();
+      setText("[data-mfa-secret]", setup.secret);
+      setText("[data-mfa-uri]", setup.otpauth_uri);
+      show("[data-mfa-secret-box]", true);
+      show("[data-mfa-code]", true);
+      show("[data-mfa-setup]", false);
+    } catch (err) {
+      mfaFail(err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  $<HTMLButtonElement>("[data-mfa-verify]")?.addEventListener(
+    "click",
+    async () => {
+      const code = val("[data-mfa-input]");
+      if (!/^\d{6}$/.test(code)) {
+        mfaFail("请输入 6 位数字动态口令");
+        return;
+      }
+      try {
+        await adminMfaVerify(code);
+        await enterMain();
+      } catch (err) {
+        mfaFail(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+
+  // ---------------- 列表渲染 ----------------
+
+  async function refresh(): Promise<void> {
+    try {
+      const res = await adminSourcesList();
+      sources = res.items;
+      renderTable();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return;
+      toast(`加载来源失败：${err instanceof Error ? err.message : String(err)}`);
+      setHtml("[data-tbody]", `<tr><td colspan="8" class="table-loading">加载失败，请点击刷新重试</td></tr>`);
+    }
+  }
+
+  function filtered(): AdminSourceItem[] {
+    return sources.filter((s) => {
+      if (
+        search &&
+        !`${s.name} ${s.source_id}`.toLowerCase().includes(search.toLowerCase())
+      )
+        return false;
+      if (filterStatus === "approved")
+        return s.status === "approved_open" || s.status === "approved_licensed";
+      if (filterStatus === "expired") return s.is_expired;
+      if (filterStatus) return s.status === filterStatus;
+      return true;
+    });
+  }
+
+  function renderTable(): void {
+    const items = filtered();
+    setText("[data-count-label]", `共 ${sources.length} 个来源`);
+    setText("[data-shown-count]", String(items.length));
+    show("[data-empty]", sources.length === 0);
+    const tbody = $<HTMLElement>("[data-tbody]");
+    if (!tbody) return;
+    if (items.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="8" class="table-loading">没有匹配的来源</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = items
+      .map((s) => {
+        const expiry = s.is_expired
+          ? `<span class="badge badge--warning">已过期</span>`
+          : s.valid_until
+            ? `<span class="num">${esc(s.valid_until)}</span>`
+            : `<span class="meta">不设到期</span>`;
+        return `<tr class="src-row" data-row-id="${esc(s.source_id)}" tabindex="0" role="button" aria-label="查看 ${esc(s.name)} 详情">
+          <td><span class="row-name">${esc(s.name)}</span><br /><span class="meta num">${esc(s.source_id)}</span></td>
+          <td>${esc(s.source_type)}</td>
+          <td>${statusBadge(s.status)}</td>
+          <td>${expiry}</td>
+          <td class="num">${s.coverage.length}</td>
+          <td>${healthBadge(s.health_status)}</td>
+          <td class="num">${s.last_success_at ? esc(s.last_success_at) : "—"}</td>
+          <td class="num">${esc(s.updated_at)}</td>
+        </tr>`;
+      })
+      .join("");
+  }
+
+  $<HTMLInputElement>("[data-search]")?.addEventListener("input", (e) => {
+    search = (e.target as HTMLInputElement).value;
+    renderTable();
+  });
+  document.addEventListener("click", (e) => {
+    const chip = (e.target as HTMLElement).closest<HTMLElement>("[data-f-status]");
+    if (chip) {
+      filterStatus = chip.dataset.fStatus ?? "";
+      document
+        .querySelectorAll<HTMLElement>("[data-f-status]")
+        .forEach((el) => el.classList.toggle("is-active", el === chip));
+      renderTable();
+    }
+    const soon = (e.target as HTMLElement).closest<HTMLElement>("[data-soon]");
+    if (soon) toast(`「${soon.dataset.soon ?? ""}」暂未开放，将在后续任务实现`);
+  });
+  $<HTMLButtonElement>("[data-refresh]")?.addEventListener("click", () => {
+    void refresh();
+  });
+
+  // ---------------- 详情抽屉 ----------------
+
+  function hideForms(): void {
+    show("[data-approve-form]", false);
+    show("[data-suspend-form]", false);
+    show("[data-edit-form]", false);
+  }
+
+  async function openDrawer(item: AdminSourceItem): Promise<void> {
+    current = item;
+    hideForms();
+    setText("[data-d-name]", item.name);
+    setHtml(
+      "[data-d-fields]",
+      [
+        ["source_id", `<span class="num">${esc(item.source_id)}</span>`],
+        ["许可状态", statusBadge(item.status)],
+        ["类型", esc(item.source_type)],
+        ["授权到期", item.is_expired ? `${esc(item.valid_until ?? "")}（已过期）` : esc(item.valid_until ?? "不设到期")],
+        ["官网", item.official_url ? `<a href="${esc(item.official_url)}" target="_blank" rel="noopener noreferrer">${esc(item.official_url)}</a>` : "—"],
+        ["数据范围", esc(item.data_scope ?? "—")],
+        ["许可说明", item.license_note_url ? `<a href="${esc(item.license_note_url)}" target="_blank" rel="noopener noreferrer">${esc(item.license_note_url)}</a>` : "—"],
+        ["展示范围", esc(item.display_scope ?? "—")],
+        ["最近核验", `<span class="num">${esc(item.last_verified_at ?? "—")}</span>`],
+        ["健康", `${healthBadge(item.health_status)} <span class="meta num">最近成功：${esc(item.last_success_at ?? "—")}</span>`],
+        ["审批次数", `<span class="num">${item.approval_count}</span>`],
+        ["更新时间", `<span class="num">${esc(item.updated_at)}</span>`],
+      ]
+        .map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`)
+        .join(""),
+    );
+    setHtml(
+      "[data-d-coverage]",
+      item.coverage.length === 0
+        ? "暂无授权覆盖行"
+        : item.coverage
+            .map(
+              (cov) =>
+                `<div class="cov-row"><span class="num">${esc(cov.city_code)}</span> · ${esc(cov.object_level)} · ${esc(cov.metric_codes_json)} · ${statusBadge(cov.authorization_status)}</div>`,
+            )
+            .join(""),
+    );
+
+    // 操作按钮可见性：未审批不能启用——仅可审批状态显示「审批启用」
+    const approveToggle = $<HTMLButtonElement>("[data-approve-toggle]");
+    const suspendToggle = $<HTMLButtonElement>("[data-suspend-toggle]");
+    if (approveToggle) {
+      approveToggle.hidden = !APPROVE_FROM.has(item.status);
+      approveToggle.textContent =
+        item.status === "suspended" ? "重新审批启用" : "审批启用";
+    }
+    if (suspendToggle) {
+      suspendToggle.hidden =
+        item.status !== "approved_open" && item.status !== "approved_licensed";
+    }
+    setText(
+      "[data-d-hint]",
+      item.status === "blocked"
+        ? "该来源已被封禁：须先按流程解除封禁并完成审批，才能进入采集。"
+        : "审批必须附证据、字段、用途、频率与保存期限；停用后恢复须重新审批；全部操作写入审计。",
+    );
+
+    // 编辑表单预填
+    const prefill: Record<string, string | null> = {
+      "[data-e-name]": item.name,
+      "[data-e-source_type]": item.source_type,
+      "[data-e-official_url]": item.official_url,
+      "[data-e-data_scope]": item.data_scope,
+      "[data-e-license_note_url]": item.license_note_url,
+      "[data-e-display_scope]": item.display_scope,
+    };
+    for (const [sel, v] of Object.entries(prefill)) {
+      const el = $<HTMLInputElement>(sel);
+      if (el) el.value = v ?? "";
+    }
+
+    $<HTMLElement>("[data-drawer]")?.classList.remove("is-hidden");
+
+    // 历史与审计（异步填充）
+    setHtml("[data-d-approvals]", `<li class="meta">加载中…</li>`);
+    setHtml("[data-d-audit]", `<li class="meta">加载中…</li>`);
+    try {
+      const [appr, audit] = await Promise.all([
+        adminSourceApprovals(item.source_id),
+        adminAuditForSource(),
+      ]);
+      renderApprovals(appr.items);
+      renderAudit(
+        audit.items.filter((a) => a.resource_id === item.source_id),
+      );
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return;
+      const msg = err instanceof Error ? err.message : String(err);
+      setHtml("[data-d-approvals]", `<li class="meta">加载失败：${esc(msg)}</li>`);
+      setHtml("[data-d-audit]", `<li class="meta">加载失败</li>`);
+    }
+  }
+
+  function renderApprovals(items: ApprovalRecord[]): void {
+    if (items.length === 0) {
+      setHtml("[data-d-approvals]", `<li class="meta">尚无审批记录</li>`);
+      return;
+    }
+    setHtml(
+      "[data-d-approvals]",
+      items
+        .map(
+          (r) => `<li class="hist-item">
+            <span class="num hist-time">${esc(r.created_at)}</span>
+            <div class="hist-body">
+              <div>${statusBadge(r.status_after)} <span class="meta">审批人 <span class="num">${esc(r.approver_user_id)}</span></span></div>
+              <div class="meta">证据：${esc(r.evidence_ref)}</div>
+              <div class="meta">字段：${esc(r.permitted_fields.join("、"))} · 用途：${esc(r.permitted_purposes.join("、"))}</div>
+              <div class="meta">频率：${esc(r.frequency)} · 保存期限：${esc(r.retention_period)} · 到期：${esc(r.valid_until ?? "不设")}${r.note ? ` · 备注：${esc(r.note)}` : ""}</div>
+            </div>
+          </li>`,
+        )
+        .join(""),
+    );
+  }
+
+  function renderAudit(items: AuditLogItem[]): void {
+    if (items.length === 0) {
+      setHtml("[data-d-audit]", `<li class="meta">尚无操作审计</li>`);
+      return;
+    }
+    setHtml(
+      "[data-d-audit]",
+      items
+        .map(
+          (a) => `<li class="hist-item">
+            <span class="num hist-time">${esc(a.created_at)}</span>
+            <div class="hist-body">
+              <div><span class="badge badge--neutral">${esc(a.action)}</span></div>
+              <div class="meta">${esc(a.reason ?? "")}</div>
+            </div>
+          </li>`,
+        )
+        .join(""),
+    );
+  }
+
+  // 行点击（委托，含键盘 Enter）
+  document.addEventListener("click", (e) => {
+    const row = (e.target as HTMLElement).closest<HTMLElement>("tr[data-row-id]");
+    if (!row) return;
+    const item = sources.find((s) => s.source_id === row.dataset.rowId);
+    if (item) void openDrawer(item);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const row = (e.target as HTMLElement).closest<HTMLElement>("tr[data-row-id]");
+    if (!row) return;
+    const item = sources.find((s) => s.source_id === row.dataset.rowId);
+    if (item) void openDrawer(item);
+  });
+  $<HTMLButtonElement>("[data-drawer-close]")?.addEventListener("click", () => {
+    $<HTMLElement>("[data-drawer]")?.classList.add("is-hidden");
+    current = null;
+  });
+
+  // 表单开关
+  $<HTMLButtonElement>("[data-approve-toggle]")?.addEventListener("click", () => {
+    hideForms();
+    show("[data-approve-form]", true);
+  });
+  $<HTMLButtonElement>("[data-approve-cancel]")?.addEventListener("click", () => {
+    show("[data-approve-form]", false);
+  });
+  $<HTMLButtonElement>("[data-suspend-toggle]")?.addEventListener("click", () => {
+    hideForms();
+    show("[data-suspend-form]", true);
+  });
+  $<HTMLButtonElement>("[data-suspend-cancel]")?.addEventListener("click", () => {
+    show("[data-suspend-form]", false);
+  });
+  $<HTMLButtonElement>("[data-edit-toggle]")?.addEventListener("click", () => {
+    hideForms();
+    show("[data-edit-form]", true);
+  });
+  $<HTMLButtonElement>("[data-edit-cancel]")?.addEventListener("click", () => {
+    show("[data-edit-form]", false);
+  });
+
+  const formError = (sel: string, message: string): void => {
+    const el = $<HTMLElement>(sel);
+    if (el) {
+      el.textContent = message;
+      el.hidden = false;
+    }
+  };
+  const clearError = (sel: string): void => {
+    const el = $<HTMLElement>(sel);
+    if (el) el.hidden = true;
+  };
+
+  const splitList = (s: string): string[] =>
+    s
+      .split(/[,，]/)
+      .map((v) => v.trim())
+      .filter(Boolean);
+
+  // ---------------- 审批（ConfirmDialog 二次确认后执行） ----------------
+
+  $<HTMLButtonElement>("[data-approve-submit]")?.addEventListener(
+    "click",
+    () => {
+      clearError("[data-a-error]");
+      if (!current) return;
+      const status = val("[data-a-status]") as
+        | "approved_open"
+        | "approved_licensed";
+      const evidence = val("[data-a-evidence]");
+      const fields = splitList(val("[data-a-fields]"));
+      const purposes = splitList(val("[data-a-purposes]"));
+      const frequency = val("[data-a-frequency]");
+      const retention = val("[data-a-retention]");
+      const validUntil = val("[data-a-valid_until]");
+      const note = val("[data-a-note]");
+      const coverage = val("[data-a-coverage]")
+        .split(/\n+/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+          const [city, level, metrics] = line.split("|");
+          return {
+            city_code: (city ?? "").trim(),
+            object_level: (level ?? "").trim(),
+            metric_codes: splitList(metrics ?? ""),
+          };
+        });
+
+      if (evidence.length < 3)
+        return formError("[data-a-error]", "证据引用至少 3 个字符");
+      if (fields.length === 0)
+        return formError("[data-a-error]", "允许字段至少 1 项（逗号分隔）");
+      if (purposes.length === 0)
+        return formError("[data-a-error]", "允许用途至少 1 项");
+      if (!frequency || !retention)
+        return formError("[data-a-error]", "采集频率与保存期限必填");
+      if (
+        coverage.length === 0 ||
+        coverage.some(
+          (c) => !c.city_code || !c.object_level || c.metric_codes.length === 0,
+        )
+      )
+        return formError(
+          "[data-a-error]",
+          "覆盖范围至少 1 行，格式：城市|层级|指标1,指标2",
+        );
+
+      pendingConfirm = {
+        kind: "approve",
+        sourceId: current.source_id,
+        payload: {
+          status,
+          evidence_ref: evidence,
+          permitted_fields: fields,
+          permitted_purposes: purposes,
+          frequency,
+          retention_period: retention,
+          coverage,
+          valid_until: validUntil || null,
+          ...(note ? { note } : {}),
+        },
+      };
+      openConfirm(`审批「${current.name}」为 ${status}？将写入不可修改的审批记录。`);
+    },
+  );
+
+  $<HTMLButtonElement>("[data-suspend-submit]")?.addEventListener(
+    "click",
+    () => {
+      clearError("[data-s-error]");
+      if (!current) return;
+      const reason = val("[data-s-reason]");
+      if (!reason) return formError("[data-s-error]", "停用理由必填");
+      pendingConfirm = {
+        kind: "suspend",
+        sourceId: current.source_id,
+        reason,
+      };
+      openConfirm(
+        `停用「${current.name}」？暂停后采集任务将被自动阻止，恢复须重新审批。`,
+      );
+    },
+  );
+
+  function openConfirm(message: string): void {
+    const msg = $<HTMLElement>('[data-dialog-backdrop="src-confirm"] .dialog-msg');
+    if (msg) msg.textContent = message;
+    const backdrop = $<HTMLElement>('[data-dialog-backdrop="src-confirm"]');
+    backdrop?.classList.remove("is-hidden");
+    backdrop?.querySelector<HTMLElement>("[data-dialog-confirm]")?.focus();
+  }
+
+  window.addEventListener("app:confirm", (event) => {
+    const detail = (event as CustomEvent<{ id: string }>).detail;
+    if (detail.id !== "src-confirm" || !pendingConfirm) return;
+    const action = pendingConfirm;
+    pendingConfirm = null;
+    void (async () => {
+      try {
+        if (action.kind === "approve") {
+          await adminSourceApprove(action.sourceId, action.payload);
+          toast(`已审批：${action.sourceId}`);
+        } else {
+          await adminSourceSuspend(action.sourceId, action.reason);
+          toast(`已停用：${action.sourceId}（采集任务将被自动阻止）`);
+        }
+        await refresh();
+        const updated = sources.find((s) => s.source_id === action.sourceId);
+        if (updated) await openDrawer(updated);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        toast(`操作失败：${err instanceof Error ? err.message : String(err)}`);
+      }
+    })();
+  });
+
+  // ---------------- 编辑元数据（无状态变更，直接保存） ----------------
+
+  $<HTMLButtonElement>("[data-edit-submit]")?.addEventListener("click", () => {
+    clearError("[data-e-error]");
+    if (!current) return;
+    const patch: Record<string, string | null> = {};
+    const name = val("[data-e-name]");
+    const type = val("[data-e-source_type]");
+    if (name && name !== current.name) patch.name = name;
+    if (type && type !== current.source_type) patch.source_type = type;
+    for (const key of [
+      "official_url",
+      "data_scope",
+      "license_note_url",
+      "display_scope",
+    ] as const) {
+      const v = val(`[data-e-${key}]`);
+      const old = (current[key] ?? "") as string;
+      if (v !== old) patch[key] = v || null;
+    }
+    if (Object.keys(patch).length === 0)
+      return formError("[data-e-error]", "没有需要保存的修改");
+    void (async () => {
+      try {
+        await adminSourcePatch(current!.source_id, patch);
+        toast(`元数据已保存：${current!.source_id}`);
+        await refresh();
+        const updated = sources.find((s) => s.source_id === current!.source_id);
+        if (updated) await openDrawer(updated);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        formError(
+          "[data-e-error]",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    })();
+  });
+
+  // ---------------- 登记新来源 ----------------
+
+  $<HTMLButtonElement>("[data-create-open]")?.addEventListener("click", () => {
+    show("[data-create-form]", true);
+  });
+  $<HTMLButtonElement>("[data-create-cancel]")?.addEventListener("click", () => {
+    show("[data-create-form]", false);
+  });
+  $<HTMLButtonElement>("[data-create-submit]")?.addEventListener(
+    "click",
+    () => {
+      const sourceId = val("[data-c-source_id]");
+      const name = val("[data-c-name]");
+      const type = val("[data-c-source_type]");
+      if (!/^[a-z][a-z0-9_]{2,63}$/.test(sourceId))
+        return toast("source_id 需为小写字母开头、3–64 位的下划线/数字命名");
+      if (!name) return toast("名称必填");
+      void (async () => {
+        try {
+          const optional: Record<string, string> = {};
+          for (const key of [
+            "official_url",
+            "data_scope",
+            "license_note_url",
+          ] as const) {
+            const v = val(`[data-c-${key}]`);
+            if (v) optional[key] = v;
+          }
+          await adminSourceCreate({
+            source_id: sourceId,
+            name,
+            source_type: type,
+            ...optional,
+          });
+          toast(`已登记（待审批）：${sourceId}`);
+          show("[data-create-form]", false);
+          await refresh();
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 401) return;
+          toast(`登记失败：${err instanceof Error ? err.message : String(err)}`);
+        }
+      })();
+    },
+  );
+
+  void boot();
+</script>
+
+<style>
+  .admin-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-top: var(--space-2);
+  }
+
+  .section-title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    margin: 0;
+  }
+
+  /* ===== MFA 面板 ===== */
+  /* 兜底：本页面多处用 hidden 属性切换显隐，而卡片类样式带 display:flex，
+     会覆盖浏览器 UA 样式表里的 [hidden]{display:none}，导致隐藏失效。 */
+  [hidden] {
+    display: none !important;
+  }
+
+  .mfa-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-2);
+  }
+
+  .secret-text {
+    margin: 0;
+    padding: 8px;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-input);
+    font-size: var(--text-sm);
+    word-break: break-all;
+    user-select: all;
+  }
+
+  .mfa-code-row {
+    display: flex;
+    align-items: end;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+
+  .mfa-code-row .input {
+    width: 140px;
+  }
+
+  .field-label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+  }
+
+  .error-text {
+    margin: 0;
+    color: var(--color-danger, #c0392b);
+    font-size: var(--text-sm);
+  }
+
+  /* ===== 工具条 / 表格 ===== */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+
+  .toolbar-actions {
+    margin-left: auto;
+    display: flex;
+    gap: var(--space-1);
+  }
+
+  .table-tools {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .table-tools .input {
+    max-width: 320px;
+  }
+
+  .chip-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .table-card {
+    overflow-x: auto;
+    padding: var(--space-1);
+  }
+
+  .src-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+  }
+
+  .src-table th {
+    text-align: left;
+    padding: 8px;
+    color: var(--color-muted);
+    font-weight: var(--weight-medium);
+    border-bottom: 1px solid var(--color-border);
+    white-space: nowrap;
+  }
+
+  .src-table td {
+    padding: 8px;
+    border-bottom: 1px solid var(--color-border);
+    vertical-align: top;
+  }
+
+  .src-row {
+    cursor: pointer;
+  }
+
+  .src-row:hover,
+  .src-row:focus-visible {
+    background: var(--color-bg);
+    outline: none;
+  }
+
+  .row-name {
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .table-loading,
+  .table-foot {
+    text-align: left;
+  }
+
+  .table-foot {
+    padding: 8px;
+  }
+
+  .empty-card {
+    text-align: center;
+    padding: var(--space-3);
+  }
+
+  .empty-title {
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  /* ===== 表单 ===== */
+  .form-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-1-5);
+  }
+
+  .form-title {
+    margin: 0;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--space-1);
+  }
+
+  .input {
+    min-height: var(--hit-target);
+    padding: 6px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-input);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-family: inherit;
+    font-size: var(--text-sm);
+  }
+
+  textarea.input {
+    min-height: 64px;
+    resize: vertical;
+  }
+
+  .btn-row {
+    display: flex;
+    gap: var(--space-1);
+    justify-content: flex-end;
+  }
+
+  /* ===== 抽屉 ===== */
+  .drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 85;
+    width: min(460px, 100%);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1-5);
+    padding: var(--space-2);
+    padding-top: calc(var(--space-2) + env(safe-area-inset-top, 0px));
+    overflow-y: auto;
+    background: var(--color-surface);
+    border-left: 1px solid var(--color-border);
+    box-shadow: var(--shadow-dialog);
+  }
+
+  .drawer.is-hidden {
+    display: none;
+  }
+
+  .drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  .drawer-title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    margin: 0;
+  }
+
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--hit-target);
+    height: var(--hit-target);
+    border: none;
+    border-radius: var(--radius-input);
+    background: transparent;
+    color: var(--color-muted);
+    cursor: pointer;
+  }
+
+  .drawer-fields {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 88px 1fr;
+    gap: 8px var(--space-1);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+
+  .drawer-fields dt {
+    color: var(--color-muted);
+  }
+
+  .drawer-fields dd {
+    margin: 0;
+    color: var(--color-text);
+    word-break: break-all;
+  }
+
+  .cov-row {
+    padding: 4px 0;
+    border-bottom: 1px dashed var(--color-border);
+    font-size: var(--text-sm);
+  }
+
+  .hist-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .hist-item {
+    display: flex;
+    gap: var(--space-1);
+    padding: 8px 0;
+    border-bottom: 1px solid var(--color-border);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+
+  .hist-item:last-child {
+    border-bottom: none;
+  }
+
+  .hist-time {
+    flex-shrink: 0;
+    color: var(--color-muted);
+    font-size: var(--text-xs);
+  }
+
+  .hist-body {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+</style>

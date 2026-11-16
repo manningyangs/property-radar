@@ -1,0 +1,132 @@
+---
+/**
+ * TASK-06C：后台左侧深色导航（PRD §8.1 十项）。
+ * 已建路由：数据运营总览 /admin、数据源中心 /admin/sources；其余标注「暂未开放」。
+ * 用法：<AdminSidebar slot="sidebar" active="数据源中心" />
+ * （slot 必须直接放在 AppShell 子节点上——Astro 仅静态收集直接子级的 slot）
+ */
+interface Props {
+  active: string;
+}
+const { active } = Astro.props;
+
+const items: Array<{ label: string; href?: string }> = [
+  { label: "数据运营总览", href: "/admin" },
+  { label: "用户管理" },
+  { label: "行政区与小区目录" },
+  { label: "数据源中心", href: "/admin/sources" },
+  { label: "数据覆盖地图" },
+  { label: "采集任务与日志" },
+  { label: "数据质量中心" },
+  { label: "事件与通知投递" },
+  { label: "管理员角色与审计" },
+  { label: "系统参数与费用用量" },
+];
+---
+
+<div class="side">
+  <div class="side-brand">
+    <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true">
+      <rect width="32" height="32" rx="7" fill="#ffffff" fill-opacity="0.12" />
+      <path
+        d="M6 22 L13 14 L18 18 L26 9"
+        stroke="#7FB0FF"
+        stroke-width="3"
+        fill="none"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+    <span>房价雷达 · 管理</span>
+  </div>
+  <nav class="side-nav" aria-label="后台导航">
+    {
+      items.map((item) =>
+        item.href ? (
+          <a
+            class:list={["side-link", { "is-active": item.label === active }]}
+            href={item.href}
+            aria-current={item.label === active ? "page" : undefined}
+          >
+            {item.label}
+          </a>
+        ) : (
+          <button type="button" class="side-link" data-soon={item.label}>
+            <span class="side-link-label">{item.label}</span>
+            <span class="badge badge--neutral">暂未开放</span>
+          </button>
+        ),
+      )
+    }
+  </nav>
+  <p class="side-foot">数据源中心 · 真实 API（需管理员 MFA）</p>
+</div>
+
+<style>
+  .side {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1-5);
+    min-height: 100%;
+    padding: var(--space-2) var(--space-1-5);
+    color: #e8eef7;
+  }
+
+  .side-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--text-base);
+    font-weight: var(--weight-bold);
+    color: #ffffff;
+    letter-spacing: 0.02em;
+  }
+
+  .side-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .side-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    min-height: var(--hit-target);
+    padding: 0 10px;
+    border: none;
+    border-radius: var(--radius-input);
+    background: transparent;
+    color: #c4d2e5;
+    font-size: var(--text-sm);
+    font-family: inherit;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .side-link:hover {
+    background: rgb(255 255 255 / 8%);
+    color: #ffffff;
+  }
+
+  .side-link.is-active {
+    background: var(--color-primary);
+    color: #ffffff;
+    font-weight: var(--weight-semibold);
+  }
+
+  .side-link-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .side-foot {
+    margin-top: auto;
+    font-size: var(--text-xs);
+    color: #8fa3bd;
+  }
+</style>

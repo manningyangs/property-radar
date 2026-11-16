@@ -14,12 +14,12 @@ import ConfirmDialog from "../components/ConfirmDialog.astro";
 const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
 const demo = demoEnabled ? (await import("../data/demo")).demoData : null;
 
-/** PRD 8.1 后台导航 10 项；仅“数据运营总览”已建路由 */
-const navItems: { label: string; active?: boolean }[] = [
+/** PRD 8.1 后台导航 10 项；“数据运营总览”“数据源中心”（TASK-06C）已建路由 */
+const navItems: { label: string; href?: string; active?: boolean }[] = [
   { label: "数据运营总览", active: true },
   { label: "用户管理" },
   { label: "行政区与小区目录" },
-  { label: "数据源中心" },
+  { label: "数据源中心", href: "/admin/sources" },
   { label: "数据覆盖地图" },
   { label: "采集任务与日志" },
   { label: "数据质量中心" },
@@ -66,6 +66,8 @@ const metrics = demo ? demo.admin.metrics : [];
           <a class="side-link is-active" href="/admin" aria-current="page">
             {item.label}
           </a>
+        ) : item.href ? (
+          <a class="side-link" href={item.href}>{item.label}</a>
         ) : (
           <button type="button" class="side-link" data-soon={item.label}>
             <span class="side-link-label">{item.label}</span>

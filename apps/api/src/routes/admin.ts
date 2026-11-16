@@ -111,10 +111,11 @@ async function approvalCount(
   return row?.n ?? 0;
 }
 
-/** 单来源完整响应：元数据 + 许可状态（含惰性过期）+ 覆盖 + 审批计数 */
+/** 单来源完整响应：元数据 + 许可状态（含惰性过期）+ 覆盖 + 审批计数 + 健康摘要（06C） */
 async function sourceItem(c: Context<AppEnv>, sourceId: string) {
   const source = await loadSource(c, sourceId);
   const license = await adminLicenseOf(c.env, sourceId);
+  const health = await healthBySources(c, [sourceId]);
   return {
     ...source,
     status: license.status,
@@ -124,6 +125,10 @@ async function sourceItem(c: Context<AppEnv>, sourceId: string) {
       license.valid_until < new Date().toISOString().slice(0, 10),
     coverage: await coverageOf(c, sourceId),
     approval_count: await approvalCount(c, sourceId),
+    ...(health.get(sourceId) ?? {
+      health_status: "unknown",
+      last_success_at: null,
+    }),
   };
 }
 
@@ -161,6 +166,7 @@ adminRoutes.get("/sources", async (c) => {
       .all<{ source_id: string; n: number }>(),
   ]);
 
+  const healthBy = await healthBySources(c, ids);
   const today = new Date().toISOString().slice(0, 10);
   const licBy = new Map(licRes.results.map((r) => [r.source_id, r]));
   const covBy = new Map<string, CoverageRow[]>();
@@ -192,6 +198,10 @@ adminRoutes.get("/sources", async (c) => {
       is_expired: validUntil !== null && validUntil < today,
       coverage: covBy.get(source.source_id) ?? [],
       approval_count: apprBy.get(source.source_id) ?? 0,
+      ...(healthBy.get(source.source_id) ?? {
+        health_status: "unknown",
+        last_success_at: null,
+      }),
     });
   }
   return c.json({ items, count: items.length });
@@ -441,6 +451,137 @@ adminRoutes.post("/sources/:id/suspend", async (c) => {
     previous_status: fromStatus,
   });
 });
+
+// ==== TASK-06C：审批历史 + 健康状态（spec R1/R2） ====
+
+/** source_approvals 原始行（JSON 列存字符串） */
+interface ApprovalRow {
+  approval_id: string;
+  source_id: string;
+  action: string;
+  approver_user_id: string;
+  evidence_ref: string;
+  permitted_fields_json: string;
+  permitted_purposes_json: string;
+  allowed_cities_json: string;
+  frequency: string;
+  retention_period: string;
+  valid_until: string | null;
+  status_after: string;
+  note: string | null;
+  created_at: string;
+}
+
+/** JSON 列解析（损坏数据兜底空数组，不影响历史展示） */
+function parseJsonArray(s: string): unknown[] {
+  try {
+    const v: unknown = JSON.parse(s);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
+// GET /admin/sources/:id/approvals —— 审批历史（append-only 全量展示，
+// 「不可无痕修改」的可视化证据；只读不写审计，与列表端点一致）
+adminRoutes.get("/sources/:id/approvals", async (c) => {
+  const sourceId = c.req.param("id");
+  await loadSource(c, sourceId);
+  const res = await c.env.DB_PRIVATE.prepare(
+    `SELECT approval_id, source_id, action, approver_user_id, evidence_ref,
+            permitted_fields_json, permitted_purposes_json, allowed_cities_json,
+            frequency, retention_period, valid_until, status_after, note, created_at
+     FROM source_approvals WHERE source_id = ?
+     ORDER BY created_at DESC, approval_id DESC LIMIT 100`,
+  )
+    .bind(sourceId)
+    .all<ApprovalRow>();
+  return c.json({
+    items: res.results.map((r) => ({
+      approval_id: r.approval_id,
+      source_id: r.source_id,
+      action: r.action,
+      approver_user_id: r.approver_user_id,
+      evidence_ref: r.evidence_ref,
+      permitted_fields: parseJsonArray(r.permitted_fields_json),
+      permitted_purposes: parseJsonArray(r.permitted_purposes_json),
+      allowed_cities: parseJsonArray(r.allowed_cities_json),
+      frequency: r.frequency,
+      retention_period: r.retention_period,
+      valid_until: r.valid_until,
+      status_after: r.status_after,
+      note: r.note,
+      created_at: r.created_at,
+    })),
+    count: res.results.length,
+  });
+});
+
+/** 每来源健康摘要（TASK-06C spec R2） */
+interface HealthInfo {
+  health_status: string;
+  last_success_at: string | null;
+}
+
+/**
+ * 批量健康摘要：最新 source_health_reports.status + 最近 succeeded ingest_jobs.finished_at。
+ * 同 checked_at 多行时按 report_id 字典序取最大（稳定）；无记录 → unknown/null。
+ */
+async function healthBySources(
+  c: Context<AppEnv>,
+  ids: string[],
+): Promise<Map<string, HealthInfo>> {
+  const by = new Map<string, HealthInfo>();
+  if (ids.length === 0) return by;
+  const marks = ids.map(() => "?").join(", ");
+  // source_health_reports 与 ingest_jobs 均属 Private 库（0006 迁移）
+  const [privReports, privJobs] = await Promise.all([
+    c.env.DB_PRIVATE.prepare(
+      `SELECT source_id, status, checked_at, report_id
+       FROM source_health_reports WHERE source_id IN (${marks})`,
+    )
+      .bind(...ids)
+      .all<{
+        source_id: string;
+        status: string;
+        checked_at: string;
+        report_id: string;
+      }>(),
+    c.env.DB_PRIVATE.prepare(
+      `SELECT source_id, MAX(finished_at) AS last_success_at
+       FROM ingest_jobs
+       WHERE status = 'succeeded' AND finished_at IS NOT NULL
+         AND source_id IN (${marks})
+       GROUP BY source_id`,
+    )
+      .bind(...ids)
+      .all<{ source_id: string; last_success_at: string | null }>(),
+  ]);
+  const latest = new Map<
+    string,
+    { status: string; checked_at: string; report_id: string }
+  >();
+  for (const r of privReports.results) {
+    const cur = latest.get(r.source_id);
+    if (
+      !cur ||
+      r.checked_at > cur.checked_at ||
+      (r.checked_at === cur.checked_at && r.report_id > cur.report_id)
+    ) {
+      latest.set(r.source_id, r);
+    }
+  }
+  const successBy = new Map(
+    privJobs.results.map((j) => [j.source_id, j.last_success_at]),
+  );
+  for (const id of ids) {
+    by.set(id, {
+      health_status: latest.get(id)?.status ?? "unknown",
+      last_success_at: successBy.get(id) ?? null,
+    });
+  }
+  return by;
+}
 
 // POST /admin/observations —— TASK-04D 手工补录单条观测（spec R2：admin 会话+角色门禁已由上方中间件保证；
 // body = source_id + 单条观测，复用 observations 模块落明细并重算该组快照；每条写 audit_logs 可追溯）

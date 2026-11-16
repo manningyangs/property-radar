@@ -572,3 +572,192 @@ export function searchCommunities(
   if (q) query.set("q", q);
   return request(`/public/communities?${query.toString()}`);
 }
+
+// ---------------- 管理后台：数据源中心（TASK-06C） ----------------
+
+export interface MfaStatus {
+  enrolled: boolean;
+  confirmed: boolean;
+  session_verified: boolean;
+}
+
+export interface MfaSetupResult {
+  secret: string;
+  otpauth_uri: string;
+}
+
+export interface AdminSourceCoverage {
+  source_id: string;
+  city_code: string;
+  object_level: string;
+  metric_codes_json: string;
+  authorization_status: string;
+  last_verified_at: string | null;
+}
+
+export interface AdminSourceItem {
+  source_id: string;
+  name: string;
+  source_type: string;
+  official_url: string | null;
+  data_scope: string | null;
+  license_note_url: string | null;
+  display_scope: string | null;
+  updated_at: string;
+  last_verified_at: string | null;
+  status: string;
+  valid_until: string | null;
+  is_expired: boolean;
+  coverage: AdminSourceCoverage[];
+  approval_count: number;
+  health_status: string;
+  last_success_at: string | null;
+}
+
+export interface ApprovalRecord {
+  approval_id: string;
+  source_id: string;
+  action: string;
+  approver_user_id: string;
+  evidence_ref: string;
+  permitted_fields: unknown[];
+  permitted_purposes: unknown[];
+  allowed_cities: unknown[];
+  frequency: string;
+  retention_period: string;
+  valid_until: string | null;
+  status_after: string;
+  note: string | null;
+  created_at: string;
+}
+
+export interface AuditLogItem {
+  audit_id: string;
+  actor_user_id: string;
+  actor_role: string | null;
+  action: string;
+  resource_type: string | null;
+  resource_id: string | null;
+  reason: string | null;
+  created_at: string;
+}
+
+export interface ApproveSourceInput {
+  status: "approved_open" | "approved_licensed";
+  evidence_ref: string;
+  permitted_fields: string[];
+  permitted_purposes: string[];
+  frequency: string;
+  retention_period: string;
+  coverage: Array<{
+    city_code: string;
+    object_level: string;
+    metric_codes: string[];
+  }>;
+  valid_until?: string | null;
+  note?: string;
+}
+
+/** GET /admin/mfa/status（401 由 request 统一跳登录） */
+export function adminMfaStatus(): Promise<MfaStatus> {
+  return request("/admin/mfa/status");
+}
+
+/** POST /admin/mfa/setup：生成 TOTP 密钥（已绑定已确认时 409） */
+export function adminMfaSetup(): Promise<MfaSetupResult> {
+  return request("/admin/mfa/setup", { method: "POST", body: "{}" });
+}
+
+/** POST /admin/mfa/verify：校验 TOTP 并标记当前会话 */
+export function adminMfaVerify(code: string): Promise<{ verified: boolean }> {
+  return request("/admin/mfa/verify", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
+
+/** GET /admin/sources：来源清单（含许可状态/覆盖/健康摘要） */
+export function adminSourcesList(): Promise<{
+  items: AdminSourceItem[];
+  count: number;
+}> {
+  return request("/admin/sources");
+}
+
+/** POST /admin/sources：登记（一律 discovered，状态只能走审批端点） */
+export function adminSourceCreate(input: {
+  source_id: string;
+  name: string;
+  source_type: string;
+  official_url?: string;
+  data_scope?: string;
+  license_note_url?: string;
+  display_scope?: string;
+}): Promise<{ source: AdminSourceItem }> {
+  return request("/admin/sources", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** PATCH /admin/sources/:id：仅元数据编辑（status 出现即 400） */
+export function adminSourcePatch(
+  id: string,
+  patch: Partial<
+    Pick<
+      AdminSourceItem,
+      | "name"
+      | "source_type"
+      | "official_url"
+      | "data_scope"
+      | "license_note_url"
+      | "display_scope"
+    >
+  >,
+): Promise<{ source: AdminSourceItem }> {
+  return request(`/admin/sources/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+/** POST /admin/sources/:id/approve：审批（非法状态转换 409——未审批不能启用的后端兜底） */
+export function adminSourceApprove(
+  id: string,
+  input: ApproveSourceInput,
+): Promise<{ source: AdminSourceItem }> {
+  return request(`/admin/sources/${encodeURIComponent(id)}/approve`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** POST /admin/sources/:id/suspend：停用（恢复须重新审批） */
+export function adminSourceSuspend(
+  id: string,
+  reason: string,
+): Promise<{ source: AdminSourceItem; previous_status: string }> {
+  return request(`/admin/sources/${encodeURIComponent(id)}/suspend`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+/** GET /admin/sources/:id/approvals：审批历史（append-only，不可无痕修改） */
+export function adminSourceApprovals(
+  id: string,
+): Promise<{ items: ApprovalRecord[]; count: number }> {
+  return request(`/admin/sources/${encodeURIComponent(id)}/approvals`);
+}
+
+/** GET /admin/audit?resource_type=data_source：来源操作审计（倒序） */
+export function adminAuditForSource(): Promise<{
+  items: AuditLogItem[];
+  count: number;
+}> {
+  const query = new URLSearchParams({
+    resource_type: "data_source",
+    limit: "100",
+  });
+  return request(`/admin/audit?${query.toString()}`);
+}
