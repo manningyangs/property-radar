@@ -77,7 +77,7 @@
 
 ## DoD
 
-- [ ] R1–R4 实现且四门禁全绿（typecheck/lint/test/build）
-- [ ] R5 后端新用例 + 回归全过；浏览器实测走查完成并截图
-- [ ] 中文 commit + push + CI success
-- [ ] 记忆更新 + `docs/TASK-06C-数据源管理后台验收报告.md`
+- [x] R1–R4 实现且四门禁全绿（typecheck/lint/test/build）
+- [x] R5 后端新用例 + 回归全过；浏览器实测走查完成并截图
+- [x] 中文 commit + push + CI success
+- [x] 记忆更新 + `docs/TASK-06C-数据源管理后台验收报告.md`
