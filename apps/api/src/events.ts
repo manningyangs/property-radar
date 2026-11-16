@@ -157,8 +157,10 @@ async function sendEventByEmail(
       evidence_json: string | null;
     }>();
   if (!row) throw new EmailProviderError("event_missing");
+  // TASK-06B 拍板2：冻结/注销用户不发事件邮件（纵深防御——新事件已被 rules-engine 拦下）
   const user = await env.DB_PRIVATE.prepare(
-    "SELECT email_normalized FROM users WHERE user_id = ?",
+    `SELECT email_normalized FROM users
+     WHERE user_id = ? AND status = 'active' AND deleted_at IS NULL`,
   )
     .bind(event.userId)
     .first<{ email_normalized: string }>();

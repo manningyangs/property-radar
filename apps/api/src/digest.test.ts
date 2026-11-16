@@ -207,6 +207,23 @@ describe("每日摘要聚合与正文（R2.1/R2.3）", () => {
     expect(result.candidates).toBe(1); // 仅开偏好用户
     expect(sentMails).toHaveLength(0);
   });
+
+  it("TASK-06B 拍板2：冻结用户不进摘要候选（解冻恢复）", async () => {
+    seedYesterdayEvents(); // 有事件，确保候选差异只来自 status
+    const active = await sendDailyDigest(ctx.env, NOW, {
+      sendMail: stubSender,
+    });
+    expect(active.candidates).toBe(1);
+
+    ctx.priv
+      .prepare("UPDATE users SET status = 'frozen' WHERE user_id = ?")
+      .run(USER);
+    const frozen = await sendDailyDigest(ctx.env, NOW, {
+      sendMail: stubSender,
+    });
+    expect(frozen.candidates).toBe(0);
+    expect(frozen.sent).toBe(0);
+  });
 });
 
 describe("每日摘要幂等、限额与重试（R2.2/R3.2/R3.3）", () => {

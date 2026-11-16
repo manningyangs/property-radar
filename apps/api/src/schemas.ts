@@ -431,3 +431,16 @@ export const mfaCodeSchema: JsonSchema = {
     code: { type: "string", pattern: "^[0-9]{6}$" },
   },
 };
+
+// ---------------- TASK-06B：系统总览和用户管理（PRD 任务行 1354–1360 / §8.3 / §10.5） ----------------
+
+/** 冻结/解冻：两态枚举 + 必填理由（进审计；reason 规范化 trim 先于校验，见路由） */
+export const patchUserStatusSchema: JsonSchema = {
+  type: "object",
+  required: ["status", "reason"],
+  additionalProperties: false,
+  properties: {
+    status: { type: "string", enum: ["active", "frozen"] },
+    reason: { type: "string", minLength: 8, maxLength: 500 },
+  },
+};

@@ -64,10 +64,12 @@ export async function sendDailyDigest(
   const providerName = (env.EMAIL_PROVIDER ?? "google_apps_script_mail").trim();
 
   const { results: candidates } = await env.DB_PRIVATE.prepare(
+    // TASK-06B 拍板2：冻结/注销用户不发每日摘要（解冻即恢复）
     `SELECT p.user_id, u.email_normalized
        FROM notification_preferences p
        JOIN users u ON u.user_id = p.user_id
-      WHERE p.digest_enabled = 1 AND p.email_enabled = 1`,
+      WHERE p.digest_enabled = 1 AND p.email_enabled = 1
+        AND u.status = 'active' AND u.deleted_at IS NULL`,
   ).all<CandidateRow>();
   result.candidates = candidates.length;
 

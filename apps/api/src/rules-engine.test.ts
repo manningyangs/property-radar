@@ -611,3 +611,41 @@ describe("投递占位与故障隔离（验收：邮件 provider 不可用时站
     expect(deliveries("email")).toHaveLength(0);
   });
 });
+
+// ---------------- TASK-06B 拍板2：冻结用户停新事件，数据保留 ----------------
+
+describe("TASK-06B 冻结政策：停新事件（解冻即恢复）", () => {
+  it("冻结用户规则不评估不产生事件；解冻后同数据恢复触发", async () => {
+    await seedWatch("w1", USER_A);
+    await seedRule("r1", "w1", USER_A);
+    seedSnapshot("2026-11-10", 32000);
+    seedSnapshot("2026-11-11", 29500); // 首次跌破目标价 30000
+
+    ctx.priv
+      .prepare("UPDATE users SET status = 'frozen' WHERE user_id = ?")
+      .run(USER_A);
+    const frozen = await evaluateRulesForObjects(
+      ctx.env,
+      [base()],
+      new Date("2026-11-13T00:00:00Z"),
+    );
+    expect(frozen).toEqual({
+      rules_evaluated: 0,
+      events_created: 0,
+      rearmed: 0,
+    });
+    expect(events()).toHaveLength(0);
+    expect(ruleState("r1").armed_state).toBe("armed");
+
+    ctx.priv
+      .prepare("UPDATE users SET status = 'active' WHERE user_id = ?")
+      .run(USER_A);
+    const active = await evaluateRulesForObjects(
+      ctx.env,
+      [base()],
+      new Date("2026-11-13T00:00:00Z"),
+    );
+    expect(active.events_created).toBe(1);
+    expect(events()).toHaveLength(1);
+  });
+});

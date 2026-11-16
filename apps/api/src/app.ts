@@ -8,6 +8,7 @@ import { authRoutes } from "./routes/auth";
 import { meRoutes } from "./routes/me";
 import { adminRoutes } from "./routes/admin";
 import { adminAuthRoutes } from "./routes/admin-auth"; // TASK-06A：bootstrap / mfa/* / audit
+import { adminUsersRoutes } from "./routes/admin-users"; // TASK-06B：overview / users
 import { internalRoutes } from "./routes/internal";
 import { publicRoutes } from "./routes/public";
 
@@ -102,6 +103,8 @@ export function createApp(): Hono<AppEnv> {
   app.route("/api/v1/admin", adminRoutes);
   // TASK-06A：须在 adminRoutes 之后挂载——其 use("*") 先行匹配，bootstrap/mfa 豁免规则生效
   app.route("/api/v1/admin", adminAuthRoutes);
+  // TASK-06B：系统总览与用户管理（requireAdminAccess 统一门禁，无豁免路径）
+  app.route("/api/v1/admin", adminUsersRoutes);
   app.route("/api/v1/internal", internalRoutes);
   app.route("/api/v1/auth", authRoutes);
 

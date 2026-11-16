@@ -341,7 +341,10 @@ export async function evaluateRulesForObjects(
             w.object_type, w.object_id, w.display_name_snapshot
        FROM watch_rules r
        JOIN watch_items w ON w.watch_id = r.watch_id
-      WHERE r.is_enabled = 1 AND w.status = 'active'`,
+       JOIN users u ON u.user_id = r.user_id
+      WHERE r.is_enabled = 1 AND w.status = 'active'
+        AND u.status = 'active' AND u.deleted_at IS NULL`,
+    // TASK-06B 拍板2：冻结/注销用户不产生新事件（既有数据保留，解冻即恢复）
   ).all<RuleRow>();
 
   for (const rule of rules.results) {
@@ -407,9 +410,12 @@ export async function evaluateSystemEvents(
   const today = shanghaiDate(now);
   const stats: SystemEvaluation = { delayed: 0, anomaly: 0, skipped: 0 };
   const watches = await env.DB_PRIVATE.prepare(
-    `SELECT watch_id, user_id, object_type, object_id, display_name_snapshot
-       FROM watch_items
-      WHERE status = 'active'`,
+    // TASK-06B 拍板2：冻结/注销用户不产生系统事件（延迟/异常提醒同样停发）
+    `SELECT w.watch_id, w.user_id, w.object_type, w.object_id, w.display_name_snapshot
+       FROM watch_items w
+       JOIN users u ON u.user_id = w.user_id
+      WHERE w.status = 'active'
+        AND u.status = 'active' AND u.deleted_at IS NULL`,
   ).all<WatchRow>();
   if (watches.results.length === 0) return stats;
 
