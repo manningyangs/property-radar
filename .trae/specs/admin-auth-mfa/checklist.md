@@ -48,10 +48,10 @@
 - [x] 四门禁全绿：`npm run typecheck` / `npm run lint` / `npm run test`（247）/ `npm run build`
       （偏差：原写 `pnpm ci`/`test:api`/`test:wrangler` 仓库无此命令，按 CI 同款执行）
 - [x] e2e `e2e/admin-auth.mjs`：wrangler dev 真机 13 断言两轮全过
-- [ ] 中文 commit + push + CI 绿（记录 run 编号）
+- [x] 中文 commit a5210a4 + push + CI 绿（run 43791823044 success #25）
 
 ## 记忆与文档
 
-- [ ] topics.md 06A 完成条目
-- [ ] project_memory.md 新教训
-- [ ] `docs/TASK-06A-后台认证与权限验收报告.md`（含偏差记录）
+- [x] topics.md 06A 完成条目
+- [x] project_memory.md 新教训（7 条）
+- [x] `docs/TASK-06A-后台认证与权限验收报告.md`（含 4 条偏差记录）

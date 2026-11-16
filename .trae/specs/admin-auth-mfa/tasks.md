@@ -58,6 +58,6 @@
 
 ## Task 7：收尾（§12.0）
 
-- [ ] SubTask 7.1：中文 commit + push + CI 绿（记录 run 编号）
-- [ ] SubTask 7.2：记忆更新（topics.md 06A 条目 / project_memory.md 新教训）
-- [ ] SubTask 7.3：`docs/TASK-06A-后台认证与权限验收报告.md`
+- [x] SubTask 7.1：中文 commit a5210a4 + push + CI 绿（run 43791823044 success，#25）
+- [x] SubTask 7.2：记忆更新（topics.md 06A 条目 / project_memory.md 新教训 7 条）
+- [x] SubTask 7.3：`docs/TASK-06A-后台认证与权限验收报告.md`（含 4 条偏差记录）
