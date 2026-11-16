@@ -1,0 +1,15 @@
+TASK-07C T8：Cloudflare Pages 部署核实（2026-11-16）
+====================================================
+
+命令：wrangler pages project list（cwd apps/api，非沙箱）
+输出：（空列表，无任何 Pages 项目）
+
+交叉核对：
+- .github/workflows 全目录检索 "pages" → 0 命中：CI 无 Pages 部署步骤；
+- 前端（apps/web，Astro）当前仅有本地 dev（localhost:4321）与构建产物，无生产域名。
+
+结论：
+- Pages 项目未创建、前端未部署生产 → 判定为【开放注册前硬性阻塞项】，
+  已写入验收报告"上线前检查清单"（需创建 Pages 项目、配置生产环境变量
+  API_BASE、绑定 Turnstile 生产站点密钥、接入 CI 部署步骤）。
+RESULT: 核实完成（阻塞项记录）

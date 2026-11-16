@@ -20,6 +20,9 @@ npm-debug.log*
 .cache/
 .screenshots/.tmp/
 
+# TASK-07C：数据库备份产物（含 PII，PII 不出本机、不进 git/CI）
+backups/
+
 # Python（collectors）
 __pycache__/
 *.pyc

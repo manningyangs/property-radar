@@ -1,0 +1,28 @@
+PRE-ELIGIBILITY 200 {"eligible":true,"source_id":"qd_stats_price_index","status":"approved_open","valid_until":"2027-11-12"}
+LOGIN user=45e12a2f… admin=dcfa1fdf…
+ADMIN-MFA verify OK（第 1 次）
+WATCH cmt_qd_02 已存在，跳过
+JOBS-START 202 {"job_id":"drill-07c-job-1794814753491","status":"started"}
+JOBS-FINISH 202 {"job_id":"drill-07c-job-1794814753491","status":"failed"}
+HEALTH-POST 202 {"report_id":"7a7be78b-01f1-45d0-83e1-d263726b3c59","status":"recorded"}
+QUOTA-INJECT 20 notify sent rows OK
+EVENTS-EVALUATE 202 {"status":"evaluated","delayed":0,"anomaly":1,"skipped":13}
+ASSERT job={"job_id":"drill-07c-job-1794814753491","status":"failed","error_code":"connector_error","note":"演练注入：模拟 connector 失败"}
+ASSERT health={"status":"down","detail":"演练注入：连续失败","checked_at":"2026-11-16 07:39:13"}
+ASSERT data_anomaly events=5 ids=evt_dd362331cf5a43db960fe5da,evt_6448689d5b0f4717b1b07660,evt_a155c49d4638474ca8832d60,evt_316fdf6fe466411f816b0c50,evt_4bc8b462d36c4398b244f31f
+ASSERT quota_deferred deliveries=6 blocked ledger=6
+ASSERT 站内事件保留 user events=6
+OTP-REQUEST 200（通知达限但 total<80、otp<60 → 应 200）
+ADMIN-JOBS 200 演练 job 可见=true
+ME-EVENTS 200 count=6
+ADMIN-SUSPEND 200 {"source":{"source_id":"qd_stats_price_index","name":"青岛市统计局 住宅价格指数","source_type":"government_statistics","official_url":"http://qdtj.qingdao.gov.cn/tongjisj/tjsj_42452/tjj_tjsj_jgzs/zzjgzs/","data_s
+SUSPEND-ELIGIBILITY 403 {"error_code":"source_not_approved","message":"数据源当前状态不允许自动采集（status=suspended）","request_id":"bffa6f0e-2d08-4816-988c-e99893f0ffc9"}
+SUSPEND-JOBS-START 403 {"error_code":"source_not_approved","message":"数据源当前状态不允许自动采集（status=suspended）","request_id":"7730cf33-904a-4409-9e39-fb0300f75e08"}（应 403）
+SUSPEND-INGEST-BATCH 403 {"error_code":"source_not_approved","message":"数据源当前状态不允许自动采集（status=suspended）","request_id":"cb4eb05c-ba57-4579-b736-88b85d9c3d72"}
+SUSPEND-HISTORY 200 条数=0 最新={}
+SUSPEND-AUDIT 200 本来源审计={"audit_id":"1a30ab5f-d601-444d-8499-74efb6d1f814","actor_user_id":"usr_e2e_admin_06c","actor_role":"admin","action":"source.suspend","resource_type":"data_source","resource_id":"qd_stats_price_index","reason":"演练：模拟投诉/授权撤销，一键停用","created_at":"2026-11-16 07:39
+ASSERT public: license={"status":"suspended","valid_until":"2027-11-12"} 非 suspended coverage 行=0（应 0）
+RESTORE local public source → approved_open（演练复原）
+CLEANUP 注入的 20 条 quota 行已删除（quota_blocked/deferred 留档）
+POST-RESTORE ELIGIBILITY 200 {"eligible":true,"source_id":"qd_stats_price_index","status":"approved_open","valid_until":"2027-11-12"}
+DRILL RESULT: PASS

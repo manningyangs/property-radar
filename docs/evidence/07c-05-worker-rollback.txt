@@ -1,0 +1,44 @@
+TASK-07C T7：生产 Worker 版本回滚真实演练（2026-11-16，UTC 时间线）
+================================================================
+
+环境说明：
+- Worker: property-radar-api（account manningyangs，workers.dev 域名）
+- 数据面限制：本机网络对 *.workers.dev 的 TLS 连接被重置（ECONNRESET，SNI 阻断特征），
+  而 api.cloudflare.com / challenges.cloudflare.com 正常。故本演练以 Cloudflare
+  控制面（wrangler deployments status）作为生效验证手段；数据面 curl /api/health
+  需在无阻断网络或 Cloudflare Dashboard Live 上补验（已列入上线前检查清单）。
+
+命令与输出摘录（wrangler 4.160.0，cwd apps/api）：
+
+[1] 基线 deployments status（演练前）
+    Created: 2026-11-13T08:44:37.142Z  Source: Secret Change
+    Version(s): (100%) 96c92dc9-c7af-4f1b-a947-4b5cf0ed7cba
+
+[2] deployments list 可见历史版本（节选）：
+    2f256f9c(11-12 08:41) → 3e6c8776(11-12 10:39) → 09ea462a(11-12 10:41)
+    → 7451d9b9(11-13 02:53) → 67224861(11-13 04:11) → 99ca3c18(11-13 04:12)
+    → b85a7c70(11-13 06:10) → 30459b73(11-13 08:44:05) → e305339d(11-13 08:44:33)
+    → 96c92dc9(11-13 08:44:37, 当前)
+
+[3] 回滚到上一版本：
+    wrangler rollback e305339d-dca0-478a-9c01-ea91e697b9d8 --message "TASK-07C 上线演练：Worker 版本回滚验证" --yes
+    → SUCCESS  Worker Version e305339d... has been deployed to 100% of traffic.
+    → Current Version ID: e305339d-dca0-478a-9c01-ea91e697b9d8
+
+[4] deployments status 验证（回滚生效）：
+    Created: 2026-11-16T07:41:43.940Z  Message: TASK-07C 上线演练：Worker 版本回滚验证
+    Version(s): (100%) e305339d-dca0-478a-9c01-ea91e697b9d8  ✓ 与目标一致
+
+[5] 切回基线版本：
+    wrangler rollback 96c92dc9-c7af-4f1b-a947-4b5cf0ed7cba --message "TASK-07C 上线演练：切回基线版本" --yes
+    → SUCCESS  Worker Version 96c92dc9... has been deployed to 100% of traffic.
+    → Current Version ID: 96c92dc9-c7af-4f1b-a947-4b5cf0ed7cba
+
+[6] deployments status 最终验证（已复原）：
+    Created: 2026-11-16T07:42:01.125Z  Message: TASK-07C 上线演练：切回基线版本
+    Version(s): (100%) 96c92dc9-c7af-4f1b-a947-4b5cf0ed7cba  ✓ 与演练前基线一致
+
+结论：
+- 回滚全程 <20s（07:41:43 → 07:42:01），两次切换均即时生效到 100% 流量；
+- 回滚不影响绑定资源（D1 数据不受版本切换影响，符合预期）；
+- 生产环境已完全复原至演练前版本。RESULT: PASS

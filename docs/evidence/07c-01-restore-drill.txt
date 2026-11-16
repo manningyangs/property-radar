@@ -1,0 +1,46 @@
+TASK-07C 恢复演练（只读，TEMP 导入）
+backup=E:\desktop\home_search\backups\2026-11-16T07-17-49-385Z exported_at=2026-11-16T07:18:08.678Z wrangler=4.160.0
+drill_at=2026-11-16T07:22:37.833Z
+
+[radar_public] integrity_check=ok OK
+[radar_public] cities: backup=1 remote=1 OK
+[radar_public] communities: backup=16 remote=16 OK
+[radar_public] data_sources_public: backup=2 remote=2 OK
+[radar_public] listing_price_events_public: backup=0 remote=0 OK
+[radar_public] price_observations: backup=37 remote=37 OK
+[radar_public] price_snapshots: backup=12 remote=12 OK
+[radar_public] regions: backup=9 remote=9 OK
+[radar_public] source_city_coverage: backup=3 remote=3 OK
+[radar_public] source_field_verifications: backup=15 remote=15 OK
+[radar_public] source_license_state: backup=2 remote=2 OK
+[radar_public] sample price_snapshots sha256=1e1b82da8307 vs 1e1b82da8307 MATCH
+
+[radar_private] integrity_check=ok OK
+[radar_private] admin_mfa_secrets: backup=0 remote=0 OK
+[radar_private] admin_mfa_sessions: backup=0 remote=0 OK
+[radar_private] admin_roles: backup=0 remote=0 OK
+[radar_private] alert_events: backup=21 remote=21 OK
+[radar_private] audit_logs: backup=0 remote=0 OK
+[radar_private] city_coverage_requests: backup=0 remote=0 OK
+[radar_private] email_otps: backup=0 remote=0 OK
+[radar_private] email_send_ledger: backup=2 remote=2 OK
+[radar_private] ingest_batches: backup=21 remote=21 OK
+[radar_private] ingest_jobs: backup=10 remote=10 OK
+[radar_private] ingest_nonces: backup=5 remote=5 OK
+[radar_private] notification_deliveries: backup=42 remote=42 OK
+[radar_private] notification_preferences: backup=1 remote=1 OK
+[radar_private] push_subscriptions: backup=0 remote=0 OK
+[radar_private] sessions: backup=3 remote=3 OK
+[radar_private] source_approvals: backup=2 remote=2 OK
+[radar_private] source_health_reports: backup=14 remote=14 OK
+[radar_private] user_cities: backup=0 remote=0 OK
+[radar_private] user_consents: backup=0 remote=0 OK
+[radar_private] users: backup=4 remote=4 OK
+[radar_private] watch_item_groups: backup=0 remote=0 OK
+[radar_private] watch_items: backup=4 remote=4 OK
+[radar_private] watch_rule_settings: backup=3 remote=3 OK
+[radar_private] watch_rules: backup=3 remote=3 OK
+[radar_private] sample users sha256=5b62f304b3ff vs 5b62f304b3ff MATCH
+[radar_private] sample audit_logs sha256=NULL vs NULL MATCH(empty)
+
+RESULT: PASS
