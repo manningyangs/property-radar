@@ -1,0 +1,379 @@
+---
+/**
+ * TASK-10：管理员角色与审计（PRD §8.1 第 9 项 / §10.5；spec R2）
+ * 真实 API 页面：GET /admin/audit（分页 + action/actor_user_id/resource_type 精确筛选）。
+ * 角色现状说明块（本页顶部）：管理员角色仅经 bootstrap 授予（需 BOOTSTRAP 码 + MFA），
+ *   在职管理员在用户管理页按「管理员」列查看；无角色列表/吊销 API——
+ *   偏差留痕：PRD §8.1 第 9 项「角色管理」待后续任务，本页为审计日志 + 角色现状说明。
+ * 门禁：AdminMfaGate + lib/admin-gate.ts（401 由 api.ts 统一跳登录；403 文案如实 toast）。
+ * 本页不读取 PUBLIC_DEMO_DATA 演示数据（真实 API 页，无数据即空态）。
+ */
+import AppShell from "../../layouts/AppShell.astro";
+import AdminSidebar from "../../components/AdminSidebar.astro";
+import AdminMfaGate from "../../components/AdminMfaGate.astro";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+---
+
+<AppShell
+  title="管理员角色与审计"
+  demo={demoEnabled}
+  showNav={false}
+  variant="admin"
+>
+  <AdminSidebar slot="sidebar" active="管理员角色与审计" />
+
+  <div class="page admin-page">
+    <AdminMfaGate />
+
+    <div data-main hidden>
+      <!-- 角色现状说明块（无角色管理 API，如实留痕） -->
+      <div class="card note-card">
+        <p class="field-label">管理员角色现状</p>
+        <p class="meta">
+          管理员角色仅经 bootstrap 端点授予（需配置 BOOTSTRAP 码并通过 MFA 二次验证）；
+          在职管理员可在「用户管理」页的「管理员」列查看。
+          当前后端无角色列表 / 吊销 API——PRD §8.1 第 9 项的「角色管理」为偏差留痕，待后续任务补齐；
+          本页提供审计日志查询（append-only，操作不可无痕抹除）。
+        </p>
+      </div>
+
+      <!-- 工具条：三个精确筛选 + 查询/重置 -->
+      <div class="toolbar">
+        <h2 class="section-title">审计日志</h2>
+        <span class="meta" data-count-label></span>
+        <div class="toolbar-actions">
+          <input
+            class="input"
+            data-f-action
+            type="search"
+            placeholder="action 精确匹配，如 admin.user.status"
+            aria-label="按动作筛选"
+          />
+          <input
+            class="input"
+            data-f-actor
+            type="search"
+            placeholder="actor_user_id 精确匹配"
+            aria-label="按操作者筛选"
+          />
+          <input
+            class="input"
+            data-f-res
+            type="search"
+            placeholder="resource_type 精确匹配，如 user"
+            aria-label="按资源类型筛选"
+          />
+          <button type="button" class="btn btn--primary btn--sm" data-query>
+            查询
+          </button>
+          <button type="button" class="btn btn--secondary btn--sm" data-reset>
+            重置
+          </button>
+        </div>
+      </div>
+      <p class="meta">
+        三项筛选均为精确匹配（最长 64 字符）；常见 action：admin.user.status、admin.user.monitoring_view、admin.source.approve、admin.source.suspend、admin.mfa.verify、admin.bootstrap；常见 resource_type：user、data_source、admin_role、admin_auth。
+      </p>
+
+      <div class="card table-card">
+        <div class="table-wrap">
+          <table class="ops-table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>操作者</th>
+                <th>角色</th>
+                <th>动作</th>
+                <th>资源类型</th>
+                <th>资源 ID</th>
+                <th>理由</th>
+              </tr>
+            </thead>
+            <tbody data-tbody>
+              <tr>
+                <td colspan="7" class="table-loading">加载中…</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pager">
+          <button type="button" class="btn btn--secondary btn--sm" data-prev>上一页</button>
+          <span class="meta" data-page-label></span>
+          <button type="button" class="btn btn--secondary btn--sm" data-next>下一页</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</AppShell>
+
+<script>
+  import {
+    adminAuditList,
+    ApiError,
+    type AuditItem,
+  } from "../../lib/api";
+  import { initAdminGate } from "../../lib/admin-gate";
+
+  const $ = <T extends Element>(sel: string): T | null =>
+    document.querySelector<T>(sel);
+
+  const esc = (text: string): string =>
+    text
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
+
+  const toast = (message: string): void => {
+    window.dispatchEvent(new CustomEvent("app:toast", { detail: { message } }));
+  };
+
+  // 后端 limit≤200，默认 50；本页取默认值
+  const PAGE_SIZE = 50;
+  let offset = 0;
+  let total = 0;
+  let items: AuditItem[] = [];
+
+  function setText(sel: string, text: string): void {
+    const el = $<HTMLElement>(sel);
+    if (el) el.textContent = text;
+  }
+
+  const dash = (v: string | null): string => (v === null || v === "" ? "—" : v);
+
+  async function refresh(): Promise<void> {
+    const tbody = $<HTMLElement>("[data-tbody]");
+    if (tbody)
+      tbody.innerHTML = `<tr><td colspan="7" class="table-loading">加载中…</td></tr>`;
+    try {
+      const res = await adminAuditList({
+        limit: PAGE_SIZE,
+        offset,
+        action: $<HTMLInputElement>("[data-f-action]")?.value.trim() ?? "",
+        actor_user_id:
+          $<HTMLInputElement>("[data-f-actor]")?.value.trim() ?? "",
+        resource_type: $<HTMLInputElement>("[data-f-res]")?.value.trim() ?? "",
+      });
+      items = res.items;
+      total = res.total;
+      setText("[data-count-label]", `共 ${total} 条审计，当前 ${items.length} 条`);
+      const page = Math.floor(offset / PAGE_SIZE) + 1;
+      const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      setText("[data-page-label]", `第 ${page} / ${pages} 页`);
+      const prev = $<HTMLButtonElement>("[data-prev]");
+      const next = $<HTMLButtonElement>("[data-next]");
+      if (prev) prev.disabled = offset <= 0;
+      if (next) next.disabled = offset + PAGE_SIZE >= total;
+      renderTable();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return;
+      toast(
+        `加载审计日志失败：${err instanceof Error ? err.message : String(err)}`,
+      );
+      if (tbody)
+        tbody.innerHTML =
+          `<tr><td colspan="7" class="table-loading">加载失败，请调整筛选重试</td></tr>`;
+    }
+  }
+
+  function renderTable(): void {
+    const tbody = $<HTMLElement>("[data-tbody]");
+    if (!tbody) return;
+    if (items.length === 0) {
+      tbody.innerHTML =
+        `<tr><td colspan="7" class="table-loading">暂无匹配审计记录（筛选为精确匹配，请核对完整值）</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = items
+      .map(
+        (a) => `
+        <tr>
+          <td data-label="时间" class="num">${esc(a.created_at)}</td>
+          <td data-label="操作者" class="num">${esc(a.actor_user_id)}</td>
+          <td data-label="角色">${esc(dash(a.actor_role))}</td>
+          <td data-label="动作"><span class="badge badge--neutral num">${esc(a.action)}</span></td>
+          <td data-label="资源类型">${esc(dash(a.resource_type))}</td>
+          <td data-label="资源 ID" class="num">${esc(dash(a.resource_id))}</td>
+          <td data-label="理由">${esc(dash(a.reason))}</td>
+        </tr>`,
+      )
+      .join("");
+  }
+
+  function runQuery(): void {
+    offset = 0;
+    void refresh();
+  }
+
+  $<HTMLButtonElement>("[data-query]")?.addEventListener("click", runQuery);
+  $<HTMLButtonElement>("[data-reset]")?.addEventListener("click", () => {
+    for (const sel of ["[data-f-action]", "[data-f-actor]", "[data-f-res]"]) {
+      const el = $<HTMLInputElement>(sel);
+      if (el) el.value = "";
+    }
+    runQuery();
+  });
+
+  // 输入框回车即查询（精确匹配场景无需防抖自动请求）
+  for (const sel of ["[data-f-action]", "[data-f-actor]", "[data-f-res]"]) {
+    $<HTMLInputElement>(sel)?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") runQuery();
+    });
+  }
+
+  $<HTMLButtonElement>("[data-prev]")?.addEventListener("click", () => {
+    offset = Math.max(0, offset - PAGE_SIZE);
+    void refresh();
+  });
+  $<HTMLButtonElement>("[data-next]")?.addEventListener("click", () => {
+    offset += PAGE_SIZE;
+    void refresh();
+  });
+
+  initAdminGate(() => refresh());
+</script>
+
+<!-- TASK-10：同 jobs/quality——动态 tr/td 不带 Astro scope 属性，样式独立成 global
+     （页面 bundle 隔离，不泄漏他页） -->
+<style is:global>
+  [hidden] {
+    display: none !important;
+  }
+
+  .admin-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-top: var(--space-2);
+  }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+
+  .toolbar-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+
+  .toolbar-actions .input {
+    width: 200px;
+  }
+
+  .section-title {
+    margin: 0;
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .table-card {
+    padding: var(--space-1-5);
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  .ops-table {
+    width: 100%;
+    min-width: 1040px;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+  }
+
+  .ops-table th {
+    text-align: left;
+    color: var(--color-muted);
+    font-weight: var(--weight-medium);
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--color-border);
+    white-space: nowrap;
+  }
+
+  .ops-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--color-border);
+    vertical-align: top;
+  }
+
+  .table-loading {
+    color: var(--color-muted);
+    text-align: center;
+  }
+
+  .pager {
+    display: flex;
+    align-items: center;
+    justify-content: end;
+    gap: var(--space-1);
+    padding-top: var(--space-1);
+  }
+
+  .note-card {
+    padding: var(--space-1-5);
+    background: var(--color-bg);
+  }
+
+  .field-label {
+    margin: 0 0 4px;
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+  }
+
+  .meta {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: var(--text-sm);
+  }
+
+  @media (max-width: 1024px) {
+    .ops-table {
+      min-width: 0;
+    }
+
+    .ops-table thead {
+      display: none;
+    }
+
+    .ops-table,
+    .ops-table tbody,
+    .ops-table tr,
+    .ops-table td {
+      display: block;
+      width: auto;
+    }
+
+    .ops-table tr {
+      margin-bottom: var(--space-1);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-card, 10px);
+      padding: 6px 10px;
+    }
+
+    .ops-table td {
+      border-bottom: none;
+      display: flex;
+      justify-content: space-between;
+      gap: var(--space-1);
+      white-space: normal;
+    }
+
+    .ops-table td::before {
+      content: attr(data-label);
+      color: var(--color-muted);
+      font-size: var(--text-xs);
+    }
+
+    .ops-table .table-loading {
+      text-align: left;
+    }
+  }
+</style>

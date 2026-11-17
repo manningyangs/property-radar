@@ -1,0 +1,839 @@
+---
+/**
+ * TASK-10：用户管理（PRD §8.1 第 2 项 / §8.3；spec R1）
+ * 真实 API 页面：GET /admin/users（脱敏列表 + 精确搜索 + 状态筛选 + 分页）、
+ *   PATCH /admin/users/:id/status（冻结/解冻，理由 8–500 写审计，ConfirmDialog 二次确认）、
+ *   GET /admin/users/:id/monitoring（监控明细抽屉，理由 ≥10 字符，服务端强制写审计）。
+ * 隐私红线：仅展示 email_masked，零明文邮箱；deletion_pending 行如实显示冷静期语义
+ *   （注销申请由用户自助发起、冷静期后自动清除，无管理员处理 API——
+ *   偏差留痕：PRD §8.3「注销申请处理」待后端补 API）。
+ * 门禁：AdminMfaGate + lib/admin-gate.ts（401 由 api.ts 统一跳登录；403 文案如实 toast）。
+ * 本页不读取 PUBLIC_DEMO_DATA 演示数据（真实 API 页，无数据即空态）。
+ */
+import AppShell from "../../layouts/AppShell.astro";
+import AdminSidebar from "../../components/AdminSidebar.astro";
+import AdminMfaGate from "../../components/AdminMfaGate.astro";
+import ConfirmDialog from "../../components/ConfirmDialog.astro";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+---
+
+<AppShell
+  title="用户管理"
+  demo={demoEnabled}
+  showNav={false}
+  variant="admin"
+>
+  <AdminSidebar slot="sidebar" active="用户管理" />
+
+  <div class="page admin-page">
+    <AdminMfaGate />
+
+    <div data-main hidden>
+      <!-- 隐私与审计边界说明条 -->
+      <div class="statusbar" role="status">
+        <span class="meta"
+          >隐私边界：本页仅展示脱敏邮箱；冻结/解冻与「查看监控」均写入审计日志，不可无痕抹除。</span
+        >
+      </div>
+
+      <!-- 工具条：精确搜索 / 状态筛选 chips -->
+      <div class="toolbar">
+        <h2 class="section-title">用户列表</h2>
+        <span class="meta" data-count-label></span>
+        <div class="toolbar-actions">
+          <div class="chip-row" role="group" aria-label="状态筛选">
+            <button type="button" class="chip is-active" data-status=""
+              >全部</button
+            >
+            <button type="button" class="chip" data-status="active"
+              >活跃</button
+            >
+            <button type="button" class="chip" data-status="frozen"
+              >已冻结</button
+            >
+          </div>
+          <input
+            class="input"
+            data-q
+            type="search"
+            placeholder="user_id 或完整邮箱（仅支持精确匹配）"
+            aria-label="搜索用户"
+          />
+        </div>
+      </div>
+
+      <!-- 冻结/解冻理由表单（行操作唤起，默认收起） -->
+      <section class="card form-card" data-status-form hidden>
+        <h3 class="form-title" data-sf-title>冻结用户</h3>
+        <p class="meta" data-sf-target></p>
+        <label class="field-label"
+          >理由（必填 8–500 字符，写入审计日志）
+          <textarea
+            class="input"
+            data-sf-reason
+            rows="3"
+            placeholder="如：批量发布虚假房源，经举报核实后冻结…"
+          ></textarea>
+        </label>
+        <p class="error-text" data-sf-error hidden></p>
+        <div class="btn-row">
+          <button type="button" class="btn btn--secondary btn--sm" data-sf-cancel>
+            取消
+          </button>
+          <button type="button" class="btn btn--danger btn--sm" data-sf-submit>
+            提交并二次确认
+          </button>
+        </div>
+      </section>
+
+      <div class="card table-card">
+        <div class="table-wrap">
+          <table class="ops-table">
+            <thead>
+              <tr>
+                <th>用户 ID</th>
+                <th>邮箱（脱敏）</th>
+                <th>状态</th>
+                <th>注册时间</th>
+                <th>最近登录</th>
+                <th>管理员</th>
+                <th>监控数</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody data-tbody>
+              <tr>
+                <td colspan="8" class="table-loading">加载中…</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pager">
+          <button type="button" class="btn btn--secondary btn--sm" data-prev>上一页</button>
+          <span class="meta" data-page-label></span>
+          <button type="button" class="btn btn--secondary btn--sm" data-next>下一页</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 监控明细抽屉（理由 ≥10 字符才可提交；成功后明示审计留痕） -->
+    <aside class="drawer is-hidden" data-drawer role="dialog" aria-label="用户监控明细">
+      <div class="drawer-head">
+        <h2 class="drawer-title">监控明细</h2>
+        <button type="button" class="icon-btn" data-drawer-close aria-label="关闭详情抽屉">
+          <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M5 5 L15 15 M15 5 L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+
+      <p class="meta" data-m-target></p>
+
+      <!-- 审计留痕提示（提交成功后显示在抽屉顶部） -->
+      <div class="card note-card" data-m-audit hidden>
+        <p class="field-label">审计留痕</p>
+        <p class="meta">本次查看已写入审计日志（action=admin.user.monitoring_view）。</p>
+      </div>
+
+      <label class="field-label"
+        >查看理由（必填 ≥10 字符，随查看行为写入审计）
+        <textarea
+          class="input"
+          data-m-reason
+          rows="2"
+          placeholder="如：核查用户投诉的重复告警规则配置…"
+        ></textarea>
+      </label>
+      <p class="error-text" data-m-error hidden></p>
+      <div class="btn-row">
+        <button type="button" class="btn btn--primary btn--sm" data-m-submit>
+          加载监控明细
+        </button>
+      </div>
+
+      <dl class="drawer-fields" data-m-fields></dl>
+      <div data-m-watches></div>
+    </aside>
+
+    <ConfirmDialog
+      id="user-status-confirm"
+      title="确认变更用户状态"
+      message="该操作将写入审计日志，不可无痕抹除。"
+      confirmText="确认执行"
+      danger
+    />
+  </div>
+</AppShell>
+
+<script>
+  import {
+    adminUserMonitoring,
+    adminUserPatchStatus,
+    adminUsersList,
+    ApiError,
+    type AdminUserItem,
+    type UserMonitoringResponse,
+  } from "../../lib/api";
+  import { initAdminGate } from "../../lib/admin-gate";
+
+  const $ = <T extends Element>(sel: string): T | null =>
+    document.querySelector<T>(sel);
+
+  const esc = (text: string): string =>
+    text
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
+
+  const toast = (message: string): void => {
+    window.dispatchEvent(new CustomEvent("app:toast", { detail: { message } }));
+  };
+
+  const PAGE_SIZE = 20;
+  let offset = 0;
+  let total = 0;
+  let statusFilter = "";
+  let users: AdminUserItem[] = [];
+
+  /** 状态徽章（deletion_pending 如实显示冷静期语义，筛选器不支持该值） */
+  const USER_STATUS_META: Record<string, { label: string; cls: string }> = {
+    active: { label: "活跃", cls: "badge--primary" },
+    frozen: { label: "已冻结", cls: "badge--danger" },
+    deletion_pending: { label: "注销冷静期", cls: "badge--warning" },
+  };
+  const statusBadge = (status: string): string => {
+    const m = USER_STATUS_META[status] ?? {
+      label: status,
+      cls: "badge--neutral",
+    };
+    return `<span class="badge ${m.cls}">${esc(m.label)}</span>`;
+  };
+  const WATCH_STATUS_META: Record<string, { label: string; cls: string }> = {
+    active: { label: "监控中", cls: "badge--primary" },
+    paused: { label: "已暂停", cls: "badge--warning" },
+    archived: { label: "已归档", cls: "badge--neutral" },
+  };
+  const watchBadge = (status: string): string => {
+    const m = WATCH_STATUS_META[status] ?? {
+      label: status,
+      cls: "badge--neutral",
+    };
+    return `<span class="badge ${m.cls}">${esc(m.label)}</span>`;
+  };
+
+  function setText(sel: string, text: string): void {
+    const el = $<HTMLElement>(sel);
+    if (el) el.textContent = text;
+  }
+  function setHtml(sel: string, html: string): void {
+    const el = $<HTMLElement>(sel);
+    if (el) el.innerHTML = html;
+  }
+  function show(sel: string, on: boolean): void {
+    const el = $<HTMLElement>(sel);
+    if (el) el.hidden = !on;
+  }
+  const dash = (v: string | number | null | undefined): string =>
+    v === null || v === undefined || v === "" ? "—" : String(v);
+
+  async function refresh(): Promise<void> {
+    const tbody = $<HTMLElement>("[data-tbody]");
+    if (tbody)
+      tbody.innerHTML = `<tr><td colspan="8" class="table-loading">加载中…</td></tr>`;
+    try {
+      const res = await adminUsersList({
+        q: $<HTMLInputElement>("[data-q]")?.value.trim() ?? "",
+        status: statusFilter,
+        limit: PAGE_SIZE,
+        offset,
+      });
+      users = res.items;
+      total = res.total;
+      setText(
+        "[data-count-label]",
+        `共 ${total} 个用户，当前 ${users.length} 条`,
+      );
+      const page = Math.floor(offset / PAGE_SIZE) + 1;
+      const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      setText("[data-page-label]", `第 ${page} / ${pages} 页`);
+      const prev = $<HTMLButtonElement>("[data-prev]");
+      const next = $<HTMLButtonElement>("[data-next]");
+      if (prev) prev.disabled = offset <= 0;
+      if (next) next.disabled = offset + PAGE_SIZE >= total;
+      renderTable();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return;
+      toast(`加载用户失败：${err instanceof Error ? err.message : String(err)}`);
+      if (tbody)
+        tbody.innerHTML =
+          `<tr><td colspan="8" class="table-loading">加载失败，请调整筛选重试</td></tr>`;
+    }
+  }
+
+  function renderTable(): void {
+    const tbody = $<HTMLElement>("[data-tbody]");
+    if (!tbody) return;
+    if (users.length === 0) {
+      tbody.innerHTML =
+        `<tr><td colspan="8" class="table-loading">暂无匹配用户（搜索仅支持 user_id 或完整邮箱精确匹配）</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = users
+      .map((u, i) => {
+        const verified = u.email_verified
+          ? `<span class="meta">✓ 已验证</span>`
+          : `<span class="meta">未验证</span>`;
+        // deletion_pending：徽章 + 冷静期语义说明（无管理员处理操作——偏差留痕）
+        const deletionNote =
+          u.status === "deletion_pending"
+            ? `<div class="meta">用户自助注销申请，冷静期后自动清除，无管理员处理操作（偏差留痕：PRD §8.3 注销申请处理待后端补 API）</div>`
+            : "";
+        const actions =
+          u.status === "deletion_pending"
+            ? `<span class="meta">—</span>`
+            : `<button type="button" class="btn btn--sm ${u.status === "frozen" ? "btn--primary" : "btn--danger"}" data-act="status" data-row="${i}">${u.status === "frozen" ? "解冻" : "冻结"}</button>
+               <button type="button" class="btn btn--secondary btn--sm" data-act="monitor" data-row="${i}">查看监控</button>`;
+        return `
+        <tr>
+          <td data-label="用户 ID" class="num">${esc(u.user_id)}</td>
+          <td data-label="邮箱（脱敏）" class="num">${esc(u.email_masked)}</td>
+          <td data-label="状态">${statusBadge(u.status)} ${verified}${deletionNote}</td>
+          <td data-label="注册时间" class="num">${esc(u.created_at)}</td>
+          <td data-label="最近登录" class="num">${esc(dash(u.last_login_at))}</td>
+          <td data-label="管理员">${u.is_admin ? `<span class="badge badge--neutral">管理员</span>` : `<span class="meta">—</span>`}</td>
+          <td data-label="监控数" class="num">${u.watch_count}</td>
+          <td data-label="操作" class="row-actions">${actions}</td>
+        </tr>`;
+      })
+      .join("");
+  }
+
+  // ---------------- 冻结/解冻（理由表单 + ConfirmDialog 二次确认） ----------------
+
+  let statusTarget: AdminUserItem | null = null;
+  let pendingConfirm: { userId: string; status: "active" | "frozen" } | null =
+    null;
+
+  function openStatusForm(user: AdminUserItem): void {
+    statusTarget = user;
+    const toFreeze = user.status !== "frozen";
+    setText("[data-sf-title]", toFreeze ? "冻结用户" : "解冻用户");
+    setText(
+      "[data-sf-target]",
+      `目标：${user.user_id}（${user.email_masked}）· 当前状态：${toFreeze ? "活跃" : "已冻结"}`,
+    );
+    const submit = $<HTMLButtonElement>("[data-sf-submit]");
+    if (submit) {
+      submit.className = `btn btn--sm ${toFreeze ? "btn--danger" : "btn--primary"}`;
+      submit.textContent = toFreeze ? "提交冻结并二次确认" : "提交解冻并二次确认";
+    }
+    const reason = $<HTMLTextAreaElement>("[data-sf-reason]");
+    if (reason) reason.value = "";
+    show("[data-sf-error]", false);
+    show("[data-status-form]", true);
+    reason?.focus();
+  }
+
+  function formError(sel: string, message: string): void {
+    const el = $<HTMLElement>(sel);
+    if (el) {
+      el.textContent = message;
+      el.hidden = false;
+    }
+  }
+
+  $<HTMLButtonElement>("[data-sf-cancel]")?.addEventListener("click", () => {
+    show("[data-status-form]", false);
+    statusTarget = null;
+  });
+
+  $<HTMLButtonElement>("[data-sf-submit]")?.addEventListener("click", () => {
+    if (!statusTarget) return;
+    const reason = ($<HTMLTextAreaElement>("[data-sf-reason]")?.value ?? "").trim();
+    // 前端校验 8–500（与后端 patchUserStatusSchema 一致，后端 400 兜底）
+    if (reason.length < 8 || reason.length > 500)
+      return formError("[data-sf-error]", "理由必须为 8–500 个字符");
+    const toFreeze = statusTarget.status !== "frozen";
+    pendingConfirm = {
+      userId: statusTarget.user_id,
+      status: toFreeze ? "frozen" : "active",
+    };
+    const msg = $<HTMLElement>(
+      '[data-dialog-backdrop="user-status-confirm"] .dialog-msg',
+    );
+    if (msg)
+      msg.textContent =
+        `确认${toFreeze ? "冻结" : "解冻"}用户 ${statusTarget.user_id}（${statusTarget.email_masked}）？` +
+        (toFreeze
+          ? "冻结将即时阻断登录与新建监控，既有数据保留，解冻即恢复。"
+          : "解冻后该用户即时恢复正常使用。") +
+        `理由：${reason}`;
+    const backdrop = $<HTMLElement>(
+      '[data-dialog-backdrop="user-status-confirm"]',
+    );
+    backdrop?.classList.remove("is-hidden");
+    backdrop?.querySelector<HTMLElement>("[data-dialog-confirm]")?.focus();
+  });
+
+  window.addEventListener("app:confirm", (event) => {
+    const detail = (event as CustomEvent<{ id: string }>).detail;
+    if (detail.id !== "user-status-confirm" || !pendingConfirm || !statusTarget)
+      return;
+    const { userId, status } = pendingConfirm;
+    const reason = ($<HTMLTextAreaElement>("[data-sf-reason]")?.value ?? "").trim();
+    pendingConfirm = null;
+    void (async () => {
+      try {
+        await adminUserPatchStatus(userId, { status, reason });
+        toast(
+          status === "frozen"
+            ? `已冻结 ${userId}（理由已写入审计日志）`
+            : `已解冻 ${userId}（理由已写入审计日志）`,
+        );
+        show("[data-status-form]", false);
+        statusTarget = null;
+        await refresh();
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        // 400 校验 / 409 冲突（不能冻结自己的账号、当前状态已是 X）文案如实 toast
+        toast(`操作失败：${err instanceof Error ? err.message : String(err)}`);
+      }
+    })();
+  });
+
+  // ---------------- 监控明细抽屉（理由 ≥10 本地校验；成功后明示审计留痕） ----------------
+
+  let monitorTarget: AdminUserItem | null = null;
+
+  function openMonitorDrawer(user: AdminUserItem): void {
+    monitorTarget = user;
+    setText(
+      "[data-m-target]",
+      `目标：${user.user_id}（${user.email_masked}）· 状态：${user.status === "active" ? "活跃" : user.status === "frozen" ? "已冻结" : user.status}`,
+    );
+    const reason = $<HTMLTextAreaElement>("[data-m-reason]");
+    if (reason) reason.value = "";
+    show("[data-m-error]", false);
+    show("[data-m-audit]", false);
+    setHtml("[data-m-fields]", "");
+    setHtml("[data-m-watches]", "");
+    $<HTMLElement>("[data-drawer]")?.classList.remove("is-hidden");
+    reason?.focus();
+  }
+
+  $<HTMLButtonElement>("[data-m-submit]")?.addEventListener("click", () => {
+    if (!monitorTarget) return;
+    const reason = ($<HTMLTextAreaElement>("[data-m-reason]")?.value ?? "").trim();
+    if (reason.length < 10)
+      return formError("[data-m-error]", "查看理由至少 10 个字符（服务端同样校验）");
+    if (reason.length > 500)
+      return formError("[data-m-error]", "查看理由最长 500 个字符");
+    const btn = $<HTMLButtonElement>("[data-m-submit]");
+    if (btn) btn.disabled = true;
+    void (async () => {
+      try {
+        const res = await adminUserMonitoring(monitorTarget!.user_id, reason);
+        renderMonitoring(res);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        formError(
+          "[data-m-error]",
+          err instanceof Error ? err.message : String(err),
+        );
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    })();
+  });
+
+  function ruleLine(r: UserMonitoringResponse["watches"][number]["rules"][number]): string {
+    const parts = [r.rule_type, r.metric_code];
+    if (r.price_type) parts.push(r.price_type);
+    if (r.target_value !== null)
+      parts.push(`目标 ${r.target_value} ${r.unit ?? r.currency}`);
+    if (r.window_days !== null) parts.push(`窗口 ${r.window_days} 天`);
+    if (r.threshold_pct !== null) parts.push(`阈值 ${r.threshold_pct}%`);
+    parts.push(r.is_enabled ? "已启用" : "已停用", `armed=${r.armed_state}`);
+    return parts.join(" · ");
+  }
+
+  function renderMonitoring(res: UserMonitoringResponse): void {
+    show("[data-m-audit]", true); // 明示：本次查看已写入审计日志
+    setHtml(
+      "[data-m-fields]",
+      [
+        ["用户 ID", `<span class="num">${esc(res.user.user_id)}</span>`],
+        ["邮箱（脱敏）", `<span class="num">${esc(res.user.email_masked)}</span>`],
+        ["状态", statusBadge(res.user.status)],
+        ["注册时间", `<span class="num">${esc(res.user.created_at)}</span>`],
+        [
+          "最近登录",
+          `<span class="num">${esc(dash(res.user.last_login_at))}</span>`,
+        ],
+        [
+          "规模",
+          `<span class="num">${res.counts.watches} 个监控 · ${res.counts.rules} 条规则</span>`,
+        ],
+      ]
+        .map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`)
+        .join(""),
+    );
+    if (res.watches.length === 0) {
+      setHtml("[data-m-watches]", `<p class="meta">该用户暂无监控对象</p>`);
+      return;
+    }
+    setHtml(
+      "[data-m-watches]",
+      res.watches
+        .map(
+          (w) => `
+        <div class="card watch-card">
+          <div class="watch-head">
+            <span class="watch-name">${esc(w.display_name_snapshot)}</span>
+            ${watchBadge(w.status)}
+          </div>
+          <p class="meta num">${esc(w.object_type)} · ${esc(w.object_id)} · 优先级 ${w.priority} · 创建于 ${esc(w.created_at)}</p>
+          ${
+            w.rules.length === 0
+              ? `<p class="meta">未配置规则</p>`
+              : `<ul class="rule-list">${w.rules
+                  .map(
+                    (r) =>
+                      `<li class="rule-item"><span class="num">${esc(ruleLine(r))}</span><br /><span class="meta num">${esc(r.rule_id)}</span></li>`,
+                  )
+                  .join("")}</ul>`
+          }
+        </div>`,
+        )
+        .join(""),
+    );
+  }
+
+  // ---------------- 事件委托：行操作按钮 / 抽屉关闭 / chips / 搜索 ----------------
+
+  document.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    if (target.closest("[data-drawer-close]")) {
+      $<HTMLElement>("[data-drawer]")?.classList.add("is-hidden");
+      monitorTarget = null;
+      return;
+    }
+    const chip = target.closest<HTMLButtonElement>("[data-status]");
+    if (chip) {
+      statusFilter = chip.dataset.status ?? "";
+      offset = 0;
+      document
+        .querySelectorAll("[data-status]")
+        .forEach((b) => b.classList.toggle("is-active", b === chip));
+      void refresh();
+      return;
+    }
+    const actBtn = target.closest<HTMLButtonElement>("button[data-act]");
+    if (actBtn) {
+      const user = users[Number(actBtn.dataset.row)];
+      if (!user) return;
+      if (actBtn.dataset.act === "status") openStatusForm(user);
+      else openMonitorDrawer(user);
+    }
+  });
+
+  $<HTMLButtonElement>("[data-prev]")?.addEventListener("click", () => {
+    offset = Math.max(0, offset - PAGE_SIZE);
+    void refresh();
+  });
+  $<HTMLButtonElement>("[data-next]")?.addEventListener("click", () => {
+    offset += PAGE_SIZE;
+    void refresh();
+  });
+
+  let searchTimer: number | undefined;
+  $<HTMLInputElement>("[data-q]")?.addEventListener("input", () => {
+    window.clearTimeout(searchTimer);
+    searchTimer = window.setTimeout(() => {
+      offset = 0;
+      void refresh();
+    }, 300);
+  });
+
+  initAdminGate(() => refresh());
+</script>
+
+<!-- TASK-10：同 jobs/quality——动态 tr/td 不带 Astro scope 属性，样式独立成 global
+     （页面 bundle 隔离，不泄漏他页） -->
+<style is:global>
+  [hidden] {
+    display: none !important;
+  }
+
+  .admin-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-top: var(--space-2);
+  }
+
+  .statusbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+
+  .toolbar-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+
+  .toolbar-actions .input {
+    width: 260px;
+  }
+
+  .chip-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .section-title {
+    margin: 0;
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .table-card {
+    padding: var(--space-1-5);
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  .ops-table {
+    width: 100%;
+    min-width: 980px;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+  }
+
+  .ops-table th {
+    text-align: left;
+    color: var(--color-muted);
+    font-weight: var(--weight-medium);
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--color-border);
+    white-space: nowrap;
+  }
+
+  .ops-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--color-border);
+    vertical-align: top;
+  }
+
+  .row-actions {
+    white-space: nowrap;
+  }
+
+  .row-actions .btn {
+    margin-right: 6px;
+  }
+
+  .table-loading {
+    color: var(--color-muted);
+    text-align: center;
+  }
+
+  .pager {
+    display: flex;
+    align-items: center;
+    justify-content: end;
+    gap: var(--space-1);
+    padding-top: var(--space-1);
+  }
+
+  /* 冻结/解冻理由表单 */
+  .form-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-1-5);
+  }
+
+  .form-title {
+    margin: 0;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .field-label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+  }
+
+  textarea.input {
+    min-height: 56px;
+    resize: vertical;
+    font-family: inherit;
+  }
+
+  /* 抽屉 */
+  .drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 85;
+    width: min(460px, 100%);
+    background: var(--color-surface, #fff);
+    border-left: 1px solid var(--color-border);
+    box-shadow: -8px 0 24px rgb(20 37 61 / 12%);
+    padding: var(--space-2);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1-5);
+  }
+
+  .drawer.is-hidden {
+    display: none;
+  }
+
+  .drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  .drawer-title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    margin: 0;
+  }
+
+  .drawer-fields {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 8px var(--space-1);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+
+  .drawer-fields dt {
+    color: var(--color-muted);
+  }
+
+  .drawer-fields dd {
+    margin: 0;
+    word-break: break-all;
+  }
+
+  .note-card {
+    padding: var(--space-1-5);
+    background: var(--color-bg);
+  }
+
+  /* 监控对象卡片 */
+  .watch-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: var(--space-1-5);
+  }
+
+  .watch-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  .watch-name {
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .rule-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .rule-item {
+    padding: 6px 0;
+    border-top: 1px dashed var(--color-border);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+
+  .meta {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: var(--text-sm);
+  }
+
+  @media (max-width: 1024px) {
+    .ops-table {
+      min-width: 0;
+    }
+
+    .ops-table thead {
+      display: none;
+    }
+
+    .ops-table,
+    .ops-table tbody,
+    .ops-table tr,
+    .ops-table td {
+      display: block;
+      width: auto;
+    }
+
+    .ops-table tr {
+      margin-bottom: var(--space-1);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-card, 10px);
+      padding: 6px 10px;
+    }
+
+    .ops-table td {
+      border-bottom: none;
+      display: flex;
+      justify-content: space-between;
+      gap: var(--space-1);
+      white-space: normal;
+    }
+
+    .ops-table td::before {
+      content: attr(data-label);
+      color: var(--color-muted);
+      font-size: var(--text-xs);
+    }
+
+    .ops-table .table-loading {
+      text-align: left;
+    }
+  }
+</style>

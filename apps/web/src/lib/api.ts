@@ -1140,3 +1140,133 @@ export function getPublicCommunities(params: {
   const qs = query.toString();
   return request(`/public/communities${qs ? `?${qs}` : ""}`);
 }
+
+// ---------------- TASK-10：用户管理与审计日志前端（PRD §8.3 / §8.1 第 9 项） ----------------
+
+/** GET /admin/users item：脱敏用户行（零明文邮箱；watch_count=活跃监控数） */
+export interface AdminUserItem {
+  user_id: string;
+  email_masked: string;
+  /** active / frozen / deletion_pending（注销冷静期，无管理员处理端点） */
+  status: string;
+  email_verified: boolean;
+  created_at: string;
+  last_login_at: string | null;
+  is_admin: boolean;
+  watch_count: number;
+}
+
+export interface UserListResponse {
+  items: AdminUserItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** GET /admin/audit item：审计日志行（append-only） */
+export interface AuditItem {
+  audit_id: string;
+  actor_user_id: string;
+  actor_role: string | null;
+  action: string;
+  resource_type: string | null;
+  resource_id: string | null;
+  reason: string | null;
+  created_at: string;
+}
+
+export interface AuditListResponse {
+  items: AuditItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** 监控明细抽屉的规则行（is_enabled 为 0/1 数值，与后端存储一致） */
+export interface MonitoringRuleDetail {
+  rule_id: string;
+  rule_type: string;
+  metric_code: string;
+  price_type: string | null;
+  target_value: number | null;
+  currency: string;
+  unit: string | null;
+  window_days: number | null;
+  threshold_pct: number | null;
+  is_enabled: number;
+  armed_state: string;
+}
+
+/** GET /admin/users/:id/monitoring 响应（服务端强制写审计 admin.user.monitoring_view） */
+export interface UserMonitoringResponse {
+  user: {
+    user_id: string;
+    email_masked: string;
+    status: string;
+    created_at: string;
+    last_login_at: string | null;
+  };
+  watches: Array<{
+    watch_id: string;
+    object_type: string;
+    object_id: string;
+    display_name_snapshot: string;
+    priority: number;
+    status: string;
+    created_at: string;
+    rules: MonitoringRuleDetail[];
+  }>;
+  counts: { watches: number; rules: number };
+}
+
+/** GET /admin/users：用户列表（q 仅精确匹配 user_id 或完整邮箱；status 仅 active/frozen） */
+export function adminUsersList(
+  query: { q?: string; status?: string; limit?: number; offset?: number } = {},
+): Promise<UserListResponse> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  }
+  const qs = params.toString();
+  return request(`/admin/users${qs ? `?${qs}` : ""}`);
+}
+
+/** PATCH /admin/users/:id/status：冻结/解冻（reason 8–500；409=冻结自己或状态相同） */
+export function adminUserPatchStatus(
+  id: string,
+  input: { status: "active" | "frozen"; reason: string },
+): Promise<{ user: AdminUserItem }> {
+  return request(`/admin/users/${encodeURIComponent(id)}/status`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+/** GET /admin/users/:id/monitoring：个人监控明细（reason 10–500 必填，查看行为写审计） */
+export function adminUserMonitoring(
+  id: string,
+  reason: string,
+): Promise<UserMonitoringResponse> {
+  const query = new URLSearchParams({ reason });
+  return request(
+    `/admin/users/${encodeURIComponent(id)}/monitoring?${query.toString()}`,
+  );
+}
+
+/** GET /admin/audit：审计日志分页查询（limit≤200 默认 50；三个筛选均精确匹配） */
+export function adminAuditList(
+  query: {
+    limit?: number;
+    offset?: number;
+    action?: string;
+    actor_user_id?: string;
+    resource_type?: string;
+  } = {},
+): Promise<AuditListResponse> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  }
+  const qs = params.toString();
+  return request(`/admin/audit${qs ? `?${qs}` : ""}`);
+}
