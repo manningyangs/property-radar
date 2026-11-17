@@ -1,0 +1,902 @@
+---
+/**
+ * TASK-11：行政区与小区目录（spec R1–R5；页面骨架/门禁/表格/chips/抽屉/toast 沿用 TASK-10 users.astro 模式）
+ * 纯前端只读页：仅消费无鉴权公开端点——
+ *   GET /public/cities（城市 chips）、GET /public/cities/:code/coverage（城市元信息卡 + 覆盖来源表）、
+ *   GET /public/regions?city_code=&q=（区域表，名称模糊走服务端 LIKE）、
+ *   GET /public/communities/coverage?city_code=（小区覆盖复查表，端点上限 200/城市）、
+ *   GET /public/communities?q=（小区搜索）、GET /public/communities/:id(+/prices)（详情抽屉）。
+ * 偏差留痕：目录编辑/审核/启停无管理员 API——本页为只读浏览与覆盖复查，管理操作待后续任务；
+ *   snapshot=null 如实显示「未覆盖」，绝不造数。
+ * 门禁：数据虽公开，入口仍限管理员（AppShell variant=admin + AdminMfaGate + initAdminGate，同 users.astro）。
+ * 本页不读取 PUBLIC_DEMO_DATA 演示数据（真实 API 页，无数据即空态）。
+ */
+import AppShell from "../../layouts/AppShell.astro";
+import AdminSidebar from "../../components/AdminSidebar.astro";
+import AdminMfaGate from "../../components/AdminMfaGate.astro";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+---
+
+<AppShell
+  title="行政区与小区目录"
+  demo={demoEnabled}
+  showNav={false}
+  variant="admin"
+>
+  <AdminSidebar slot="sidebar" active="行政区与小区目录" />
+
+  <div class="page admin-page" data-catalog-page>
+    <AdminMfaGate />
+
+    <div data-main hidden>
+      <!-- 页内说明块（诚实留痕：只读边界 + 数据上限） -->
+      <div class="card note-card">
+        <p class="field-label">页面边界（偏差留痕）</p>
+        <p class="meta">
+          目录编辑/审核/启停无管理员 API，本页为只读浏览与覆盖复查（偏差留痕，待后续任务）；
+          覆盖复查每城市上限 200 小区（与公开端点一致），无快照小区如实显示「未覆盖」，绝不造数。
+        </p>
+      </div>
+
+      <!-- R1 城市层：城市 chips -->
+      <div class="toolbar">
+        <h2 class="section-title">城市目录</h2>
+        <span class="meta" data-city-count></span>
+      </div>
+      <div class="chip-row" role="group" aria-label="城市选择" data-city-row>
+        <span class="meta">加载中…</span>
+      </div>
+
+      <!-- R1 城市元信息卡（选中城市后显示） -->
+      <section class="card meta-card" data-city-card hidden>
+        <dl class="kv-grid" data-city-fields></dl>
+      </section>
+
+      <!-- R1 覆盖来源表（该城市授权来源登记） -->
+      <div class="card table-card">
+        <h3 class="form-title">覆盖来源（授权登记）</h3>
+        <div class="table-wrap">
+          <table class="ops-table">
+            <thead>
+              <tr>
+                <th>来源 ID</th>
+                <th>对象层级</th>
+                <th>授权状态</th>
+                <th>最近核验</th>
+              </tr>
+            </thead>
+            <tbody data-source-tbody>
+              <tr>
+                <td colspan="4" class="table-loading">请先选择城市</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- R2 区域层：区域表格 + 名称模糊筛选（服务端 q） -->
+      <div class="toolbar">
+        <h2 class="section-title">行政区域</h2>
+        <span class="meta" data-region-count></span>
+        <div class="toolbar-actions">
+          <input
+            class="input"
+            data-region-q
+            type="search"
+            placeholder="按区域名称模糊筛选（服务端）"
+            aria-label="筛选区域"
+          />
+        </div>
+      </div>
+      <div class="card table-card">
+        <div class="table-wrap">
+          <table class="ops-table">
+            <thead>
+              <tr>
+                <th>区域 ID</th>
+                <th>名称</th>
+                <th>层级</th>
+                <th>区域代码</th>
+                <th>更新时间</th>
+              </tr>
+            </thead>
+            <tbody data-region-tbody>
+              <tr>
+                <td colspan="5" class="table-loading">请先选择城市</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- R3 小区覆盖复查表（核心）：chips 筛选 + 计数条 + 点击行开抽屉 -->
+      <div class="toolbar">
+        <h2 class="section-title">小区覆盖复查</h2>
+        <span class="meta" data-cov-count></span>
+        <div class="toolbar-actions">
+          <div class="chip-row" role="group" aria-label="覆盖状态筛选">
+            <button type="button" class="chip is-active" data-filter="">全部</button>
+            <button type="button" class="chip" data-filter="covered">已覆盖</button>
+            <button type="button" class="chip" data-filter="uncovered">未覆盖</button>
+            <button type="button" class="chip" data-filter="anomaly">质量异常</button>
+          </div>
+        </div>
+      </div>
+      <div class="card table-card">
+        <div class="table-wrap">
+          <table class="ops-table">
+            <thead>
+              <tr>
+                <th>小区名称</th>
+                <th>所在区域</th>
+                <th>覆盖状态</th>
+              </tr>
+            </thead>
+            <tbody data-cov-tbody>
+              <tr>
+                <td colspan="3" class="table-loading">请先选择城市</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- R4 小区搜索（服务端 LIKE）+ 点击行开抽屉 -->
+      <div class="toolbar">
+        <h2 class="section-title">小区搜索</h2>
+        <span class="meta" data-com-count></span>
+        <div class="toolbar-actions">
+          <input
+            class="input"
+            data-com-q
+            type="search"
+            placeholder="小区名称关键词（服务端模糊，点击行看详情）"
+            aria-label="搜索小区"
+          />
+        </div>
+      </div>
+      <div class="card table-card">
+        <div class="table-wrap">
+          <table class="ops-table">
+            <thead>
+              <tr>
+                <th>小区名称</th>
+                <th>城市</th>
+                <th>区域 ID</th>
+                <th>片区</th>
+                <th>建成年代</th>
+              </tr>
+            </thead>
+            <tbody data-com-tbody>
+              <tr>
+                <td colspan="5" class="table-loading">输入关键词后自动搜索（服务端 LIKE）</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- R4 小区详情抽屉：基础信息 + 最近快照列表 -->
+    <aside class="drawer is-hidden" data-drawer role="dialog" aria-label="小区详情">
+      <div class="drawer-head">
+        <h2 class="drawer-title" data-d-title>小区详情</h2>
+        <button type="button" class="icon-btn" data-drawer-close aria-label="关闭详情抽屉">
+          <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M5 5 L15 15 M15 5 L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <dl class="kv-grid" data-d-fields></dl>
+      <div data-d-prices></div>
+    </aside>
+  </div>
+</AppShell>
+
+<script>
+  import {
+    ApiError,
+    getCommunitiesCoverage,
+    getCommunity,
+    getCommunityPrices,
+    getPublicCities,
+    getPublicCityCoverage,
+    getPublicCommunities,
+    getPublicRegions,
+    type CommunityCoverageItem,
+    type CommunityDetail,
+    type CommunityItem,
+    type PriceSnapshot,
+    type PublicCity,
+  } from "../../lib/api";
+  import { initAdminGate } from "../../lib/admin-gate";
+
+  const $ = <T extends Element>(sel: string): T | null =>
+    document.querySelector<T>(sel);
+
+  const esc = (text: string): string =>
+    text
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
+
+  const toast = (message: string): void => {
+    window.dispatchEvent(new CustomEvent("app:toast", { detail: { message } }));
+  };
+
+  const errMsg = (err: unknown): string =>
+    err instanceof Error ? err.message : String(err);
+
+  function setText(sel: string, text: string): void {
+    const el = $<HTMLElement>(sel);
+    if (el) el.textContent = text;
+  }
+  function setHtml(sel: string, html: string): void {
+    const el = $<HTMLElement>(sel);
+    if (el) el.innerHTML = html;
+  }
+  function show(sel: string, on: boolean): void {
+    const el = $<HTMLElement>(sel);
+    if (el) el.hidden = !on;
+  }
+  const dash = (v: string | number | null | undefined): string =>
+    v === null || v === undefined || v === "" ? "—" : String(v);
+
+  /** 徽章通用口径：未知状态如实显示原值 + 中性徽章（同 users.astro） */
+  const badge = (
+    meta: Record<string, { label: string; cls: string }>,
+    status: string,
+  ): string => {
+    const m = meta[status] ?? { label: status, cls: "badge--neutral" };
+    return `<span class="badge ${m.cls}">${esc(m.label)}</span>`;
+  };
+
+  /** 城市数据状态（shared CITY_STATUSES：active/limited/requestable/suspended） */
+  const CITY_STATUS_META: Record<string, { label: string; cls: string }> = {
+    active: { label: "数据活跃", cls: "badge--primary" },
+    limited: { label: "覆盖受限", cls: "badge--warning" },
+    requestable: { label: "可申请覆盖", cls: "badge--neutral" },
+    suspended: { label: "已暂停", cls: "badge--danger" },
+  };
+  /** 快照质量状态（spec R3：valid ok / low_sample warn / outlier danger） */
+  const QUALITY_META: Record<string, { label: string; cls: string }> = {
+    valid: { label: "质量正常", cls: "badge--primary" },
+    low_sample: { label: "样本偏少", cls: "badge--warning" },
+    outlier: { label: "离群值", cls: "badge--danger" },
+  };
+
+  let cities: PublicCity[] = [];
+  let selectedCity = "";
+  /** 城市切换竞态令牌：仅最后一次选择的结果可落 UI */
+  let citySeq = 0;
+
+  let coverageItems: CommunityCoverageItem[] = [];
+  let covShown: CommunityCoverageItem[] = [];
+  let covFilter = "";
+
+  let searchShown: CommunityItem[] = [];
+
+  // ---------------- R1 城市层 ----------------
+
+  async function loadCities(): Promise<void> {
+    const row = $<HTMLElement>("[data-city-row]");
+    try {
+      const res = await getPublicCities({ limit: 50 });
+      cities = res.items;
+      if (row)
+        row.innerHTML = cities
+          .map(
+            (c) =>
+              `<button type="button" class="chip" data-city="${esc(c.city_code)}">${esc(c.name)}</button>`,
+          )
+          .join("");
+      setText("[data-city-count]", `共 ${cities.length} 个目录城市`);
+      const first = cities[0];
+      if (first) selectCity(first.city_code);
+      else setText("[data-city-count]", "目录暂无 active 城市（如实空态）");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return;
+      if (row) row.innerHTML = `<span class="meta">城市加载失败</span>`;
+      toast(`加载城市失败：${errMsg(err)}`);
+    }
+  }
+
+  function selectCity(code: string): void {
+    selectedCity = code;
+    document
+      .querySelectorAll<HTMLButtonElement>("[data-city]")
+      .forEach((b) => b.classList.toggle("is-active", (b.dataset.city ?? "") === code));
+    // 切城重置覆盖复查筛选
+    covFilter = "";
+    document
+      .querySelectorAll<HTMLButtonElement>("[data-filter]")
+      .forEach((b) =>
+        b.classList.toggle("is-active", (b.dataset.filter ?? "") === ""),
+      );
+    const seq = ++citySeq;
+    void loadCityMeta(code, seq);
+    void loadRegions(code, seq);
+    void loadCoverage(code, seq);
+  }
+
+  async function loadCityMeta(code: string, seq: number): Promise<void> {
+    const tbody = $<HTMLElement>("[data-source-tbody]");
+    if (tbody)
+      tbody.innerHTML = `<tr><td colspan="4" class="table-loading">加载中…</td></tr>`;
+    try {
+      const res = await getPublicCityCoverage(code);
+      if (seq !== citySeq) return;
+      const city = res.city;
+      show("[data-city-card]", true);
+      setHtml(
+        "[data-city-fields]",
+        (
+          [
+            ["城市", `${esc(city.name)}（${esc(city.city_code)}）`],
+            ["省份代码", `<span class="num">${esc(dash(city.province_code))}</span>`],
+            ["数据状态", badge(CITY_STATUS_META, city.status)],
+            [
+              "目录状态",
+              city.catalog_status === "active"
+                ? `<span class="badge badge--primary">目录启用</span>`
+                : `<span class="badge badge--neutral">${esc(city.catalog_status)}</span>`,
+            ],
+            ["覆盖层级", esc(dash(city.coverage_level))],
+            ["覆盖说明", esc(dash(city.coverage_note))],
+            [
+              "更新时间",
+              `<span class="num">${esc(dash(city.updated_at))}</span>`,
+            ],
+          ] as Array<[string, string]>
+        )
+          .map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`)
+          .join(""),
+      );
+      if (res.coverage.length === 0) {
+        if (tbody)
+          tbody.innerHTML = `<tr><td colspan="4" class="table-loading">该城市暂无授权覆盖来源登记（如实空态）</td></tr>`;
+        return;
+      }
+      if (tbody)
+        tbody.innerHTML = res.coverage
+          .map(
+            (s) => `
+        <tr>
+          <td data-label="来源 ID" class="num">${esc(s.source_id)}</td>
+          <td data-label="对象层级">${esc(s.object_level)}</td>
+          <td data-label="授权状态">${esc(s.authorization_status)}</td>
+          <td data-label="最近核验" class="num">${esc(dash(s.last_verified_at))}</td>
+        </tr>`,
+          )
+          .join("");
+    } catch (err) {
+      if (seq !== citySeq) return;
+      show("[data-city-card]", false);
+      if (tbody)
+        tbody.innerHTML = `<tr><td colspan="4" class="table-loading">覆盖来源加载失败，可切换城市重试</td></tr>`;
+      toast(`加载覆盖来源失败：${errMsg(err)}`);
+    }
+  }
+
+  // ---------------- R2 区域层 ----------------
+
+  async function loadRegions(code: string, seq: number): Promise<void> {
+    const tbody = $<HTMLElement>("[data-region-tbody]");
+    if (tbody)
+      tbody.innerHTML = `<tr><td colspan="5" class="table-loading">加载中…</td></tr>`;
+    const q = $<HTMLInputElement>("[data-region-q]")?.value.trim() ?? "";
+    try {
+      const res = await getPublicRegions({ city_code: code, q, limit: 50 });
+      if (seq !== citySeq) return;
+      setText(
+        "[data-region-count]",
+        q ? `筛选「${q}」命中 ${res.count} 个区域` : `共 ${res.count} 个区域`,
+      );
+      if (res.items.length === 0) {
+        if (tbody)
+          tbody.innerHTML = `<tr><td colspan="5" class="table-loading">暂无匹配区域（如实空态）</td></tr>`;
+        return;
+      }
+      if (tbody)
+        tbody.innerHTML = res.items
+          .map(
+            (r) => `
+        <tr>
+          <td data-label="区域 ID" class="num">${esc(r.region_id)}</td>
+          <td data-label="名称">${esc(r.name)}</td>
+          <td data-label="层级">${esc(r.level)}</td>
+          <td data-label="区域代码" class="num">${esc(dash(r.region_code))}</td>
+          <td data-label="更新时间" class="num">${esc(dash(r.updated_at))}</td>
+        </tr>`,
+          )
+          .join("");
+    } catch (err) {
+      if (seq !== citySeq) return;
+      if (tbody)
+        tbody.innerHTML = `<tr><td colspan="5" class="table-loading">区域加载失败，请调整筛选重试</td></tr>`;
+      toast(`加载区域失败：${errMsg(err)}`);
+    }
+  }
+
+  // ---------------- R3 小区覆盖复查表 ----------------
+
+  async function loadCoverage(code: string, seq: number): Promise<void> {
+    const tbody = $<HTMLElement>("[data-cov-tbody]");
+    if (tbody)
+      tbody.innerHTML = `<tr><td colspan="3" class="table-loading">加载中…</td></tr>`;
+    try {
+      const res = await getCommunitiesCoverage(code);
+      if (seq !== citySeq) return;
+      coverageItems = res.items;
+      renderCoverage();
+    } catch (err) {
+      if (seq !== citySeq) return;
+      if (tbody)
+        tbody.innerHTML = `<tr><td colspan="3" class="table-loading">覆盖复查加载失败，可切换城市重试</td></tr>`;
+      toast(`加载小区覆盖复查失败：${errMsg(err)}`);
+    }
+  }
+
+  /** chips 筛选（客户端：端点单次返回 ≤200 行，无需二次请求） */
+  function coveragePassesFilter(it: CommunityCoverageItem): boolean {
+    if (covFilter === "covered") return it.snapshot !== null;
+    if (covFilter === "uncovered") return it.snapshot === null;
+    if (covFilter === "anomaly")
+      return (
+        it.snapshot !== null &&
+        it.snapshot.quality_status !== null &&
+        it.snapshot.quality_status !== "valid"
+      );
+    return true;
+  }
+
+  /** 覆盖状态单元格：null 如实灰徽章；有快照带来源/样本/统计日期 + 质量徽章 */
+  function coverageCell(it: CommunityCoverageItem): string {
+    if (it.snapshot === null)
+      return `<span class="badge badge--neutral">未覆盖</span>`;
+    const s = it.snapshot;
+    const quality = s.quality_status
+      ? badge(QUALITY_META, s.quality_status)
+      : `<span class="badge badge--neutral">质量未知</span>`;
+    return `<span class="badge badge--primary">已覆盖</span> ${quality}
+      <div class="meta num">来源 ${esc(s.source_id)} · 样本 ${dash(s.sample_count)} · 统计日期 ${dash(s.stat_date)}</div>`;
+  }
+
+  function renderCoverage(): void {
+    const covered = coverageItems.filter((it) => it.snapshot !== null).length;
+    const capNote = coverageItems.length >= 200 ? "（端点上限 200/城市）" : "";
+    setText(
+      "[data-cov-count]",
+      `共 ${coverageItems.length} 个小区，已覆盖 ${covered}${capNote}`,
+    );
+    covShown = coverageItems.filter(coveragePassesFilter);
+    const tbody = $<HTMLElement>("[data-cov-tbody]");
+    if (!tbody) return;
+    if (covShown.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="3" class="table-loading">${
+        coverageItems.length === 0
+          ? "该城市暂无 active 小区（如实空态）"
+          : "当前筛选下无匹配小区"
+      }</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = covShown
+      .map(
+        (it, i) => `
+        <tr data-row="${i}" tabindex="0">
+          <td data-label="小区名称">${esc(it.name)}<div class="meta num">${esc(it.community_id)}</div></td>
+          <td data-label="所在区域">${esc(dash(it.district))}</td>
+          <td data-label="覆盖状态">${coverageCell(it)}</td>
+        </tr>`,
+      )
+      .join("");
+  }
+
+  // ---------------- R4 小区搜索 + 详情抽屉 ----------------
+
+  async function loadSearch(): Promise<void> {
+    const tbody = $<HTMLElement>("[data-com-tbody]");
+    const q = $<HTMLInputElement>("[data-com-q]")?.value.trim() ?? "";
+    if (!q) {
+      searchShown = [];
+      setText("[data-com-count]", "");
+      if (tbody)
+        tbody.innerHTML = `<tr><td colspan="5" class="table-loading">输入关键词后自动搜索（服务端 LIKE）</td></tr>`;
+      return;
+    }
+    if (tbody)
+      tbody.innerHTML = `<tr><td colspan="5" class="table-loading">搜索中…</td></tr>`;
+    try {
+      const res = await getPublicCommunities({ q, limit: 20 });
+      searchShown = res.items;
+      setText("[data-com-count]", `命中 ${res.count} 个（最多返回 20 条）`);
+      if (res.items.length === 0) {
+        if (tbody)
+          tbody.innerHTML = `<tr><td colspan="5" class="table-loading">无匹配小区（服务端 LIKE，如实空态）</td></tr>`;
+        return;
+      }
+      if (tbody)
+        tbody.innerHTML = res.items
+          .map(
+            (c, i) => `
+        <tr data-row="${i}" tabindex="0">
+          <td data-label="小区名称">${esc(c.name)}</td>
+          <td data-label="城市" class="num">${esc(c.city_code)}</td>
+          <td data-label="区域 ID" class="num">${esc(c.region_id)}</td>
+          <td data-label="片区">${esc(dash(c.block_name))}</td>
+          <td data-label="建成年代" class="num">${dash(c.built_year)}</td>
+        </tr>`,
+          )
+          .join("");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return;
+      if (tbody)
+        tbody.innerHTML = `<tr><td colspan="5" class="table-loading">搜索失败，请调整关键词重试</td></tr>`;
+      toast(`搜索小区失败：${errMsg(err)}`);
+    }
+  }
+
+  let drawerSeq = 0;
+
+  function openDrawer(communityId: string, name: string): void {
+    setText("[data-d-title]", `小区详情 · ${name}`);
+    setHtml("[data-d-fields]", `<p class="meta">加载中…</p>`);
+    setHtml("[data-d-prices]", "");
+    $<HTMLElement>("[data-drawer]")?.classList.remove("is-hidden");
+    const seq = ++drawerSeq;
+    void (async () => {
+      try {
+        const [detail, prices] = await Promise.all([
+          getCommunity(communityId),
+          getCommunityPrices(communityId, 10),
+        ]);
+        if (seq !== drawerSeq) return;
+        renderDrawer(detail.community, prices.items);
+      } catch (err) {
+        if (seq !== drawerSeq) return;
+        setHtml(
+          "[data-d-fields]",
+          `<p class="meta">详情加载失败：${esc(errMsg(err))}</p>`,
+        );
+        toast(`加载小区详情失败：${errMsg(err)}`);
+      }
+    })();
+  }
+
+  function renderDrawer(c: CommunityDetail, snaps: PriceSnapshot[]): void {
+    const fields: Array<[string, string]> = [
+      ["小区名称", esc(c.name)],
+      ["小区 ID", `<span class="num">${esc(c.community_id)}</span>`],
+      ["城市", `<span class="num">${esc(c.city_code)}</span>`],
+      ["区域 ID", `<span class="num">${esc(c.region_id)}</span>`],
+      ["大致地址", esc(dash(c.address_coarse))],
+      ["所属片区", esc(dash(c.block_name))],
+      ["建成年代", `<span class="num">${dash(c.built_year)}</span>`],
+      ["状态", esc(c.status)],
+      ["更新时间", `<span class="num">${esc(dash(c.updated_at))}</span>`],
+    ];
+    // 经纬度有则显示（目录数据稀疏，缺失即不占行）
+    if (c.longitude !== null && c.latitude !== null)
+      fields.push([
+        "经纬度",
+        `<span class="num">${c.longitude}, ${c.latitude}</span>`,
+      ]);
+    setHtml(
+      "[data-d-fields]",
+      fields.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join(""),
+    );
+    if (snaps.length === 0) {
+      setHtml(
+        "[data-d-prices]",
+        `<p class="meta">该小区暂无价格快照（如实空态，与覆盖复查「未覆盖」一致）</p>`,
+      );
+      return;
+    }
+    setHtml(
+      "[data-d-prices]",
+      `<p class="field-label">最近快照（最多 10 条，按统计日期倒序）</p>
+       <ul class="snap-list">${snaps
+         .map(
+           (s) => `
+        <li class="snap-item">
+          <span class="num">${esc(s.stat_date)} · ${esc(s.metric_code)}${s.price_type ? ` · ${esc(s.price_type)}` : ""} · 中位 ${dash(s.median)} 元/㎡ · 样本 ${dash(s.sample_count)}</span>
+          ${s.quality_status ? badge(QUALITY_META, s.quality_status) : ""}
+          <br /><span class="meta num">来源 ${esc(dash(s.source_id))} · 采集 ${dash(s.collected_at)}</span>
+        </li>`,
+         )
+         .join("")}</ul>`,
+    );
+  }
+
+  // ---------------- 事件委托：城市 chips / 复查 chips / 行点击 / 抽屉关闭 ----------------
+
+  document.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    if (target.closest("[data-drawer-close]")) {
+      $<HTMLElement>("[data-drawer]")?.classList.add("is-hidden");
+      return;
+    }
+    const cityBtn = target.closest<HTMLButtonElement>("[data-city]");
+    if (cityBtn) {
+      const code = cityBtn.dataset.city ?? "";
+      if (code && code !== selectedCity) selectCity(code);
+      return;
+    }
+    const filterBtn = target.closest<HTMLButtonElement>("[data-filter]");
+    if (filterBtn) {
+      covFilter = filterBtn.dataset.filter ?? "";
+      document
+        .querySelectorAll("[data-filter]")
+        .forEach((b) => b.classList.toggle("is-active", b === filterBtn));
+      renderCoverage();
+      return;
+    }
+    const covRow = target.closest<HTMLTableRowElement>(
+      "[data-cov-tbody] tr[data-row]",
+    );
+    if (covRow) {
+      const it = covShown[Number(covRow.dataset.row)];
+      if (it) openDrawer(it.community_id, it.name);
+      return;
+    }
+    const comRow = target.closest<HTMLTableRowElement>(
+      "[data-com-tbody] tr[data-row]",
+    );
+    if (comRow) {
+      const it = searchShown[Number(comRow.dataset.row)];
+      if (it) openDrawer(it.community_id, it.name);
+    }
+  });
+
+  let regionTimer: number | undefined;
+  $<HTMLInputElement>("[data-region-q]")?.addEventListener("input", () => {
+    window.clearTimeout(regionTimer);
+    regionTimer = window.setTimeout(() => {
+      if (selectedCity) void loadRegions(selectedCity, citySeq);
+    }, 300);
+  });
+
+  let comTimer: number | undefined;
+  $<HTMLInputElement>("[data-com-q]")?.addEventListener("input", () => {
+    window.clearTimeout(comTimer);
+    comTimer = window.setTimeout(() => void loadSearch(), 300);
+  });
+
+  // 门禁就绪后才加载数据（数据虽公开，入口仍限管理员）
+  initAdminGate(() => loadCities());
+</script>
+
+<!-- TASK-11：同 users/quality——动态 tr/td 不带 Astro scope 属性，样式独立成 global
+     （页面 bundle 隔离，不泄漏他页） -->
+<style is:global>
+  [hidden] {
+    display: none !important;
+  }
+
+  .admin-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-top: var(--space-2);
+  }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+
+  .toolbar-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+
+  .toolbar-actions .input {
+    width: 260px;
+  }
+
+  .chip-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .section-title {
+    margin: 0;
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .form-title {
+    margin: 0 0 var(--space-1);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .table-card {
+    padding: var(--space-1-5);
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  .ops-table {
+    width: 100%;
+    min-width: 720px;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+  }
+
+  .ops-table th {
+    text-align: left;
+    color: var(--color-muted);
+    font-weight: var(--weight-medium);
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--color-border);
+    white-space: nowrap;
+  }
+
+  .ops-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--color-border);
+    vertical-align: top;
+  }
+
+  .ops-table tr[data-row] {
+    cursor: pointer;
+  }
+
+  .ops-table tr[data-row]:hover td {
+    background: var(--color-bg);
+  }
+
+  .table-loading {
+    color: var(--color-muted);
+    text-align: center;
+  }
+
+  /* 城市元信息卡 / 抽屉字段表共用键值网格 */
+  .meta-card {
+    padding: var(--space-1-5);
+  }
+
+  .kv-grid {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    gap: 8px var(--space-1);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+
+  .kv-grid dt {
+    color: var(--color-muted);
+  }
+
+  .kv-grid dd {
+    margin: 0;
+    word-break: break-all;
+  }
+
+  /* 抽屉 */
+  .drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 85;
+    width: min(460px, 100%);
+    background: var(--color-surface, #fff);
+    border-left: 1px solid var(--color-border);
+    box-shadow: -8px 0 24px rgb(20 37 61 / 12%);
+    padding: var(--space-2);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1-5);
+  }
+
+  .drawer.is-hidden {
+    display: none;
+  }
+
+  .drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  .drawer-title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .note-card {
+    padding: var(--space-1-5);
+    background: var(--color-bg);
+  }
+
+  /* 抽屉内最近快照列表 */
+  .snap-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .snap-item {
+    padding: 6px 0;
+    border-top: 1px dashed var(--color-border);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+
+  .field-label {
+    margin: 0 0 4px;
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+  }
+
+  .meta {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: var(--text-sm);
+  }
+
+  @media (max-width: 1024px) {
+    .ops-table {
+      min-width: 0;
+    }
+
+    .ops-table thead {
+      display: none;
+    }
+
+    .ops-table,
+    .ops-table tbody,
+    .ops-table tr,
+    .ops-table td {
+      display: block;
+      width: auto;
+    }
+
+    .ops-table tr {
+      margin-bottom: var(--space-1);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-card, 10px);
+      padding: 6px 10px;
+    }
+
+    .ops-table td {
+      border-bottom: none;
+      display: flex;
+      justify-content: space-between;
+      gap: var(--space-1);
+      white-space: normal;
+    }
+
+    .ops-table td::before {
+      content: attr(data-label);
+      color: var(--color-muted);
+      font-size: var(--text-xs);
+    }
+
+    .ops-table .table-loading {
+      text-align: left;
+    }
+  }
+</style>

@@ -3,7 +3,8 @@
  * TASK-06C：后台左侧深色导航（PRD §8.1 十项）。
  * 已建路由：数据运营总览 /admin、数据源中心 /admin/sources、
  * 采集任务与日志 /admin/jobs、数据质量中心 /admin/quality（TASK-06D）、
- * 用户管理 /admin/users、管理员角色与审计 /admin/audit（TASK-10）；其余标注「暂未开放」。
+ * 用户管理 /admin/users、管理员角色与审计 /admin/audit（TASK-10）、
+ * 行政区与小区目录 /admin/catalog（TASK-11）；其余标注「暂未开放」。
  * 用法：<AdminSidebar slot="sidebar" active="数据源中心" />
  * （slot 必须直接放在 AppShell 子节点上——Astro 仅静态收集直接子级的 slot）
  * bare：外壳用 display:contents 让子项直接参与外层 .side 弹性布局
@@ -18,7 +19,7 @@ const { active, bare = false } = Astro.props;
 const items: Array<{ label: string; href?: string }> = [
   { label: "数据运营总览", href: "/admin" },
   { label: "用户管理", href: "/admin/users" },
-  { label: "行政区与小区目录" },
+  { label: "行政区与小区目录", href: "/admin/catalog" },
   { label: "数据源中心", href: "/admin/sources" },
   { label: "数据覆盖地图" },
   { label: "采集任务与日志", href: "/admin/jobs" },

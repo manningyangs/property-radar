@@ -1270,3 +1270,53 @@ export function adminAuditList(
   const qs = params.toString();
   return request(`/admin/audit${qs ? `?${qs}` : ""}`);
 }
+
+// ---------------- TASK-11：行政区与小区目录（后台只读页；均为无鉴权公开端点） ----------------
+
+/** 城市授权来源行（source_city_coverage：城市目录页覆盖来源表数据源） */
+export interface PublicCityCoverageSource {
+  source_id: string;
+  object_level: string;
+  metric_codes_json: string;
+  authorization_status: string;
+  last_verified_at: string | null;
+}
+
+export interface PublicCityCoverageResponse {
+  city: PublicCity;
+  coverage: PublicCityCoverageSource[];
+  updated_at?: string;
+}
+
+/** GET /public/cities/:code/coverage —— 强类型口径（与 getCityCoverage 同端点，404=城市不存在） */
+export function getPublicCityCoverage(
+  cityCode: string,
+): Promise<PublicCityCoverageResponse> {
+  return request(`/public/cities/${encodeURIComponent(cityCode)}/coverage`);
+}
+
+/** 区域行（目录页需 region_code/parent_id/updated_at，searchRegions 为添加监控流程旧形态） */
+export interface PublicRegionRow {
+  region_id: string;
+  parent_id: string | null;
+  city_code: string;
+  region_code: string | null;
+  name: string;
+  level: string;
+  is_active: number;
+  updated_at?: string;
+}
+
+/** GET /public/regions?city_code=&q=&limit= —— 区域列表（q 为服务端 LIKE 模糊，limit≤50） */
+export function getPublicRegions(params: {
+  city_code?: string;
+  q?: string;
+  limit?: number;
+}): Promise<{ items: PublicRegionRow[]; count: number }> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  }
+  const qs = query.toString();
+  return request(`/public/regions${qs ? `?${qs}` : ""}`);
+}
