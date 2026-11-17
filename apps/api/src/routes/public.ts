@@ -6,6 +6,19 @@ import { type AppEnv } from "../env";
 
 export const publicRoutes = new Hono<AppEnv>();
 
+// TASK-08B T5/T7（矩阵 14.4 P4）：公共只读端点缓存策略——
+// 响应不含用户数据、行情按日更新：短新鲜窗 60s + stale-while-revalidate 300s，
+// 降低回源成本（Workers/Cloudflare 均尊重该头）；错误响应不缓存。
+publicRoutes.use("*", async (c, next) => {
+  await next();
+  if (c.req.method === "GET" && c.res.status === 200) {
+    c.res.headers.set(
+      "Cache-Control",
+      "public, max-age=60, stale-while-revalidate=300",
+    );
+  }
+});
+
 // TASK-05C：浏览器推送 VAPID 公钥（只回非机密公钥；私钥只在 Worker Secrets）。
 // enabled=false → 前端提示「推送暂不可用」；未开启页面的访客也可安全调用（无用户数据）。
 publicRoutes.get("/push-config", (c) => {

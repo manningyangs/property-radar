@@ -14,6 +14,7 @@
 | Worker 版本回滚 | 生产真实回滚 + 切回 | PASS | `07c-05-worker-rollback.txt` |
 | Pages 前端部署 | 生产只读核实 | 未部署（阻塞项） | `07c-06-pages-check.txt` |
 | Pages 前端部署（补） | TASK-08A 实际部署 + 数据面实测 | PASS：`property-radar-web.pages.dev` | `08a-01-production-launch.txt` |
+| §14 测试矩阵 32 项 | TASK-08B 全量实测（本地 e2e + 生产可达） | PASS 31 / PASS-待部署复验 1（P4） | `TASK-08B-测试矩阵与上线验收报告.md` + `evidence/08b-*` |
 
 ## 1. 数据库备份 SOP（手动，PII 红线）
 
@@ -132,13 +133,14 @@ POST /admin/sources/{id}/suspend   body: { "reason": "必填：投诉/撤销依�
 
 ## 7. 开放注册前硬性检查清单（上线门槛，逐项签字）
 
-1. ☐ **生产创建管理员账号**：本次演练发现生产 `admin_roles` 为 0 行——需 `/admin/bootstrap` 创建 + MFA 绑定，并立即撤销 bootstrap code。
+1. ☑ **生产创建管理员账号**（TASK-08D）：`ya***@126.com` 已建且 MFA enrolled+confirmed（生产 `/admin/mfa/status` 实测，08B-T6 复核）。**残留**：bootstrap code 撤销状态待确认。
 2. ☑ **Pages 前端部署**（2026-11-16 TASK-08A）：项目 `property-radar-web` 已部署；`PUBLIC_API_BASE` 构建期注入生产 Worker；CI `deploy-web.yml` 已加。**残留**：GitHub 仓库 secrets 需用户配置 `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`（配置前 CI 部署 job 自动跳过，发布走本地 wrangler）。
 3. ☐ **占位邮箱替换**：`support@` 等占位邮箱换成真实可达邮箱（07B 遗留）。
-4. ☐ **Turnstile 生产密钥**：`.dev.vars` 当前为 Cloudflare 测试密钥（恒过），生产必须换正式 sitekey/secret 并挂到 Worker secrets。
-5. ☑ **workers.dev 数据面验证**（2026-11-16 TASK-08A）：`/api/health` 200、Pages 200、CORS 正确回显 `property-radar-web.pages.dev` 且带 credentials（证据 `08a-01`）。
+4. ☐ **Turnstile 生产密钥**：`.dev.vars` 当前为 Cloudflare 测试密钥（恒过），生产必须换正式 sitekey/secret 并挂到 Worker secrets。**本地开发配套**（08B-T7）：`apps/web/.env`（已 gitignore）须设 `PUBLIC_TURNSTILE_SITEKEY=1x00000000000000000000AA`（官方 always-pass，与 `.dev.vars` 的 `TURNSTILE_SECRET_KEY=1x00000000000000000000AA` 配对）；未配置时登录页表单禁用属预期 fail-closed。生产切换时 sitekey 走 Pages 环境变量、secret 走 `wrangler secret put`，两者必须成对更换。
+5. ☑ **workers.dev 数据面验证**（2026-11-16 TASK-08A）：`/api/health` 200、Pages 200、CORS 正确回显 `property-radar-web.pages.dev` 且带 credentials（证据 `08a-01`）。08B-T6 复测：游客关键页 + 后台 6 端点/4 页面全 200 真实数据（`evidence/08b-t6-prod-reachability.md`）。
 6. ☐ **Dashboard Spend Alerts**：Cloudflare 账单页设置消费提醒阈值。
 7. ☐ **数据来源跨境/合规核验**：房天下等 portal_listing 来源授权状态人工复核（07B 遗留）。
-8. ☐ **法务审阅**：隐私政策/服务条款文本经法务确认（07B 遗留）。
-9. ☐ **首次生产备份归档**：`backups/` 最新一份转存加密私有存储。
-10. ☐ **生产迁移台账核对**：`d1 migrations list --remote` 双库均无 pending。
+8. ☐ **08B 修版部署**：生产 Worker 仍为 `607ba987`（08C）——P4 公共缓存头、sources.astro URL 白名单、/account 真实化随新 Worker/Pages 部署后复验（P4 响应头、生产登录链路依赖本清单第 4 项）。
+9. ☐ **法务审阅**：隐私政策/服务条款文本经法务确认（07B 遗留）。
+10. ☐ **首次生产备份归档**：`backups/` 最新一份转存加密私有存储。
+11. ☐ **生产迁移台账核对**：`d1 migrations list --remote` 双库均无 pending。

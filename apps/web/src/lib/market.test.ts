@@ -39,6 +39,8 @@ describe("sampleTier / isLowSample", () => {
     expect(sampleTier(9)).toBe("low");
     expect(sampleTier(5)).toBe("low");
     expect(sampleTier(4)).toBe("insufficient");
+    expect(sampleTier(1)).toBe("insufficient");
+    expect(sampleTier(0)).toBe("insufficient");
     expect(sampleTier(null)).toBe("insufficient");
   });
 

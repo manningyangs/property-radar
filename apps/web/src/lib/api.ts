@@ -220,9 +220,11 @@ export function logout(): Promise<{ logged_out: boolean }> {
   });
 }
 
-/** GET /auth/me——当前用户资料（401 时按统一策略跳登录） */
-export function getMe(): Promise<{ user: SessionUser }> {
-  return request("/auth/me");
+/** GET /auth/me——当前用户资料（401 默认跳登录；账户页传 skipAuthRedirect 按游客渲染） */
+export function getMe(
+  skipAuthRedirect = false,
+): Promise<{ user: SessionUser }> {
+  return request("/auth/me", { skipAuthRedirect });
 }
 
 // ---------------- 数据合规（TASK-07B） ----------------
@@ -526,9 +528,11 @@ export function getNotificationPreferences(): Promise<{
   return request("/me/notification-preferences", { skipAuthRedirect: true });
 }
 
-/** PATCH /me/notification-preferences——browser_push_enabled 联动开关 */
+/** PATCH /me/notification-preferences——邮件/摘要/推送开关（登录后云端保存，跨设备同步） */
 export function patchNotificationPreferences(patch: {
   browser_push_enabled?: boolean;
+  email_enabled?: boolean;
+  digest_enabled?: boolean;
 }): Promise<{ preferences: NotificationPreferences }> {
   return request("/me/notification-preferences", {
     method: "PATCH",

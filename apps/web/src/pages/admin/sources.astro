@@ -344,13 +344,14 @@ const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
     unknown: { label: "未知", cls: "badge--neutral" },
   };
 
+  // TASK-08B T4（S6 渲染审计）：未知枚举回退值同样转义，杜绝 fallback 注入
   const statusBadge = (status: string): string => {
     const m = STATUS_META[status] ?? { label: status, cls: "badge--neutral" };
-    return `<span class="badge ${m.cls}">${m.label}</span>`;
+    return `<span class="badge ${m.cls}">${esc(m.label)}</span>`;
   };
   const healthBadge = (health: string): string => {
     const m = HEALTH_META[health] ?? { label: health, cls: "badge--neutral" };
-    return `<span class="badge ${m.cls}">${m.label}</span>`;
+    return `<span class="badge ${m.cls}">${esc(m.label)}</span>`;
   };
   const esc = (s: string): string =>
     s
@@ -358,6 +359,16 @@ const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;");
+
+  // TASK-08B T4（S6 渲染审计）：URL 展示白名单——仅 http/https 成超链接，
+  // 其它 scheme（javascript:、data: 等）按纯文本呈现，杜绝存储型点击 XSS
+  const urlCell = (u: string | null): string => {
+    if (!u) return "—";
+    const e = esc(u);
+    return /^https?:\/\//i.test(u)
+      ? `<a href="${e}" target="_blank" rel="noopener noreferrer">${e}</a>`
+      : e;
+  };
 
   const $ = <T extends HTMLElement>(sel: string): T | null =>
     document.querySelector<T>(sel);
@@ -556,9 +567,9 @@ const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
         ["许可状态", statusBadge(item.status)],
         ["类型", esc(item.source_type)],
         ["授权到期", item.is_expired ? `${esc(item.valid_until ?? "")}（已过期）` : esc(item.valid_until ?? "不设到期")],
-        ["官网", item.official_url ? `<a href="${esc(item.official_url)}" target="_blank" rel="noopener noreferrer">${esc(item.official_url)}</a>` : "—"],
+        ["官网", urlCell(item.official_url)],
         ["数据范围", esc(item.data_scope ?? "—")],
-        ["许可说明", item.license_note_url ? `<a href="${esc(item.license_note_url)}" target="_blank" rel="noopener noreferrer">${esc(item.license_note_url)}</a>` : "—"],
+        ["许可说明", urlCell(item.license_note_url)],
         ["展示范围", esc(item.display_scope ?? "—")],
         ["最近核验", `<span class="num">${esc(item.last_verified_at ?? "—")}</span>`],
         ["健康", `${healthBadge(item.health_status)} <span class="meta num">最近成功：${esc(item.last_success_at ?? "—")}</span>`],

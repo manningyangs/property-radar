@@ -280,6 +280,31 @@ describe("公共查询端点", () => {
     expect(statusBody.cities_catalog_active).toBe(2);
     expect(statusBody.last_collected_at).toBeTruthy();
   });
+
+  // TASK-08B T5（矩阵 14.4 P4）：公共只读端点缓存策略
+  it("P4 缓存头：GET 200 带 Cache-Control（60s+SWR300s），错误响应不缓存", async () => {
+    const ok = await app.request("/api/v1/public/cities", {}, ctx.env);
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get("Cache-Control")).toBe(
+      "public, max-age=60, stale-while-revalidate=300",
+    );
+
+    const bad = await app.request(
+      "/api/v1/public/cities?limit=999",
+      {},
+      ctx.env,
+    );
+    expect(bad.status).toBe(400);
+    expect(bad.headers.get("Cache-Control")).toBeNull();
+
+    const miss = await app.request(
+      "/api/v1/public/cities/NO-SUCH/coverage",
+      {},
+      ctx.env,
+    );
+    expect(miss.status).toBe(404);
+    expect(miss.headers.get("Cache-Control")).toBeNull();
+  });
 });
 
 describe("隔离验收：公共响应不暴露私有结构", () => {

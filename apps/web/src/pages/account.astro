@@ -36,7 +36,13 @@ const channels = [
         </div>
         <div class="acc-row">
           <dt>会话</dt>
-          <dd>演示会话仅保存在当前设备，不向任何服务器发送邮箱</dd>
+          <dd>
+            {
+              demoEnabled
+                ? "演示会话仅保存在当前设备，不向任何服务器发送邮箱"
+                : "登录会话由 HttpOnly Cookie 维持；退出或注销即时失效"
+            }
+          </dd>
         </div>
       </dl>
       <div class="btn-row">
@@ -48,7 +54,13 @@ const channels = [
     {/* ===== 通知渠道 ===== */}
     <section class="card acc-card" aria-labelledby="acc-channels">
       <h2 class="section-title" id="acc-channels">通知渠道</h2>
-      <p class="meta">开关立即保存在本设备；浏览器推送需要系统权限，被拒绝不影响其它渠道。</p>
+      <p class="meta" data-channel-hint>
+        {
+          demoEnabled
+            ? "开关立即保存在本设备；浏览器推送需要系统权限，被拒绝不影响其它渠道。"
+            : "开关保存在云端账号，跨设备同步；浏览器推送需要系统权限，被拒绝不影响其它渠道。"
+        }
+      </p>
       <div class="channel-list">
         {
           channels.map((channel) => (
@@ -115,13 +127,23 @@ const channels = [
             data-apply-note></textarea>
         </div>
         <button type="submit" class="btn btn--primary btn--block">提交申请</button>
-        <p class="meta">演示环境：申请仅记录在本页面，不会真实提交到服务器。</p>
+        {
+          demoEnabled && (
+            <p class="meta">演示环境：申请仅记录在本页面，不会真实提交到服务器。</p>
+          )
+        }
       </form>
       <div class="stack-sm apply-done is-hidden" data-apply-done role="status">
-        <span class="badge badge--down">申请已记录（演示）</span>
+        <span class="badge badge--down" data-apply-badge>
+          {demoEnabled ? "申请已记录（演示）" : "申请已提交"}
+        </span>
         <p class="meta">
           已收到「<span data-apply-summary class="apply-summary"></span>」的覆盖申请。
-          当前为演示构建，不会进入真实审核队列；正式环境将由管理员在后台审核并写入审计日志。
+          {
+            demoEnabled
+              ? "当前为演示构建，不会进入真实审核队列；正式环境将由管理员在后台审核并写入审计日志。"
+              : "申请已进入管理员审核队列，审核通过后写入覆盖计划；结果可在事件中心查看。"
+          }
         </p>
         <button type="button" class="btn btn--secondary" data-apply-again>再提交一条</button>
       </div>
@@ -222,7 +244,8 @@ const channels = [
 </AppShell>
 
 <script>
-  // 会话 / 通知渠道 / 浏览器推送权限 / 覆盖申请（全部本地真实交互 + 诚实演示声明）
+  // 会话 / 通知渠道 / 浏览器推送 / 覆盖申请 / 导出 / 注销：
+  // 真实构建全部走 /auth 与 /me API（TASK-08B T7 收口）；演示构建（PUBLIC_DEMO_DATA=1）走本机存储 + 诚实声明。
   const EMAIL_KEY = "pr:session:email";
   const CHANNEL_KEY = "pr:channels";
 
@@ -230,45 +253,101 @@ const channels = [
     window.dispatchEvent(new CustomEvent("app:toast", { detail: { message } }));
   };
 
+  // 按需加载 API 模块（会话/渠道/推送/申请/导出/注销共用；DEMO 分支不打真实 API）
+  type PushApi = typeof import("../lib/api");
+  let apiMod: PushApi | null = null;
+  const loadApi = async (): Promise<PushApi> => {
+    apiMod ??= await import("../lib/api");
+    return apiMod;
+  };
+
   // ===== 会话 =====
-  const renderSession = () => {
-    const email = window.localStorage.getItem(EMAIL_KEY);
+  // TASK-08B T7：真实构建读真实会话（GET /auth/me，401 按游客渲染不跳转）；
+  // 演示构建（PUBLIC_DEMO_DATA=1）保持 01B 本地会话行为。
+  const DEMO_SESSION = import.meta.env.PUBLIC_DEMO_DATA === "1";
+  let signedInEmail: string | null = DEMO_SESSION
+    ? window.localStorage.getItem(EMAIL_KEY)
+    : null;
+
+  const paintSession = () => {
     const emailEl = document.querySelector<HTMLElement>("[data-account-email]");
     const badge = document.querySelector<HTMLElement>("[data-session-badge]");
-    if (emailEl) emailEl.textContent = email ?? "未登录";
+    if (emailEl) emailEl.textContent = signedInEmail ?? "未登录";
     if (badge) {
-      badge.textContent = email ? "已登录（演示）" : "游客模式";
-      badge.className = `badge ${email ? "badge--primary" : "badge--neutral"}`;
+      badge.textContent = signedInEmail
+        ? DEMO_SESSION
+          ? "已登录（演示）"
+          : "已登录"
+        : "游客模式";
+      badge.className = `badge ${signedInEmail ? "badge--primary" : "badge--neutral"}`;
     }
   };
-  renderSession();
+
+  const renderSession = async (): Promise<void> => {
+    if (!DEMO_SESSION) {
+      try {
+        const { getMe } = await loadApi();
+        const { user } = await getMe(true);
+        signedInEmail = user.email;
+      } catch {
+        signedInEmail = null; // 401/网络失败：按游客渲染
+      }
+    }
+    paintSession();
+  };
+  void renderSession();
 
   document.querySelector<HTMLButtonElement>("[data-signout]")?.addEventListener("click", () => {
-    if (!window.localStorage.getItem(EMAIL_KEY)) {
-      toast("当前未登录");
-      return;
-    }
-    window.localStorage.removeItem(EMAIL_KEY);
-    // TASK-08C R8：清除登录提示，游客页面不再调用 /me/*
-    try {
-      window.localStorage.removeItem("pr_session_hint");
-    } catch {
-      /* 存储不可用忽略 */
-    }
-    // TASK-01C：登出时清理私有客户端缓存（pr:* 本机存储 + SW 页面/meta 缓存）
-    void (
-      window as unknown as { __prPurgePrivateCache?: () => Promise<void> }
-    ).__prPurgePrivateCache?.();
-    renderSession();
-    toast("已退出登录（本设备会话与缓存已清除）");
+    void (async () => {
+      if (!DEMO_SESSION && signedInEmail) {
+        const { logout, ApiError } = await loadApi();
+        try {
+          await logout();
+        } catch (err) {
+          if (!(err instanceof ApiError && err.status === 401)) {
+            toast(`退出失败：${err instanceof Error ? err.message : String(err)}`);
+            return;
+          }
+        }
+      }
+      if (DEMO_SESSION || !signedInEmail) {
+        if (!window.localStorage.getItem(EMAIL_KEY) && DEMO_SESSION) {
+          toast("当前未登录");
+          return;
+        }
+        window.localStorage.removeItem(EMAIL_KEY);
+      }
+      signedInEmail = null;
+      // TASK-08C R8：清除登录提示，游客页面不再调用 /me/*
+      try {
+        window.localStorage.removeItem("pr_session_hint");
+      } catch {
+        /* 存储不可用忽略 */
+      }
+      // TASK-01C：登出时清理私有客户端缓存（pr:* 本机存储 + SW 页面/meta 缓存）
+      void (
+        window as unknown as { __prPurgePrivateCache?: () => Promise<void> }
+      ).__prPurgePrivateCache?.();
+      paintSession();
+      toast("已退出登录（本设备会话与缓存已清除）");
+    })();
   });
 
-  // ===== 通知渠道（保存到本设备） =====
+  // ===== 通知渠道 =====
+  // TASK-08B T7：真实构建读写云端偏好（GET/PATCH /me/notification-preferences，
+  // 登录后跨设备同步）；演示构建保持 01B 本机存储。站内事件无后端开关（恒留存），
+  // 真实分支渲染为只读勾选。
   const channelBoxes = Array.from(
     document.querySelectorAll<HTMLInputElement>("[data-channel]"),
   );
+  const DEMO_CHANNELS = import.meta.env.PUBLIC_DEMO_DATA === "1";
+  const CHANNEL_PREF: Record<string, "digest_enabled" | "email_enabled" | null> = {
+    digest: "digest_enabled",
+    alert: "email_enabled",
+    site: null,
+  };
 
-  const saveChannels = () => {
+  const saveChannelsLocal = () => {
     const value: Record<string, boolean> = {};
     channelBoxes.forEach((box) => {
       value[box.dataset.channel ?? ""] = box.checked;
@@ -277,19 +356,72 @@ const channels = [
     toast("通知渠道已保存到本设备");
   };
 
-  try {
-    const raw = window.localStorage.getItem(CHANNEL_KEY);
-    if (raw) {
-      const saved = JSON.parse(raw) as Record<string, boolean>;
-      channelBoxes.forEach((box) => {
-        const key = box.dataset.channel ?? "";
-        if (key in saved) box.checked = saved[key] === true;
-      });
+  if (DEMO_CHANNELS) {
+    try {
+      const raw = window.localStorage.getItem(CHANNEL_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw) as Record<string, boolean>;
+        channelBoxes.forEach((box) => {
+          const key = box.dataset.channel ?? "";
+          if (key in saved) box.checked = saved[key] === true;
+        });
+      }
+    } catch {
+      // 本机存储内容损坏时回退为默认勾选，不阻塞页面
     }
-  } catch {
-    // 本机存储内容损坏时回退为默认勾选，不阻塞页面
+    channelBoxes.forEach((box) => box.addEventListener("change", saveChannelsLocal));
+  } else {
+    const siteBox = channelBoxes.find((box) => box.dataset.channel === "site");
+    if (siteBox) {
+      siteBox.checked = true;
+      siteBox.disabled = true; // 站内事件恒留存（PRD §6.7），无后端开关
+    }
+    const mailBoxes = channelBoxes.filter((box) => CHANNEL_PREF[box.dataset.channel ?? ""]);
+
+    const setChannelsEnabled = (on: boolean) => {
+      mailBoxes.forEach((box) => {
+        box.disabled = !on;
+      });
+      const hint = document.querySelector<HTMLElement>("[data-channel-hint]");
+      if (hint) {
+        hint.textContent = on
+          ? "开关保存在云端账号，跨设备同步；站内事件始终留存。"
+          : "登录后可管理邮件与摘要开关（当前为游客，设置不生效）。";
+      }
+    };
+
+    void (async () => {
+      try {
+        const { getNotificationPreferences } = await loadApi();
+        const { preferences } = await getNotificationPreferences();
+        mailBoxes.forEach((box) => {
+          const field = CHANNEL_PREF[box.dataset.channel ?? ""];
+          if (field === "digest_enabled") box.checked = preferences.digest_enabled;
+          if (field === "email_enabled") box.checked = preferences.email_enabled;
+        });
+        setChannelsEnabled(true);
+      } catch {
+        setChannelsEnabled(false); // 未登录/网络失败：禁用开关并提示
+      }
+    })();
+
+    mailBoxes.forEach((box) =>
+      box.addEventListener("change", () => {
+        void (async () => {
+          const field = CHANNEL_PREF[box.dataset.channel ?? ""];
+          if (!field) return;
+          const { patchNotificationPreferences } = await loadApi();
+          try {
+            await patchNotificationPreferences({ [field]: box.checked });
+            toast("通知渠道已保存到云端账号");
+          } catch (err) {
+            box.checked = !box.checked; // 失败回滚勾选
+            toast(`保存失败：${err instanceof Error ? err.message : String(err)}`);
+          }
+        })();
+      }),
+    );
   }
-  channelBoxes.forEach((box) => box.addEventListener("change", saveChannels));
 
   // ===== 浏览器推送（TASK-05C spec §5.1）：五态状态机（读取不触发弹窗） =====
   // 状态：不支持 / 已开启（granted+订阅+enabled=1）/ 已授权（granted 但未订阅或未开启）
@@ -301,14 +433,6 @@ const channels = [
   const pushBadge = document.querySelector<HTMLElement>("[data-push-status]");
   const pushDenied = document.querySelector<HTMLElement>("[data-push-denied]");
   const pushBtn = document.querySelector<HTMLButtonElement>("[data-push-request]");
-
-  type PushApi = typeof import("../lib/api");
-  let apiMod: PushApi | null = null;
-  // 按需加载 API 模块：未启用真实交互前不引入额外请求（DEMO 完全不打真实 API）
-  const loadApi = async (): Promise<PushApi> => {
-    apiMod ??= await import("../lib/api");
-    return apiMod;
-  };
 
   const setPushBadge = (text: string, cls: string) => {
     if (pushBadge) {
@@ -500,9 +624,19 @@ const channels = [
     else void enablePush();
   });
 
-  // ===== 覆盖申请（本地演示，诚实确认） =====
+  // ===== 覆盖申请 =====
+  // TASK-08B T7：真实构建提交 POST /me/city-coverage-requests 进入管理员审核队列
+  // （需登录，401 提示）；演示构建保持本地记录 + 诚实声明。
+  const DEMO_APPLY = import.meta.env.PUBLIC_DEMO_DATA === "1";
   const applyForm = document.querySelector<HTMLFormElement>("[data-apply-form]");
   const applyDone = document.querySelector<HTMLElement>("[data-apply-done]");
+
+  const showApplyDone = (city: string, object: string) => {
+    const summary = document.querySelector<HTMLElement>("[data-apply-summary]");
+    if (summary) summary.textContent = object ? `${city} · ${object}` : city;
+    applyForm?.classList.add("is-hidden");
+    applyDone?.classList.remove("is-hidden");
+  };
 
   applyForm?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -516,11 +650,35 @@ const channels = [
     }
     error?.classList.remove("is-shown");
     const object = document.querySelector<HTMLInputElement>("[data-apply-object]")?.value.trim() ?? "";
-    const summary = document.querySelector<HTMLElement>("[data-apply-summary]");
-    if (summary) summary.textContent = object ? `${city} · ${object}` : city;
-    applyForm.classList.add("is-hidden");
-    applyDone?.classList.remove("is-hidden");
-    toast("覆盖申请已记录（演示，未真实提交）");
+    const note = document.querySelector<HTMLTextAreaElement>("[data-apply-note]")?.value.trim() ?? "";
+
+    if (DEMO_APPLY) {
+      showApplyDone(city, object);
+      toast("覆盖申请已记录（演示，未真实提交）");
+      return;
+    }
+
+    const submitBtn = applyForm.querySelector<HTMLButtonElement>('button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
+    void (async () => {
+      const { createCityCoverageRequest, ApiError } = await loadApi();
+      try {
+        await createCityCoverageRequest({
+          requested_city_name: city,
+          reason: [object && `对象：${object}`, note].filter(Boolean).join("；") || undefined,
+        });
+        showApplyDone(city, object);
+        toast("覆盖申请已提交，进入管理员审核队列");
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          toast("请先登录后再提交覆盖申请");
+        } else {
+          toast(`提交失败：${err instanceof Error ? err.message : String(err)}`);
+        }
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    })();
   });
 
   document.querySelector<HTMLButtonElement>("[data-apply-again]")?.addEventListener("click", () => {
@@ -582,8 +740,10 @@ const channels = [
             toast(`注销失败：${err instanceof Error ? err.message : String(err)}`);
           }
         }
-        // 本设备演示登录态与缓存一并清理（云端数据由注销流程处理）
+        // 本设备登录态与缓存一并清理（云端数据由注销流程处理）
         window.localStorage.removeItem(EMAIL_KEY);
+        signedInEmail = null;
+        paintSession();
         // TASK-01C：注销同样触发私有客户端缓存清理
         void (
           window as unknown as { __prPurgePrivateCache?: () => Promise<void> }

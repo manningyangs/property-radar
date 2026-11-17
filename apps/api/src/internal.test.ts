@@ -1014,3 +1014,277 @@ describe("TASK-05A /internal/events/evaluate", () => {
     expect(bad.status).toBe(403);
   });
 });
+
+// ===================== TASK-08B T3：§14.2 数据矩阵边界补强 =====================
+// 任务书 §14.2 数据矩阵要求：样本数全边界（D4）、组成变化中位数跳变（D6）、
+// 同名小区映射冲突（D7）、挂牌价误标成交价（D9）。
+// 0/4/5 边界已由既有用例覆盖（04E 过期零样本不写快照、cleaning.test.ts 4→5、
+// 04D <5 low_sample），此处只补 1/9/10/19/20 与 D6/D7/D9，不改既有用例。
+describe("TASK-08B T3：§14.2 数据矩阵边界补强", () => {
+  // 与 04D 同算法：沪市昨日（清洗含未来日期与过期物化判定，固定日期会随时钟失效）
+  const STAT_DATE = new Date(Date.now() - 86_400_000 + 8 * 3600_000)
+    .toISOString()
+    .slice(0, 10);
+
+  /** 与 04D 同型：默认挂牌单价单条 valid 样本；object_id 显式传入，用新名字避免干扰既有用例 */
+  function obs(objectId: string, overrides: Record<string, unknown> = {}) {
+    return {
+      object_id: objectId,
+      property_type: "resale",
+      price_type: "listing_ask",
+      metric_code: "listing_ask_unit",
+      price_total_fen: 300000000,
+      unit_price_yuan_sqm: 30000,
+      area_sqm: 100,
+      sample_count: 1,
+      stat_date: STAT_DATE,
+      quality_status: "valid",
+      connector_version: "fang_community/0.1.0",
+      ...overrides,
+    };
+  }
+
+  function obsPayload(
+    batchId: string,
+    observations: unknown[],
+    overrides: Record<string, unknown> = {},
+  ) {
+    return defaultPayload({
+      batch_id: batchId,
+      observed_count: observations.length,
+      observations,
+      ...overrides,
+    });
+  }
+
+  /** 该对象的全部快照行（行数与字段断言用；按口径排序保证稳定） */
+  function snapshotsOf(objectId: string): Array<Record<string, unknown>> {
+    return ctx.pub
+      .prepare(
+        `SELECT price_type, metric_code, median, mean, p25, p75,
+                sample_count, stat_date, quality_status, source_id
+         FROM price_snapshots WHERE object_id = ?
+         ORDER BY price_type, metric_code`,
+      )
+      .all(objectId) as unknown as Array<Record<string, unknown>>;
+  }
+
+  beforeEach(() => {
+    seedSource("approved_open");
+    seedCoverage();
+  });
+
+  it("D4 样本数全边界 1/9/10/19/20：每组一行快照、sample_count=N、5 处质量翻转", async () => {
+    // 0/4/5 边界见既有用例：0=无样本不写快照（04E）、4→5 翻转（cleaning.test.ts）、
+    // <5 low_sample（04D）；9/10、19/20 是前端分层阈值边界（web market.sampleTier 已测）
+    for (const n of [1, 9, 10, 19, 20]) {
+      const objectId = `cmt_d4_n${n}`;
+      // 批内 unit_price_yuan_sqm 必须互不相同，否则确定性 observation_id 触发批内去重
+      const units = Array.from({ length: n }, (_, i) => 20000 + i * 100);
+      const res = await postBatch(
+        obsPayload(
+          `b_t3_d4_n${n}`,
+          units.map((u) => obs(objectId, { unit_price_yuan_sqm: u })),
+        ),
+      );
+      expect(res.status).toBe(202);
+      expect(await res.json()).toMatchObject({
+        status: "accepted",
+        snapshots_upserted: 1,
+      });
+      const snaps = snapshotsOf(objectId);
+      expect(snaps).toHaveLength(1);
+      expect(snaps[0]).toMatchObject({
+        sample_count: n,
+        stat_date: STAT_DATE,
+        metric_code: "community_ask_median_unit",
+      });
+      if (n === 1) {
+        // 单样本：low_sample 降级但 median 仍留痕（median = 该单价）
+        expect(snaps[0]).toMatchObject({
+          quality_status: "low_sample",
+          median: units[0],
+        });
+      } else {
+        // n≥5（含 9/10/19/20）→ valid
+        expect(snaps[0]?.["quality_status"]).toBe("valid");
+      }
+    }
+  });
+
+  it("D6 组成变化中位数跳变：无阻断规则，快照按组全量诚实重算，中位数稳健均值敏感", async () => {
+    const objectId = "cmt_d6_01";
+    // 第一批 5 套：基准组 median=30000/mean=30000/sample_count=5
+    const first = await postBatch(
+      obsPayload(
+        "b_t3_d6_a",
+        [28000, 29000, 30000, 31000, 32000].map((u) =>
+          obs(objectId, { unit_price_yuan_sqm: u }),
+        ),
+      ),
+    );
+    expect(first.status).toBe(202);
+    expect(snapshotsOf(objectId)).toEqual([
+      expect.objectContaining({
+        median: 30000,
+        mean: 30000,
+        sample_count: 5,
+        quality_status: "valid",
+      }),
+    ]);
+
+    // 第二批同对象同 stat_date（不同 batch_id）追加 3 套高价 → 全组重算 n=8
+    const second = await postBatch(
+      obsPayload(
+        "b_t3_d6_b",
+        [50000, 52000, 54000].map((u) =>
+          obs(objectId, { unit_price_yuan_sqm: u }),
+        ),
+      ),
+    );
+    expect(second.status).toBe(202);
+    expect(await second.json()).toMatchObject({
+      observations_written: 3,
+      snapshots_upserted: 1,
+    });
+
+    const snaps = snapshotsOf(objectId);
+    expect(snaps).toHaveLength(1); // 同组 ON CONFLICT 覆盖重算，不新增行
+    expect(snaps[0]).toMatchObject({
+      median: 31500, // idx=(8-1)*0.5=3.5 → 31000+0.5×(32000−31000)
+      mean: 38250, // 306000/8
+      p25: 29750, // idx=1.75 → 29000+0.75×(30000−29000)
+      p75: 50500, // idx=5.25 → 50000+0.25×(52000−50000)
+      sample_count: 8,
+      quality_status: "valid",
+    });
+    // §14.2-D6 结论：cleaning.ts/observations.ts 均无"组成变化"阻断规则——
+    // 快照按组全量重算属"诚实重算"设计：median 30000→31500（+5%，对高价样本稳健），
+    // mean 30000→38250（+27.5%，敏感）；sample_count 5→8 留痕样本量变化，
+    // 前端以样本量分层（sampleTier）提示可信度，而非改写或阻断历史快照。
+  });
+
+  it("D7 同名小区映射：跨来源样本合并为同一行快照；同名不同 object_id 互不污染", async () => {
+    const objectId = "cmt_d7_01";
+    // 第二个 approved 来源（同城/同层级/同指标覆盖），模拟同名小区经目录映射到同一 canonical object_id
+    ctx.pub
+      .prepare(
+        "INSERT INTO data_sources_public (source_id, name, source_type) VALUES ('src_official_b', 'TEST-官方来源B（虚构）', 'open_data')",
+      )
+      .run();
+    ctx.pub
+      .prepare(
+        "INSERT INTO source_license_state (source_id, status, valid_until) VALUES ('src_official_b', 'approved_open', NULL)",
+      )
+      .run();
+    ctx.pub
+      .prepare(
+        `INSERT INTO source_city_coverage
+           (source_id, city_code, object_level, metric_codes_json, authorization_status, last_verified_at)
+         VALUES ('src_official_b', ?, 'community', '["community_ask_median_unit"]', 'approved_open', datetime('now'))`,
+      )
+      .run(CITY);
+
+    // a) 跨来源合并：聚合组键（object_id, price_type, metric_code, stat_date）不含 source_id
+    //    → 两来源各 1 条同对象同统计日观测进入同一组，快照仅 1 行、样本合并
+    const fromA = await postBatch(
+      obsPayload("b_t3_d7_a1", [obs(objectId, { unit_price_yuan_sqm: 30000 })]),
+    );
+    expect(fromA.status).toBe(202);
+    expect(await fromA.json()).toMatchObject({ snapshots_upserted: 1 });
+    const fromB = await postBatch(
+      obsPayload(
+        "b_t3_d7_a2",
+        [obs(objectId, { unit_price_yuan_sqm: 34000 })],
+        { source_id: "src_official_b" },
+      ),
+    );
+    expect(fromB.status).toBe(202);
+    expect(await fromB.json()).toMatchObject({ snapshots_upserted: 1 });
+    const merged = snapshotsOf(objectId);
+    expect(merged).toHaveLength(1); // 仅一行快照（重算覆盖，非各来源一行）
+    expect(merged[0]).toMatchObject({
+      sample_count: 2,
+      median: 32000, // 两样本线性插值 = 均值 (30000+34000)/2
+      quality_status: "low_sample", // 合并后 2 < 5，仍小样本降级
+    });
+
+    // b) 同名不同对象：不同区同名小区映射到不同 object_id → 两行独立快照，median 互不污染
+    const resA = await postBatch(
+      obsPayload("b_t3_d7_b1", [
+        obs("cmt_d7_02a", { unit_price_yuan_sqm: 30000 }),
+      ]),
+    );
+    const resB = await postBatch(
+      obsPayload("b_t3_d7_b2", [
+        obs("cmt_d7_02b", { unit_price_yuan_sqm: 41000 }),
+      ]),
+    );
+    expect(resA.status).toBe(202);
+    expect(resB.status).toBe(202);
+    expect(snapshotsOf("cmt_d7_02a")).toEqual([
+      expect.objectContaining({ median: 30000, sample_count: 1 }),
+    ]);
+    expect(snapshotsOf("cmt_d7_02b")).toEqual([
+      expect.objectContaining({ median: 41000, sample_count: 1 }),
+    ]);
+  });
+
+  it("D9 挂牌价与成交价隔离：同对象同统计日两口径各自成行；非法 price_type → 400", async () => {
+    const objectId = "cmt_d9_01";
+    const res = await postBatch(
+      obsPayload("b_t3_d9_a", [
+        obs(objectId, { unit_price_yuan_sqm: 30000 }),
+        obs(objectId, {
+          price_type: "closed_transaction",
+          metric_code: "closed_tx_unit",
+          unit_price_yuan_sqm: 25000,
+        }),
+      ]),
+    );
+    // 实测端点行为：closed_transaction 通过 schema 枚举/清洗/DB CHECK，正常受理为独立快照行（非拒绝）
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({
+      observations_written: 2,
+      snapshots_upserted: 2,
+    });
+
+    const snaps = snapshotsOf(objectId);
+    expect(snaps).toHaveLength(2);
+    const listing = snaps.find((s) => s["price_type"] === "listing_ask");
+    const tx = snaps.find((s) => s["price_type"] === "closed_transaction");
+    // 挂牌快照：metric_code 经 OBS_TO_SNAPSHOT_METRIC 映射为 community_ask_median_unit，
+    // median=30000 不被成交价 25000 污染（price_type 不同 → 聚合组不同）
+    expect(listing).toMatchObject({
+      metric_code: "community_ask_median_unit",
+      median: 30000,
+      sample_count: 1,
+    });
+    // 成交快照：无映射，metric_code 保留原口径，独立成行
+    expect(tx).toMatchObject({
+      metric_code: "closed_tx_unit",
+      median: 25000,
+      sample_count: 1,
+    });
+
+    // ingest 侧枚举隔离：口径枚举外的 price_type（如误标 "deal_price"）→ 400 validation_failed 零落库
+    const bad = await postBatch(
+      obsPayload("b_t3_d9_b", [
+        obs(objectId, { price_type: "deal_price", unit_price_yuan_sqm: 26000 }),
+      ]),
+    );
+    expect(bad.status).toBe(400);
+    expect(await errCode(bad)).toBe("validation_failed");
+    // 拒绝生效：仍只有两行快照，26000 观测零落库
+    expect(snapshotsOf(objectId)).toHaveLength(2);
+    expect(
+      (
+        ctx.pub
+          .prepare(
+            "SELECT COUNT(*) AS n FROM price_observations WHERE unit_price_yuan_sqm = 26000",
+          )
+          .get() as { n: number }
+      ).n,
+    ).toBe(0);
+  });
+});
