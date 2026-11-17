@@ -50,7 +50,7 @@
 - [x] 生产后台全模块 08D 会话实测 PASS（截图）
 - [x] BLOCKED-PROD 清单（登录相关项 ↔ 08A 步骤①②映射）写入报告
 - [x] FAIL 项全部修复并复验（或如实登记遗留）
-- [ ] 四门禁 exit 0；中文 commit + push + CI success
+- [x] 四门禁 exit 0；中文 commit + push + CI success
 - [x] 证据 docs/evidence/08b-* 落盘；验收报告 + OPERATIONS + 记忆 + 三件套勾选
 
 ## 红线

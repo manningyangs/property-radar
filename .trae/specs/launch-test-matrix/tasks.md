@@ -10,4 +10,4 @@
 - [x] **T6 生产可达实测**：游客全链路复核（08C 已过，抽关键页）+ 管理后台全模块用 08D 会话实测（overview/users/sources/jobs/quality/audit）截图；登录相关项登记 BLOCKED-PROD（对应 08A 步骤①②）
 - [x] **T7 FAIL 修复**：T2–T6 发现的缺陷逐项最小修复 + 回归（每项在报告登记发现→修复→复验）
 - [x] **T8 四门禁**：typecheck/lint/test/build 全绿
-- [ ] **T9 收尾**：验收报告 `docs/TASK-08B-测试矩阵与上线验收报告.md`（32 项逐条结论 + 上线门槛判定 + BLOCKED 清单）；OPERATIONS 手册更新；记忆更新；中文 commit + push + 盯 CI；勾选三件套 + 收尾提交
+- [x] **T9 收尾**：验收报告 `docs/TASK-08B-测试矩阵与上线验收报告.md`（32 项逐条结论 + 上线门槛判定 + BLOCKED 清单）；OPERATIONS 手册更新；记忆更新；中文 commit + push + 盯 CI；勾选三件套 + 收尾提交
