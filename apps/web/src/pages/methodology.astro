@@ -1,0 +1,240 @@
+---
+/**
+ * 数据说明 `/methodology`（TASK-08C R7，PRD §2.2）：
+ * - 口径说明（静态文本：指标定义/样本分层/新鲜度规则）；
+ * - 数据来源：GET /public/methodology/sources（授权状态、核验时间、已验证指标）；
+ * - 数据规模与更新时间：GET /public/system/status。
+ * 红线：只展示接口真实字段；来源为空时如实说明，不编造。
+ */
+import AppShell from "../layouts/AppShell.astro";
+import EmptyState from "../components/EmptyState.astro";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+---
+
+<AppShell title="数据说明" demo={demoEnabled}>
+  {
+    demoEnabled ? (
+      <div class="page">
+        <EmptyState
+          title="演示模式"
+          description="演示构建不接入真实来源接口；生产构建下本页展示审批来源、口径与更新状态。"
+          actionText="返回首页"
+          actionHref="/"
+        />
+      </div>
+    ) : (
+      <div class="page" data-methodology>
+        <section class="card" aria-label="口径说明">
+          <h2 class="section-title">指标口径</h2>
+          <ul class="method-list">
+            <li>
+              <strong>挂牌中位价</strong>：同一口径（价格类型 + 统计周期）内全部有效挂牌样本
+              排序后取中位数；比均价更抗极端值干扰。
+            </li>
+            <li>
+              <strong>均价 / P25 / P75</strong>：算术平均与 25/75 分位数，用于观察分布形态。
+            </li>
+            <li>
+              <strong>有效样本</strong>：通过质量校验（去重、异常剔除、授权范围内）的挂牌记录数；
+              样本 ≥20 相对充足、10–19 有限、5–9 低样本（降强调）、&lt;5 不发布代表性价格。
+            </li>
+            <li>
+              <strong>数据日期 vs 采集时间</strong>：数据日期是样本统计日，采集时间是抓取时刻；
+              超过更新 SLA 会标记“更新延迟/过期”。数据延迟不代表价格下跌。
+            </li>
+            <li>
+              <strong>成交口径</strong>：需数据授权；未获授权的对象只展示挂牌口径，
+              绝不以挂牌数字冒充成交价。
+            </li>
+          </ul>
+        </section>
+
+        <p class="meta is-hidden" data-src-loading>正在加载数据来源…</p>
+        <section class="is-hidden" aria-label="数据来源" data-src-card>
+          <div class="section-head">
+            <h2 class="section-title">数据来源</h2>
+            <span class="meta" data-src-count></span>
+          </div>
+          <div class="stack-sm" data-src-list></div>
+        </section>
+        <div class="is-hidden" data-src-empty>
+          <EmptyState
+            title="暂无已登记来源"
+            description="尚未录入可公开的数据源说明；接入后本页会展示来源、授权与核验状态。"
+          />
+        </div>
+        <div class="is-hidden" data-src-error>
+          <EmptyState
+            title="来源信息加载失败"
+            description="无法连接数据服务；口径与状态以恢复后的接口数据为准。"
+          >
+            <button type="button" class="btn btn--secondary" data-src-retry>
+              重新加载
+            </button>
+          </EmptyState>
+        </div>
+
+        <section class="card is-hidden" aria-label="数据规模与更新" data-scale-card>
+          <h2 class="section-title">数据规模与更新</h2>
+          <p class="meta" data-scale-text></p>
+        </section>
+      </div>
+    )
+  }
+</AppShell>
+
+<script>
+  import { getMethodologySources, getSystemStatus } from "../lib/api";
+
+  const page = document.querySelector<HTMLElement>("[data-methodology]");
+  if (page) {
+    const loadingEl = page.querySelector<HTMLElement>("[data-src-loading]")!;
+    const cardEl = page.querySelector<HTMLElement>("[data-src-card]")!;
+    const listEl = page.querySelector<HTMLElement>("[data-src-list]")!;
+    const countEl = page.querySelector<HTMLElement>("[data-src-count]")!;
+    const emptyEl = page.querySelector<HTMLElement>("[data-src-empty]")!;
+    const errorEl = page.querySelector<HTMLElement>("[data-src-error]")!;
+    const scaleCard = page.querySelector<HTMLElement>("[data-scale-card]")!;
+    const scaleText = page.querySelector<HTMLElement>("[data-scale-text]")!;
+
+    const LICENSE_TEXT: Record<string, string> = {
+      approved: "授权有效",
+      pending: "授权审批中",
+      expired: "授权已过期",
+      rejected: "授权被拒",
+    };
+
+    const setPanel = (target: "loading" | "list" | "empty" | "error") => {
+      loadingEl.classList.toggle("is-hidden", target !== "loading");
+      cardEl.classList.toggle("is-hidden", target !== "list");
+      emptyEl.classList.toggle("is-hidden", target !== "empty");
+      errorEl.classList.toggle("is-hidden", target !== "error");
+    };
+
+    const renderSource = (
+      source: Awaited<ReturnType<typeof getMethodologySources>>["items"][number],
+    ): HTMLElement => {
+      const card = document.createElement("div");
+      card.className = "card src-card";
+
+      const head = document.createElement("div");
+      head.className = "src-head";
+      const name = document.createElement("span");
+      name.className = "src-name";
+      name.textContent = source.name;
+      const license = document.createElement("span");
+      license.className = `badge ${source.license_status === "approved" ? "badge--primary" : "badge--warning"}`;
+      license.textContent =
+        (LICENSE_TEXT[source.license_status] ?? source.license_status) +
+        (source.license_valid_until ? ` · 至 ${source.license_valid_until.slice(0, 10)}` : "");
+      head.append(name, license);
+
+      const meta = document.createElement("p");
+      meta.className = "meta";
+      meta.textContent = [
+        `类型：${source.source_type}`,
+        source.data_scope ? `范围：${source.data_scope}` : "",
+        source.display_scope ? `展示：${source.display_scope}` : "",
+        source.last_verified_at ? `最近核验：${source.last_verified_at.slice(0, 10)}` : "尚未完成来源核验",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+
+      card.append(head, meta);
+
+      if (source.verified_metrics.length > 0) {
+        const chips = document.createElement("div");
+        chips.className = "chip-row";
+        for (const metric of source.verified_metrics) {
+          const chip = document.createElement("span");
+          chip.className = "badge badge--neutral";
+          chip.textContent = metric;
+          chips.append(chip);
+        }
+        card.append(chips);
+      }
+
+      if (source.official_url) {
+        const link = document.createElement("a");
+        link.className = "meta src-link";
+        link.href = source.official_url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = "官方来源 ›";
+        card.append(link);
+      }
+      return card;
+    };
+
+    const load = async () => {
+      setPanel("loading");
+      try {
+        const [sources, status] = await Promise.all([
+          getMethodologySources(),
+          getSystemStatus().catch(() => null),
+        ]);
+        if (sources.items.length === 0) {
+          setPanel("empty");
+        } else {
+          countEl.textContent = `已登记 ${sources.count} 个来源`;
+          listEl.replaceChildren(...sources.items.map(renderSource));
+          setPanel("list");
+        }
+        if (status) {
+          scaleText.textContent =
+            `当前接入数据城市 ${status.cities_data_active ?? 0} 个 · 累计观测样本 ${(status.observations_total ?? 0).toLocaleString("zh-CN")} 条 · ` +
+            `最后成功采集 ${status.last_collected_at?.slice(0, 16) ?? "—"}（北京时间口径见各页数据日期）。`;
+          scaleCard.classList.remove("is-hidden");
+        }
+      } catch {
+        setPanel("error");
+      }
+    };
+
+    page
+      .querySelector<HTMLButtonElement>("[data-src-retry]")
+      ?.addEventListener("click", () => void load());
+    void load();
+  }
+</script>
+
+<style>
+  .method-list {
+    margin: 0;
+    padding-left: 1.2em;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    line-height: 1.7;
+    color: var(--color-text);
+  }
+
+  .method-list strong {
+    color: var(--color-brand-900);
+  }
+
+  .src-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .src-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .src-name {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .src-link {
+    text-decoration: underline;
+  }
+</style>

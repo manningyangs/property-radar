@@ -1,0 +1,418 @@
+---
+/**
+ * 城市目录与覆盖 `/cities`（TASK-08C R6）：
+ * - 337 城标准目录（静态元数据）+ GET /public/cities 真实覆盖状态叠加（按名称匹配）；
+ * - 状态筛选（全部/已开通/部分覆盖/可申请）与目录搜索；
+ * - 已收录城市可展开覆盖详情（GET /public/cities/:code/coverage，真实来源与授权状态）；
+ * - 申请覆盖：登录用户走 POST /me/city-coverage-requests（R6b），游客 → 登录引导；
+ * - 选中城市写入 localStorage pr_city 并广播 app:city-change，全站范围即时切换。
+ * 红线：绝不展示任何价格数字；未覆盖城市只有状态与申请入口。
+ */
+import AppShell from "../layouts/AppShell.astro";
+import EmptyState from "../components/EmptyState.astro";
+import ConfirmDialog from "../components/ConfirmDialog.astro";
+import catalog from "../../../../config/cities/city-catalog.json";
+
+const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
+const catalogJson = JSON.stringify(
+  catalog.cities.map((city) => ({
+    code: city.city_code,
+    name: city.name,
+    province: city.province_name,
+  })),
+);
+---
+
+<AppShell
+  title="城市目录与覆盖"
+  demo={demoEnabled}
+>
+  {
+    demoEnabled ? (
+      <div class="page">
+        <EmptyState
+          title="演示模式"
+          description="演示构建不接入真实城市目录接口；生产构建下本页展示 337 城目录与真实覆盖状态。"
+          actionText="返回首页"
+          actionHref="/"
+        />
+      </div>
+    ) : (
+      <div class="page" data-cities-page data-city-catalog={catalogJson}>
+        <p class="page-desc">
+          标准城市目录共 337 城（仅元数据，不含价格）；已接入真实行情的城市以接口状态显示，
+          未覆盖城市不展示任何数字，可提交覆盖申请。
+        </p>
+
+        <div class="cities-toolbar">
+          <input
+            type="search"
+            class="cities-search-input"
+            placeholder="搜索城市或省份…"
+            aria-label="搜索城市"
+            data-cities-q
+          />
+          <div class="chip-row" role="group" aria-label="覆盖状态筛选">
+            <button type="button" class="chip is-active" data-cities-filter="all" aria-pressed="true">
+              全部
+            </button>
+            <button type="button" class="chip" data-cities-filter="active" aria-pressed="false">
+              已开通
+            </button>
+            <button type="button" class="chip" data-cities-filter="limited" aria-pressed="false">
+              部分覆盖
+            </button>
+            <button type="button" class="chip" data-cities-filter="requestable" aria-pressed="false">
+              可申请
+            </button>
+          </div>
+        </div>
+
+        <p class="meta is-hidden" data-cities-loading>正在加载城市目录…</p>
+        <p class="meta result-count" data-cities-count></p>
+        <div class="stack-sm" data-cities-list></div>
+        <div class="is-hidden" data-cities-empty>
+          <EmptyState
+            title="未找到匹配城市"
+            description="换个关键词试试；目录外城市可在登录后提交覆盖申请时填写城市名称。"
+          />
+        </div>
+        <div class="is-hidden" data-cities-error>
+          <EmptyState
+            title="城市目录加载失败"
+            description="无法连接数据服务；目录状态未知时不会展示任何覆盖结论。"
+          >
+            <button type="button" class="btn btn--secondary" data-cities-retry>
+              重新加载
+            </button>
+          </EmptyState>
+        </div>
+
+        <ConfirmDialog
+          id="perm-login"
+          title="覆盖申请需要登录"
+          message="游客可浏览目录与覆盖状态；提交接入申请需注册登录，便于评估与反馈进度。"
+          confirmText="去登录"
+          cancelText="继续浏览"
+        />
+      </div>
+    )
+  }
+</AppShell>
+
+<script>
+  import {
+    ApiError,
+    createCityCoverageRequest,
+    getPublicCities,
+    getCityCoverage,
+  } from "../lib/api";
+  import {
+    applyCity,
+    cityStatusBadge,
+    isCityCovered,
+    type CityScope,
+  } from "../lib/city";
+  import { hasSessionHint } from "../lib/session";
+
+  const page = document.querySelector<HTMLElement>("[data-cities-page]");
+  if (page) {
+    type CatalogCity = { code: string; name: string; province: string };
+    type RealCity = { city_code: string; name: string; status: string; coverage_level?: string | null; coverage_note?: string | null; updated_at?: string };
+
+    const catalog: CatalogCity[] = JSON.parse(page.dataset.cityCatalog ?? "[]");
+    const loadingEl = page.querySelector<HTMLElement>("[data-cities-loading]")!;
+    const listEl = page.querySelector<HTMLElement>("[data-cities-list]")!;
+    const countEl = page.querySelector<HTMLElement>("[data-cities-count]")!;
+    const emptyEl = page.querySelector<HTMLElement>("[data-cities-empty]")!;
+    const errorEl = page.querySelector<HTMLElement>("[data-cities-error]")!;
+    const qInput = page.querySelector<HTMLInputElement>("[data-cities-q]")!;
+
+    let realByName = new Map<string, RealCity>();
+    let filter = new URLSearchParams(window.location.search).get("status") ?? "all";
+
+    const setPanel = (target: "loading" | "list" | "empty" | "error") => {
+      loadingEl.classList.toggle("is-hidden", target !== "loading");
+      listEl.classList.toggle("is-hidden", target !== "list" && target !== "empty");
+      emptyEl.classList.toggle("is-hidden", target !== "empty");
+      errorEl.classList.toggle("is-hidden", target !== "error");
+    };
+
+    const statusOf = (city: CatalogCity): RealCity | null =>
+      realByName.get(city.name) ?? null;
+
+    const render = () => {
+      const q = qInput.value.trim();
+      const visible = catalog.filter((city) => {
+        if (q && !city.name.includes(q) && !city.province.includes(q)) return false;
+        if (filter === "all") return true;
+        const real = statusOf(city);
+        return (real?.status ?? "requestable") === filter;
+      });
+      countEl.textContent = `共 ${visible.length} 个城市${
+        filter === "all" ? "" : ` · 状态「${{ active: "已开通", limited: "部分覆盖", requestable: "可申请" }[filter] ?? filter}」`
+      }`;
+      if (visible.length === 0) {
+        listEl.replaceChildren();
+        setPanel("empty");
+        return;
+      }
+      const fragment = document.createDocumentFragment();
+      for (const city of visible) {
+        fragment.append(renderRow(city));
+      }
+      listEl.replaceChildren(fragment);
+      setPanel("list");
+    };
+
+    const renderRow = (city: CatalogCity): HTMLElement => {
+      const real = statusOf(city);
+      const status = real?.status ?? "requestable";
+      const covered = isCityCovered(status);
+      const { text, tone } = cityStatusBadge(status);
+
+      const row = document.createElement("div");
+      row.className = "card city-row";
+
+      const head = document.createElement("div");
+      head.className = "city-row-head";
+      const name = document.createElement("span");
+      name.className = "city-row-name";
+      name.textContent = city.name;
+      const province = document.createElement("span");
+      province.className = "meta";
+      province.textContent = city.province;
+      const badge = document.createElement("span");
+      badge.className = `badge ${tone}`;
+      badge.textContent = text;
+      head.append(name, province, badge);
+
+      const actions = document.createElement("div");
+      actions.className = "city-row-actions";
+
+      const selectBtn = document.createElement("button");
+      selectBtn.type = "button";
+      selectBtn.className = "btn btn--secondary btn--sm";
+      selectBtn.textContent = "设为当前城市";
+      selectBtn.addEventListener("click", () => {
+        const scope: CityScope = {
+          city_code: real?.city_code ?? city.code,
+          name: city.name,
+          status,
+        };
+        applyCity(scope);
+        window.dispatchEvent(
+          new CustomEvent("app:toast", {
+            detail: {
+              message: covered
+                ? `已切换到 ${city.name}，全站行情按该城市展示`
+                : `已切换到 ${city.name}：暂未覆盖，页面将保持诚实空态`,
+            },
+          }),
+        );
+      });
+
+      const detailBtn = document.createElement("button");
+      detailBtn.type = "button";
+      detailBtn.className = "btn btn--secondary btn--sm";
+      detailBtn.textContent = "覆盖详情";
+      detailBtn.disabled = !real;
+
+      const requestBtn = document.createElement("button");
+      requestBtn.type = "button";
+      requestBtn.className = "btn btn--primary btn--sm";
+      requestBtn.textContent = "申请覆盖";
+      requestBtn.classList.toggle("is-hidden", covered);
+      requestBtn.addEventListener("click", async () => {
+        if (!hasSessionHint()) {
+          document
+            .querySelector<HTMLDialogElement>("#perm-login")
+            ?.showModal();
+          return;
+        }
+        requestBtn.disabled = true;
+        try {
+          await createCityCoverageRequest({
+            city_code: real?.city_code,
+            requested_city_name: city.name,
+            requested_province_name: city.province,
+          });
+          requestBtn.textContent = "已提交申请";
+          window.dispatchEvent(
+            new CustomEvent("app:toast", {
+              detail: { message: `${city.name} 的覆盖申请已提交，评估后会同步进展` },
+            }),
+          );
+        } catch (error) {
+          const code = error instanceof ApiError ? error.code : "network_error";
+          if (code === "already_requested") {
+            requestBtn.textContent = "已有处理中的申请";
+          } else if (error instanceof ApiError && error.status === 401) {
+            document.querySelector<HTMLDialogElement>("#perm-login")?.showModal();
+          }
+          window.dispatchEvent(
+            new CustomEvent("app:toast", {
+              detail: {
+                message:
+                  error instanceof ApiError
+                    ? error.message
+                    : "申请提交失败：网络异常，请稍后重试",
+              },
+            }),
+          );
+          requestBtn.disabled = false;
+        }
+      });
+
+      actions.append(selectBtn, detailBtn, requestBtn);
+
+      const detailPanel = document.createElement("div");
+      detailPanel.className = "city-detail is-hidden";
+      detailBtn.addEventListener("click", async () => {
+        if (!real) return;
+        if (!detailPanel.classList.contains("is-hidden")) {
+          detailPanel.classList.add("is-hidden");
+          return;
+        }
+        detailPanel.classList.remove("is-hidden");
+        if (detailPanel.dataset.loaded === "1") return;
+        detailPanel.textContent = "正在加载覆盖详情…";
+        try {
+          const res = await getCityCoverage(real.city_code);
+          const lines: string[] = [];
+          if (res.city.coverage_note) lines.push(`覆盖说明：${res.city.coverage_note}`);
+          lines.push(`目录更新：${res.updated_at?.slice(0, 16) ?? "—"}`);
+          if (res.coverage.length > 0) {
+            lines.push(`已登记来源 ${res.coverage.length} 项：`);
+            for (const item of res.coverage as Array<{
+              source_id: string;
+              object_level: string;
+              authorization_status: string;
+              last_verified_at: string | null;
+            }>) {
+              lines.push(
+                `· ${item.source_id}（对象级 ${item.object_level} · 授权 ${item.authorization_status} · 最近核验 ${item.last_verified_at?.slice(0, 10) ?? "—"}）`,
+              );
+            }
+          } else {
+            lines.push("尚无已登记数据源；接入进度以本页状态为准。");
+          }
+          detailPanel.textContent = lines.join("\n");
+          detailPanel.dataset.loaded = "1";
+        } catch {
+          detailPanel.textContent = "覆盖详情加载失败，请稍后重试。";
+        }
+      });
+
+      const wrap = document.createElement("div");
+      wrap.className = "city-row-wrap";
+      wrap.append(head, actions, detailPanel);
+      return wrap;
+    };
+
+    const load = async () => {
+      setPanel("loading");
+      try {
+        const res = await getPublicCities({ limit: 50 });
+        realByName = new Map(
+          res.items.map((item) => [
+            item.name,
+            item as RealCity,
+          ]),
+        );
+        render();
+      } catch {
+        setPanel("error");
+      }
+    };
+
+    qInput.addEventListener("input", render);
+    page.querySelectorAll<HTMLElement>("[data-cities-filter]").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        filter = chip.dataset.citiesFilter ?? "all";
+        page.querySelectorAll<HTMLElement>("[data-cities-filter]").forEach((el) => {
+          const active = el === chip;
+          el.classList.toggle("is-active", active);
+          el.setAttribute("aria-pressed", active ? "true" : "false");
+        });
+        render();
+      });
+    });
+    page
+      .querySelector<HTMLButtonElement>("[data-cities-retry]")
+      ?.addEventListener("click", () => void load());
+
+    void load();
+  }
+</script>
+
+<style>
+  .page-desc {
+    margin: 0 0 var(--space-2);
+    color: var(--color-muted);
+    line-height: 1.7;
+  }
+
+  .cities-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-bottom: var(--space-2);
+  }
+
+  .cities-search-input {
+    min-height: var(--input-height);
+    padding: 0 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-size: var(--text-base);
+    font-family: inherit;
+    width: 100%;
+  }
+
+  .cities-search-input:focus {
+    border-color: var(--color-primary);
+    outline: 2px solid var(--color-primary-soft);
+  }
+
+  .result-count {
+    margin-bottom: var(--space-1);
+  }
+
+  .city-row-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .city-row-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .city-row-name {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  .city-row-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .city-detail {
+    white-space: pre-line;
+    padding: 8px 10px;
+    background: var(--color-bg);
+    border-radius: var(--radius-input);
+    font-size: var(--text-sm);
+    color: var(--color-muted);
+    line-height: 1.7;
+  }
+</style>

@@ -31,7 +31,9 @@ export type ErrorCode =
   | "mfa_conflict"
   | "bootstrap_not_configured"
   | "bootstrap_code_invalid"
-  | "bootstrap_target_not_found";
+  | "bootstrap_target_not_found"
+  // ---- TASK-08C：城市覆盖申请 ----
+  | "already_requested";
 
 /** 业务/协议错误：携带 HTTP 状态与稳定 error_code，绝不携带内部结构（SQL、表名等） */
 export class AppError extends Error {
@@ -122,6 +124,11 @@ export const errors = {
   /** bootstrap 目标邮箱不存在 */
   bootstrapTargetNotFound: (message = "目标用户不存在") =>
     new AppError(404, "bootstrap_target_not_found", message),
+  // ---- TASK-08C：城市覆盖申请 ----
+  /** 同人同城已有处理中的覆盖申请（幂等拒绝，防刷队列） */
+  alreadyRequested: (
+    message = "您已提交该城市的覆盖申请，正在评估中，请耐心等待",
+  ) => new AppError(409, "already_requested", message),
 };
 
 /** 统一错误响应信封（不含任何私有 DB 结构信息） */

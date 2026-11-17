@@ -228,6 +228,7 @@ const navItems: {
 
     <script>
       import { getUnreadEventCount } from "../lib/api";
+      import { hasSessionHint } from "../lib/session";
 
       // 全局轻提示：任何页面脚本派发 window 事件 app:toast 即可展示
       window.addEventListener("app:toast", (event) => {
@@ -257,7 +258,8 @@ const navItems: {
         notifyLink?.setAttribute("aria-label", count > 0 ? `事件通知，${count} 条未读` : "事件通知");
       };
 
-      if (notifyLink?.dataset.notifyMode === "real") {
+      // TASK-08C R8：游客（无登录提示）不发 /me 请求，消除 401 噪音
+      if (notifyLink?.dataset.notifyMode === "real" && hasSessionHint()) {
         void (async () => {
           try {
             setNotifyBadge(await getUnreadEventCount());

@@ -14,6 +14,7 @@ import { SESSION_COOKIE, type AppEnv } from "../env";
 import { EVENT_TYPES, type EventType } from "../events";
 import { readJsonBody, validateOrThrow } from "../validation";
 import {
+  createCityCoverageRequestSchema,
   createPushSubscriptionSchema,
   createRuleSchema,
   createWatchItemSchema,
@@ -1240,4 +1241,95 @@ meRoutes.post("/delete-account", async (c) => {
     status: "deletion_pending",
     purge_after_days: DELETION_COOLDOWN_DAYS,
   });
+});
+
+// ---------------- 城市覆盖申请（TASK-08C R6b） ----------------
+
+// POST /me/city-coverage-requests —— 提交未覆盖城市的行情接入申请。
+// 目录校验走 Public 库（catalog_status='active'）；已开通城市拒绝；
+// 同人同城（或同名未知城市）存在处理中申请 → 409 already_requested（幂等防刷）。
+meRoutes.post("/city-coverage-requests", async (c) => {
+  const body = await jsonBody(c);
+  validateOrThrow(createCityCoverageRequestSchema, body);
+  const input = body as {
+    city_code?: string;
+    requested_city_name: string;
+    requested_province_name?: string;
+    reason?: string;
+  };
+  const userId = c.get("userId");
+  const cityName = input.requested_city_name.trim();
+  let cityCode = input.city_code?.trim() ?? null;
+  let provinceName = input.requested_province_name?.trim() ?? null;
+
+  if (cityCode) {
+    const city = await c.env.DB_PUBLIC.prepare(
+      `SELECT city_code, name, province_code, status
+       FROM cities WHERE catalog_status = 'active' AND city_code = ?`,
+    )
+      .bind(cityCode)
+      .first<{
+        city_code: string;
+        name: string;
+        province_code: string;
+        status: string;
+      }>();
+    if (!city) {
+      throw errors.validation([
+        {
+          field: "city_code",
+          message: "城市不在标准目录中；未知城市请仅填写城市名称",
+        },
+      ]);
+    }
+    if (city.status === "active") {
+      throw errors.validation([
+        { field: "city_code", message: "该城市已开通数据覆盖，无需申请" },
+      ]);
+    }
+    cityCode = city.city_code;
+    provinceName = city.province_code;
+  }
+
+  // 处理中判定：submitted/reviewing（approved/rejected 历史不挡新申请）
+  const dup = await c.env.DB_PRIVATE.prepare(
+    cityCode
+      ? `SELECT request_id FROM city_coverage_requests
+         WHERE user_id = ? AND city_code = ? AND status IN ('submitted', 'reviewing')
+         LIMIT 1`
+      : `SELECT request_id FROM city_coverage_requests
+         WHERE user_id = ? AND city_code IS NULL AND requested_city_name = ?
+           AND status IN ('submitted', 'reviewing')
+         LIMIT 1`,
+  )
+    .bind(userId, cityCode ?? cityName)
+    .first();
+  if (dup) throw errors.alreadyRequested();
+
+  const requestId = crypto.randomUUID();
+  await c.env.DB_PRIVATE.prepare(
+    `INSERT INTO city_coverage_requests
+       (request_id, user_id, city_code, requested_city_name, requested_province_name, reason, status)
+     VALUES (?, ?, ?, ?, ?, ?, 'submitted')`,
+  )
+    .bind(
+      requestId,
+      userId,
+      cityCode,
+      cityName,
+      provinceName,
+      input.reason?.trim() ?? null,
+    )
+    .run();
+  return c.json(
+    {
+      request: {
+        request_id: requestId,
+        city_code: cityCode,
+        requested_city_name: cityName,
+        status: "submitted",
+      },
+    },
+    201,
+  );
 });

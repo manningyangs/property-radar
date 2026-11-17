@@ -145,6 +145,19 @@ export const deleteAccountSchema: JsonSchema = {
   },
 };
 
+/** TASK-08C：POST /me/city-coverage-requests —— 覆盖申请（未知城市可不带 city_code） */
+export const createCityCoverageRequestSchema: JsonSchema = {
+  type: "object",
+  required: ["requested_city_name"],
+  additionalProperties: false,
+  properties: {
+    city_code: { type: "string", minLength: 1, maxLength: 16 },
+    requested_city_name: { type: "string", minLength: 1, maxLength: 64 },
+    requested_province_name: { type: "string", minLength: 1, maxLength: 32 },
+    reason: { type: "string", minLength: 1, maxLength: 500 },
+  },
+};
+
 /** TASK-05A：PATCH /me/events/:id/read —— { read?: boolean }，缺省/true=已读，false=标记未读 */
 export const eventReadSchema: JsonSchema = {
   type: "object",

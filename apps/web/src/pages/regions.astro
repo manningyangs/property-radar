@@ -272,13 +272,59 @@ const statusBadge = (status: string) =>
         />
       </div>
     ) : (
-      <div class="page">
-        <EmptyState
-          title="暂未覆盖，可提交覆盖申请"
-          description="未接入数据源时，区域页不展示任何价格。可从标准城市目录选择城市并提交覆盖申请。"
-          actionText="登录后提交覆盖申请"
-          actionHref="/login"
-        />
+      <div class="page" data-prod-regions>
+        <div class="btn-row regions-actions">
+          <button type="button" class="chip" data-city-open="regions">
+            切换城市
+          </button>
+        </div>
+
+        <form class="regions-search" action="/regions" method="get" role="search">
+          <input
+            type="search"
+            class="regions-search-input"
+            name="q"
+            placeholder="搜索区县名称…"
+            aria-label="搜索区县"
+            data-regions-q
+          />
+          <button type="submit" class="btn btn--primary btn--sm">搜索</button>
+        </form>
+
+        <p class="meta is-hidden" data-regions-loading>正在加载区县列表…</p>
+        <section aria-label="区县列表" class="is-hidden" data-regions>
+          <div class="section-head">
+            <h2 class="section-title">区县列表</h2>
+            <span class="meta" data-regions-count></span>
+          </div>
+          <div class="stack-sm" data-regions-list></div>
+        </section>
+        <div class="is-hidden" data-regions-empty>
+          <EmptyState
+            title="未找到区县"
+            description="当前城市没有匹配的区县目录，或尚未建立区域数据；不展示任何估算行情。"
+            actionText="查看城市覆盖"
+            actionHref="/cities"
+          />
+        </div>
+        <div class="is-hidden" data-regions-error>
+          <EmptyState
+            title="区县列表加载失败"
+            description="无法连接数据服务，恢复之前不会展示任何区域行情。"
+          >
+            <button type="button" class="btn btn--secondary" data-regions-retry>
+              重新加载
+            </button>
+          </EmptyState>
+        </div>
+        <div class="is-hidden" data-city-empty>
+          <EmptyState
+            title="当前城市暂未覆盖房价数据"
+            description="已选城市尚未接入真实行情区域目录；可在城市目录查看覆盖状态并提交接入申请。"
+            actionText="城市目录与覆盖申请"
+            actionHref="/cities"
+          />
+        </div>
       </div>
     )
   }
@@ -286,6 +332,14 @@ const statusBadge = (status: string) =>
 
 <script>
   import { PERIOD_LABELS, drawChart, parseChartData } from "../scripts/chart";
+  import { getPublicCities, searchRegions } from "../lib/api";
+  import {
+    CITY_CHANGE_EVENT,
+    isCityCovered,
+    readStoredCity,
+    resolveCityScope,
+    type CityScope,
+  } from "../lib/city";
 
   const data = parseChartData(
     document.querySelector<HTMLElement>("[data-chart-json]")?.dataset.chartJson ?? "{}",
@@ -373,6 +427,114 @@ const statusBadge = (status: string) =>
   // 从 query 参数恢复区县筛选（静态页 + 客户端同步）
   const initial = new URLSearchParams(window.location.search).get("district") ?? "all";
   applyDistrict(data[initial] ? initial : "all", false);
+
+  // ===== TASK-08C R2：生产区县列表（GET /public/regions?city_code=&q=） =====
+  const prodRoot = document.querySelector<HTMLElement>("[data-prod-regions]");
+  if (prodRoot) {
+    const loadingEl = prodRoot.querySelector<HTMLElement>("[data-regions-loading]");
+    const sectionEl = prodRoot.querySelector<HTMLElement>("[data-regions]");
+    const listEl = prodRoot.querySelector<HTMLElement>("[data-regions-list]");
+    const countEl = prodRoot.querySelector<HTMLElement>("[data-regions-count]");
+    const emptyEl = prodRoot.querySelector<HTMLElement>("[data-regions-empty]");
+    const errorEl = prodRoot.querySelector<HTMLElement>("[data-regions-error]");
+    const cityEmptyEl = prodRoot.querySelector<HTMLElement>("[data-city-empty]");
+    const qInput = prodRoot.querySelector<HTMLInputElement>("[data-regions-q]");
+    const form = prodRoot.querySelector<HTMLFormElement>(".regions-search");
+
+    const show = (target: "loading" | "list" | "empty" | "error" | "no-city") => {
+      loadingEl?.classList.toggle("is-hidden", target !== "loading");
+      sectionEl?.classList.toggle("is-hidden", target !== "list");
+      emptyEl?.classList.toggle("is-hidden", target !== "empty");
+      errorEl?.classList.toggle("is-hidden", target !== "error");
+      cityEmptyEl?.classList.toggle("is-hidden", target !== "no-city");
+    };
+
+    const LEVEL_LABELS: Record<string, string> = {
+      city: "城市",
+      district: "区县",
+      street: "街道",
+      block: "板块",
+    };
+
+    let scope: CityScope | null = null;
+
+    const load = async () => {
+      if (!scope || !isCityCovered(scope.status)) {
+        show("no-city");
+        return;
+      }
+      show("loading");
+      try {
+        const res = await searchRegions(scope.city_code, qInput?.value.trim() ?? "");
+        if (res.items.length === 0) {
+          show("empty");
+          return;
+        }
+        if (countEl) countEl.textContent = `${res.count} 个区县`;
+        const fragment = document.createDocumentFragment();
+        for (const region of res.items) {
+          const row = document.createElement("a");
+          row.className = "card prod-region-row";
+          row.href = `/region?id=${encodeURIComponent(region.region_id)}`;
+          const name = document.createElement("span");
+          name.className = "region-row-name";
+          name.textContent = region.name;
+          const level = document.createElement("span");
+          level.className = "badge badge--neutral";
+          level.textContent = LEVEL_LABELS[region.level] ?? region.level;
+          const more = document.createElement("span");
+          more.className = "meta prod-region-row-more";
+          more.textContent = "行情详情 ›";
+          row.append(name, level, more);
+          fragment.append(row);
+        }
+        listEl?.replaceChildren(fragment);
+        show("list");
+      } catch {
+        show("error");
+      }
+    };
+
+    form?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const url = new URL(window.location.href);
+      const q = qInput?.value.trim() ?? "";
+      if (q) url.searchParams.set("q", q);
+      else url.searchParams.delete("q");
+      window.history.replaceState({}, "", url);
+      void load();
+    });
+
+    prodRoot
+      .querySelector<HTMLButtonElement>("[data-regions-retry]")
+      ?.addEventListener("click", () => void load());
+
+    window.addEventListener(CITY_CHANGE_EVENT, (event) => {
+      scope = (event as CustomEvent<CityScope | null>).detail ?? null;
+      void load();
+    });
+
+    const stored = readStoredCity();
+    if (stored) {
+      scope = stored;
+      const q = new URLSearchParams(window.location.search).get("q");
+      if (q && qInput) qInput.value = q;
+      void load();
+    } else {
+      void (async () => {
+        try {
+          const res = await getPublicCities({ limit: 50 });
+          scope = resolveCityScope(
+            res.items.map((c) => ({ city_code: c.city_code, name: c.name, status: c.status })),
+          );
+        } catch {
+          show("error");
+          return;
+        }
+        void load();
+      })();
+    }
+  }
 </script>
 
 <style>
@@ -442,6 +604,44 @@ const statusBadge = (status: string) =>
   }
 
   .region-row-sample {
+    margin-left: auto;
+  }
+
+  /* TASK-08C：生产区县搜索与列表（脚本生成节点无作用域属性，用 :global） */
+  .regions-search {
+    display: flex;
+    gap: 8px;
+    margin-bottom: var(--space-2);
+  }
+
+  .regions-search-input {
+    flex: 1;
+    min-width: 0;
+    min-height: var(--input-height);
+    padding: 0 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-size: var(--text-base);
+    font-family: inherit;
+  }
+
+  .regions-search-input:focus {
+    border-color: var(--color-primary);
+    outline: 2px solid var(--color-primary-soft);
+  }
+
+  :global(.prod-region-row) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    color: inherit;
+    text-decoration: none;
+  }
+
+  :global(.prod-region-row-more) {
     margin-left: auto;
   }
 </style>

@@ -564,6 +564,7 @@ export interface CommunityItem {
   block_name?: string | null;
   built_year?: number | null;
   status: string;
+  updated_at?: string;
 }
 
 /** GET /public/cities?q=——城市目录搜索（未覆盖城市同样可选） */
@@ -914,4 +915,218 @@ export interface AdminOverviewResult {
 /** GET /admin/overview：总览聚合（零 PII；ops 为 06D 四指标卡数据源） */
 export function adminOverview(): Promise<AdminOverviewResult> {
   return request("/admin/overview");
+}
+
+// ---------------- TASK-08C：公共行情数据（游客只读，零演示数据） ----------------
+
+export interface PublicCity {
+  city_code: string;
+  name: string;
+  province_code: string;
+  /** active/limited/requestable（CITY_STATUSES） */
+  status: string;
+  catalog_status: string;
+  coverage_level?: string | null;
+  coverage_note?: string | null;
+  updated_at?: string;
+}
+
+/** GET /public/cities?q=&status=&limit= —— 城市目录（含覆盖状态） */
+export function getPublicCities(
+  params: { q?: string; status?: string; limit?: number } = {},
+): Promise<{ items: PublicCity[]; count: number }> {
+  const query = new URLSearchParams();
+  if (params.q) query.set("q", params.q);
+  if (params.status) query.set("status", params.status);
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
+  const qs = query.toString();
+  return request(`/public/cities${qs ? `?${qs}` : ""}`);
+}
+
+/** 价格快照（region summary 与 community prices 共用形态；prices 额外带来源字段） */
+export interface PriceSnapshot {
+  snapshot_id: string;
+  price_type: string | null;
+  metric_code: string;
+  median: number | null;
+  mean: number | null;
+  p25: number | null;
+  p75: number | null;
+  sample_count: number | null;
+  stat_date: string;
+  quality_status: string;
+  source_id?: string | null;
+  collected_at?: string | null;
+  method_version?: string | null;
+}
+
+export interface RegionInfo {
+  region_id: string;
+  parent_id: string | null;
+  city_code: string;
+  name: string;
+  level: string;
+  updated_at?: string;
+}
+
+/** GET /public/regions/:id/summary —— 区域最新指标快照（无数据如实空列表） */
+export function getRegionSummary(
+  regionId: string,
+): Promise<{ region: RegionInfo; snapshots: PriceSnapshot[] }> {
+  return request(`/public/regions/${encodeURIComponent(regionId)}/summary`);
+}
+
+export interface CommunityDetail {
+  community_id: string;
+  city_code: string;
+  region_id: string;
+  name: string;
+  alias_json: string | null;
+  address_coarse: string | null;
+  block_name: string | null;
+  built_year: number | null;
+  longitude: number | null;
+  latitude: number | null;
+  status: string;
+  updated_at: string;
+}
+
+/** 城市覆盖详情（GET /public/cities/:cityCode/coverage）：来源登记与授权状态 */
+export interface CityCoverageDetail {
+  city: PublicCity;
+  coverage: Array<Record<string, unknown>>;
+  updated_at?: string;
+}
+
+/** GET /public/cities/:cityCode/coverage —— 城市级覆盖、更新时间与来源登记 */
+export function getCityCoverage(cityCode: string): Promise<CityCoverageDetail> {
+  return request(`/public/cities/${encodeURIComponent(cityCode)}/coverage`);
+}
+
+/** GET /public/communities/:id —— 小区基础信息 */
+export function getCommunity(
+  communityId: string,
+): Promise<{ community: CommunityDetail }> {
+  return request(`/public/communities/${encodeURIComponent(communityId)}`);
+}
+
+/** GET /public/communities/:id/prices?limit= —— 小区历史价格快照（倒序） */
+export function getCommunityPrices(
+  communityId: string,
+  limit?: number,
+): Promise<{ items: PriceSnapshot[]; count: number }> {
+  const qs = limit !== undefined ? `?limit=${limit}` : "";
+  return request(
+    `/public/communities/${encodeURIComponent(communityId)}/prices${qs}`,
+  );
+}
+
+/** 逐小区覆盖结论（TASK-04D）：snapshot=null 表示该小区无有效快照，绝不造数 */
+export interface CommunityCoverageItem {
+  community_id: string;
+  name: string;
+  district: string | null;
+  snapshot: {
+    source_id: string;
+    price_type: string | null;
+    metric_code: string | null;
+    sample_count: number | null;
+    stat_date: string | null;
+    collected_at: string | null;
+    quality_status: string | null;
+  } | null;
+}
+
+/** GET /public/communities/coverage?city_code= —— 城市内逐小区覆盖（首页最近更新小区） */
+export function getCommunitiesCoverage(cityCode: string): Promise<{
+  city_code: string;
+  items: CommunityCoverageItem[];
+  count: number;
+}> {
+  return request(
+    `/public/communities/coverage?city_code=${encodeURIComponent(cityCode)}`,
+  );
+}
+
+export interface MethodologyFieldVerification {
+  field_code: string;
+  field_label: string;
+  metric_code: string | null;
+  status: string;
+  evidence: string | null;
+  verified_at: string | null;
+}
+
+export interface MethodologySource {
+  source_id: string;
+  name: string;
+  source_type: string;
+  official_url: string | null;
+  data_scope: string | null;
+  license_note_url: string | null;
+  display_scope: string | null;
+  updated_at: string;
+  last_verified_at: string | null;
+  license_status: string;
+  license_valid_until: string | null;
+  field_verifications: MethodologyFieldVerification[];
+  verified_metrics: string[];
+}
+
+/** GET /public/methodology/sources —— 可公开的数据源说明（口径/许可/验证状态） */
+export function getMethodologySources(): Promise<{
+  items: MethodologySource[];
+  count: number;
+}> {
+  return request("/public/methodology/sources");
+}
+
+export interface SystemStatus {
+  status: string;
+  cities_catalog_active?: number;
+  cities_data_active?: number;
+  sources_total?: number;
+  last_collected_at?: string | null;
+  observations_total?: number;
+  checked_at: string;
+}
+
+/** GET /public/system/status —— 数据更新时间与覆盖规模 */
+export function getSystemStatus(): Promise<SystemStatus> {
+  return request("/public/system/status");
+}
+
+/** POST /me/city-coverage-requests——覆盖申请（登录；同人同城处理中重复 → 409 already_requested） */
+export function createCityCoverageRequest(input: {
+  city_code?: string;
+  requested_city_name: string;
+  requested_province_name?: string;
+  reason?: string;
+}): Promise<{
+  request: {
+    request_id: string;
+    city_code: string | null;
+    requested_city_name: string;
+    status: string;
+  };
+}> {
+  return request("/me/city-coverage-requests", {
+    method: "POST",
+    body: JSON.stringify(input),
+    skipAuthRedirect: true,
+  });
+}
+
+/** GET /public/communities?region_id=&q=&limit= —— 小区搜索（联想/列表） */
+export function getPublicCommunities(params: {
+  region_id?: string;
+  q?: string;
+  limit?: number;
+}): Promise<{ items: CommunityItem[]; count: number }> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  }
+  const qs = query.toString();
+  return request(`/public/communities${qs ? `?${qs}` : ""}`);
 }

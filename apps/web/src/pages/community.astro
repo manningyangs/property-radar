@@ -265,12 +265,109 @@ const statusBadge = (status: string) =>
         />
       </div>
     ) : (
-      <div class="page">
-        <EmptyState
-          title="暂未覆盖，可提交覆盖申请"
-          description="小区详情需要已接入的数据源。当前构建不展示任何价格数字。"
-          actionText="登录后提交覆盖申请"
-          actionHref="/login"
+      <div class="page" data-prod-community>
+        <p class="meta is-hidden" data-cd-loading>正在加载小区数据…</p>
+
+        <div class="stack community-blocks is-hidden" data-cd-card>
+          <section class="community-detail" aria-label="小区详情">
+            <header class="card cd-head">
+              <div class="cd-title-row">
+                <h2 class="cd-name" data-cd-name>—</h2>
+                <span class="badge badge--neutral" data-cd-freshness>—</span>
+              </div>
+              <p class="meta" data-cd-path></p>
+              <div class="cd-badges" data-cd-badges></div>
+            </header>
+
+            <div class="cd-main" data-cd-metrics></div>
+
+            <figure class="cd-chart-wrap" data-cd-chart-wrap>
+              <svg
+                class="cd-chart"
+                viewBox="0 0 100 72"
+                preserveAspectRatio="none"
+                data-cd-chart
+                role="img"
+                aria-label="小区价格趋势图"
+              >
+                <line
+                  x1="0"
+                  y1="71"
+                  x2="100"
+                  y2="71"
+                  stroke="var(--color-border)"
+                  stroke-width="1"
+                  vector-effect="non-scaling-stroke"
+                />
+                <path
+                  data-cd-chart-path
+                  d=""
+                  fill="none"
+                  stroke="var(--color-primary)"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  vector-effect="non-scaling-stroke"
+                />
+                <circle
+                  data-cd-chart-dot
+                  cx="0"
+                  cy="0"
+                  r="0"
+                  fill="var(--color-primary)"
+                />
+              </svg>
+              <figcaption class="meta" data-cd-chart-caption></figcaption>
+            </figure>
+
+            <div class="card cd-sample-change" data-cd-history-wrap>
+              <p class="cd-subtitle">历史快照</p>
+              <div class="stack-sm" data-cd-history></div>
+            </div>
+
+            <p class="meta" data-cd-source></p>
+
+            <div class="btn-row">
+              <a class="btn btn--primary" href="/rules" data-cd-rules>
+                设定目标价
+              </a>
+              <button
+                type="button"
+                class="btn btn--secondary"
+                data-dialog-open="perm-watch"
+              >
+                加入监控
+              </button>
+            </div>
+          </section>
+        </div>
+
+        <div class="is-hidden" data-cd-empty>
+          <EmptyState
+            title="未找到该小区"
+            description="链接可能已过期，或该小区不在当前城市目录中；请从小区搜索页重新选择。"
+            actionText="返回小区搜索"
+            actionHref="/communities"
+          />
+        </div>
+
+        <div class="is-hidden" data-cd-error>
+          <EmptyState
+            title="小区数据加载失败"
+            description="无法连接数据服务；恢复之前不会展示任何价格数字。"
+          >
+            <button type="button" class="btn btn--secondary" data-cd-retry>
+              重新加载
+            </button>
+          </EmptyState>
+        </div>
+
+        <ConfirmDialog
+          id="perm-watch"
+          title="云端监控需要登录"
+          message="游客可浏览全部公开数据；设定目标价与监控事件推送需注册登录。"
+          confirmText="去登录"
+          cancelText="继续浏览"
         />
       </div>
     )
@@ -397,6 +494,213 @@ const statusBadge = (status: string) =>
   });
 
   applyCommunity(communityId, false);
+
+  // ===== TASK-08C R5：生产小区详情（GET /public/communities/:id + /prices） =====
+  const prodRoot = document.querySelector<HTMLElement>("[data-prod-community]");
+  if (prodRoot) {
+    const { ApiError, getCommunity, getCommunityPrices, searchRegions } =
+      await import("../lib/api");
+    const {
+      SAMPLE_TIER_TEXT,
+      formatPriceValue,
+      freshnessStatus,
+      isLowSample,
+      latestPerMetric,
+      metricLabel,
+      priceTypeLabel,
+      sampleTier,
+      trendSeries,
+    } = await import("../lib/market");
+
+    const loadingEl = prodRoot.querySelector<HTMLElement>("[data-cd-loading]");
+    const cardEl = prodRoot.querySelector<HTMLElement>("[data-cd-card]");
+    const emptyEl = prodRoot.querySelector<HTMLElement>("[data-cd-empty]");
+    const errorEl = prodRoot.querySelector<HTMLElement>("[data-cd-error]");
+
+    const show = (target: "loading" | "card" | "empty" | "error") => {
+      loadingEl?.classList.toggle("is-hidden", target !== "loading");
+      cardEl?.classList.toggle("is-hidden", target !== "card");
+      emptyEl?.classList.toggle("is-hidden", target !== "empty");
+      errorEl?.classList.toggle("is-hidden", target !== "error");
+    };
+
+    const QUALITY_TEXT: Record<string, string> = {
+      valid: "质量正常",
+      suspect: "质量待核",
+      stale: "质量过期",
+    };
+
+    const detailId = new URLSearchParams(window.location.search).get("id") ?? "";
+
+    const load = async () => {
+      if (!detailId) {
+        emptyEl?.querySelector("h2")?.replaceChildren("请从小区搜索页选择小区");
+        show("empty");
+        return;
+      }
+      show("loading");
+      try {
+        const [{ community }, pricesRes] = await Promise.all([
+          getCommunity(detailId),
+          getCommunityPrices(detailId, 50),
+        ]);
+        const regions = await searchRegions(community.city_code).catch(() => null);
+        const districtName =
+          regions?.items.find((r) => r.region_id === community.region_id)?.name ??
+          community.region_id;
+
+        prodRoot.querySelector("[data-cd-name]")!.textContent = community.name;
+        prodRoot.querySelector("[data-cd-path]")!.textContent =
+          `${community.city_code} › ${districtName}${community.block_name ? ` · ${community.block_name}` : ""}${
+            community.built_year ? ` · 建成 ${community.built_year}` : ""
+          }`;
+        prodRoot
+          .querySelector("[data-cd-rules]")!
+          .setAttribute("href", `/rules?target=${encodeURIComponent(community.community_id)}`);
+
+        const items = pricesRes.items;
+        const latest = latestPerMetric(items);
+        const main =
+          latest.find((s) => s.metric_code === "median_price" && s.median !== null) ??
+          latest[0] ??
+          null;
+
+        // 徽标区：样本分层 + 新鲜度
+        const badgesHost = prodRoot.querySelector("[data-cd-badges]")!;
+        badgesHost.replaceChildren();
+        if (main) {
+          const sampleBadge = document.createElement("span");
+          sampleBadge.className = "badge badge--neutral";
+          sampleBadge.textContent = `${SAMPLE_TIER_TEXT[sampleTier(main.sample_count)]} · ${main.sample_count ?? 0} 条`;
+          badgesHost.append(sampleBadge);
+        }
+        const fresh = freshnessStatus(main?.stat_date ?? null, Date.now());
+        const freshBadge = prodRoot.querySelector("[data-cd-freshness]")!;
+        if (!main) {
+          freshBadge.textContent = "暂无数据";
+          freshBadge.className = "badge badge--neutral";
+        } else {
+          freshBadge.textContent =
+            fresh === "fresh" ? "数据正常" : fresh === "delayed" ? "更新延迟" : "数据过期";
+          freshBadge.className = `badge ${fresh === "fresh" ? "badge--down" : "badge--warning"}`;
+        }
+
+        // 主指标卡：中位/均价/P25/P75/样本（全部来自快照字段，缺失显示 —）
+        const metricsHost = prodRoot.querySelector("[data-cd-metrics]")!;
+        metricsHost.replaceChildren();
+        if (main) {
+          const hero = document.createElement("div");
+          hero.className = "card prod-cd-hero";
+          hero.innerHTML = `
+            <p class="meta" data-metric></p>
+            <div class="prod-cd-hero-value"><span class="num" data-v></span><span class="meta" data-date></span></div>`;
+          hero.querySelector("[data-metric]")!.textContent =
+            `${metricLabel(main.metric_code)} · ${priceTypeLabel(main.price_type)}`;
+          const vEl = hero.querySelector("[data-v]")!;
+          vEl.textContent = formatPriceValue(main.median, "元/㎡");
+          if (isLowSample(main.sample_count)) vEl.classList.add("prod-cd-hero-weak");
+          hero.querySelector("[data-date]")!.textContent =
+            `数据日期 ${main.stat_date.slice(0, 10)} · 采集 ${main.collected_at?.slice(0, 16) ?? "—"}`;
+          metricsHost.append(hero);
+
+          const grid = document.createElement("div");
+          grid.className = "grid-2 cd-stats";
+          for (const [label, value] of [
+            ["均价", main.mean],
+            ["P25", main.p25],
+            ["P75", main.p75],
+            ["有效样本", main.sample_count],
+          ] as const) {
+            const cell = document.createElement("div");
+            cell.className = "cd-stat";
+            const l = document.createElement("span");
+            l.className = "cd-stat-label";
+            l.textContent = label;
+            const v = document.createElement("span");
+            v.className = "cd-stat-value num";
+            v.textContent =
+              label === "有效样本"
+                ? `${value ?? "—"} 条`
+                : formatPriceValue(value as number | null, "元/㎡");
+            cell.append(l, v);
+            grid.append(cell);
+          }
+          metricsHost.append(grid);
+        } else {
+          const note = document.createElement("p");
+          note.className = "meta";
+          note.textContent = "该小区尚无有效价格快照；不展示任何估算数字。";
+          metricsHost.append(note);
+        }
+
+        // 趋势图：中位价历史序列（升序）；不足 2 点如实说明
+        const chartWrap = prodRoot.querySelector("[data-cd-chart-wrap]")!;
+        const series = trendSeries(items, "median_price", main?.price_type ?? null).filter(
+          (s) => s.median !== null,
+        );
+        if (series.length >= 2) {
+          chartWrap.classList.remove("is-hidden");
+          const svg = prodRoot.querySelector<SVGSVGElement>("[data-cd-chart]")!;
+          drawChart(svg, series.map((s) => s.median as number));
+          const first = series[0]!;
+          const last = series[series.length - 1]!;
+          const delta =
+            first.median && last.median
+              ? `${(((last.median - first.median) / first.median) * 100).toFixed(1)}%`
+              : "—";
+          prodRoot.querySelector("[data-cd-chart-caption]")!.textContent =
+            `${metricLabel("median_price")} · ${priceTypeLabel(main?.price_type ?? null)} · ${series.length} 个快照（${first.stat_date.slice(0, 10)} → ${last.stat_date.slice(0, 10)}）· 区间变化 ${delta}`;
+        } else {
+          chartWrap.classList.add("is-hidden");
+        }
+
+        // 历史快照列表（近 10 条）
+        const historyHost = prodRoot.querySelector("[data-cd-history]")!;
+        const historyWrap = prodRoot.querySelector("[data-cd-history-wrap]")!;
+        if (items.length === 0) {
+          historyWrap.classList.add("is-hidden");
+        } else {
+          historyWrap.classList.remove("is-hidden");
+          const fragment = document.createDocumentFragment();
+          for (const s of items.slice(0, 10)) {
+            const row = document.createElement("div");
+            row.className = "card prod-cd-history-row";
+            const date = document.createElement("span");
+            date.className = "num";
+            date.textContent = s.stat_date.slice(0, 10);
+            const metric = document.createElement("span");
+            metric.className = "meta";
+            metric.textContent = `${metricLabel(s.metric_code)} · ${priceTypeLabel(s.price_type)}`;
+            const value = document.createElement("span");
+            value.className = "num prod-cd-history-value";
+            value.textContent = formatPriceValue(s.median, "元/㎡");
+            if (isLowSample(s.sample_count)) value.classList.add("prod-cd-hero-weak");
+            const sample = document.createElement("span");
+            sample.className = "badge badge--neutral";
+            sample.textContent = QUALITY_TEXT[s.quality_status] ?? s.quality_status;
+            row.append(date, metric, value, sample);
+            fragment.append(row);
+          }
+          historyHost.replaceChildren(fragment);
+        }
+
+        // 来源标注（SourceAttribution 口径）
+        prodRoot.querySelector("[data-cd-source]")!.textContent = main?.source_id
+          ? `来源：${main.source_id} · 方法版本 ${main.method_version ?? "—"} · ${QUALITY_TEXT[main.quality_status] ?? main.quality_status}；口径与许可详见数据说明页。`
+          : "口径与许可详见数据说明页。";
+
+        show("card");
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) show("empty");
+        else show("error");
+      }
+    };
+
+    prodRoot
+      .querySelector<HTMLButtonElement>("[data-cd-retry]")
+      ?.addEventListener("click", () => void load());
+    void load();
+  }
 </script>
 
 <style>
@@ -506,5 +810,44 @@ const statusBadge = (status: string) =>
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+  }
+
+  /* TASK-08C：生产详情动态节点（无作用域属性，用 :global） */
+  :global(.prod-cd-hero) {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  :global(.prod-cd-hero-value) {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  :global(.prod-cd-hero-value .num) {
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-bold);
+    color: var(--color-brand-900);
+  }
+
+  :global(.prod-cd-hero-weak) {
+    color: var(--color-muted);
+    font-weight: var(--weight-medium);
+  }
+
+  :global(.prod-cd-history-row) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 8px 10px;
+  }
+
+  :global(.prod-cd-history-value) {
+    margin-left: auto;
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
   }
 </style>

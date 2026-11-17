@@ -187,7 +187,40 @@ const suggestions = demo
       <div class="page">
         <GlobalSearch />
 
-        {/* 今日与我有关（05A 真实事件：登录态拉取，Asia/Shanghai 当日前 3 条） */}
+        {/* 今日数据状态（TASK-08C R1：GET /public/system/status 真实渲染） */}
+        <p class="meta is-hidden" data-status-loading>正在加载数据状态…</p>
+        <section class="card status-card is-hidden" aria-label="今日数据状态" data-status>
+          <div class="status-head">
+            <span class="section-title">今日数据状态</span>
+            <span class="badge badge--neutral" data-status-freshness>—</span>
+          </div>
+          <div class="grid-2 status-grid">
+            <div class="status-item">
+              <span class="status-num num" data-status-cities>—</span>
+              <span class="status-label">已接入数据城市</span>
+            </div>
+            <div class="status-item">
+              <span class="status-num num" data-status-obs>—</span>
+              <span class="status-label">累计观测样本</span>
+            </div>
+          </div>
+          <p class="meta">
+            最后成功更新 <span class="num" data-status-last>—</span>
+            · 数据延迟不代表价格下跌。
+          </p>
+        </section>
+        <div class="is-hidden" data-status-error>
+          <EmptyState
+            title="数据状态加载失败"
+            description="无法连接数据服务；恢复之前本页不会展示任何行情数字。"
+          >
+            <button type="button" class="btn btn--secondary" data-status-retry>
+              重新加载
+            </button>
+          </EmptyState>
+        </div>
+
+        {/* 今日与我有关（05A 真实事件：仅登录提示存在时调用 /me/events——R8） */}
         <section aria-label="今日与我有关的事件" class="today-events" data-today-events>
           <div class="section-head">
             <h2 class="section-title">今日与我有关</h2>
@@ -223,25 +256,277 @@ const suggestions = demo
           </div>
         </section>
 
-        <EmptyState
-          title="暂未覆盖，可提交覆盖申请"
-          description="当前构建未接入任何房价数据源，因此不展示任何价格数字。可先浏览标准城市目录、提交覆盖申请，或登录后收藏关注对象。"
-          actionText="登录后提交覆盖申请"
-          actionHref="/login"
-        />
-        <p class="meta prod-note">
-          说明：城市选择器提供 337 个目录城市（仅元数据，全部“可申请”状态），未覆盖城市不会填充假数据。
-        </p>
+        {/* 城市范围数据（R1：最近更新小区 / 区域提示 / 未覆盖诚实空态） */}
+        <section aria-label="最近更新的小区" class="is-hidden" data-recent>
+          <div class="section-head">
+            <h2 class="section-title">最近更新的小区</h2>
+            <a class="section-more" href="/communities">
+              搜索 ›
+            </a>
+          </div>
+          <p class="meta is-hidden" data-recent-loading>正在加载小区数据…</p>
+          <div class="stack-sm is-hidden" data-recent-list></div>
+          <div class="is-hidden" data-recent-empty>
+            <EmptyState
+              title="该城市暂无小区行情"
+              description="城市已列入覆盖计划，但尚未产生有效价格快照；不会展示任何估算数字。"
+              actionText="查看城市覆盖"
+              actionHref="/cities"
+            />
+          </div>
+          <div class="is-hidden" data-recent-error>
+            <EmptyState
+              title="小区数据加载失败"
+              description="无法连接数据服务获取小区快照。"
+            >
+              <button type="button" class="btn btn--secondary" data-recent-retry>
+                重新加载
+              </button>
+            </EmptyState>
+          </div>
+        </section>
+
+        <section aria-label="区域市场变化" class="is-hidden" data-regionhint>
+          <div class="card region-hint-card">
+            <span class="section-title">区域市场变化</span>
+            <p class="meta" data-regionhint-text></p>
+            <a class="btn btn--secondary" href="/regions">查看区域行情 ›</a>
+          </div>
+        </section>
+
+        <div class="is-hidden" data-city-empty>
+          <EmptyState
+            title="当前城市暂未覆盖房价数据"
+            description="已选城市尚未接入真实行情；我们不展示任何演示或估算数字。可在城市目录查看覆盖状态并提交接入申请。"
+            actionText="城市目录与覆盖申请"
+            actionHref="/cities"
+          />
+        </div>
+
+        {/* 数据说明入口（R7） */}
+        <section aria-label="数据说明">
+          <div class="section-head">
+            <h2 class="section-title">数据说明</h2>
+            <a class="section-more" href="/methodology">
+              口径与来源 ›
+            </a>
+          </div>
+          <p class="meta prod-note">
+            行情仅来自已审批数据源，口径、来源与数据日期随指标展示；未覆盖城市不展示任何价格数字。
+          </p>
+        </section>
       </div>
     )
   }
 </AppShell>
 
 <script>
-  import { ApiError, listEvents } from "../lib/api";
-  import type { AlertEvent } from "../lib/api";
+  import {
+    ApiError,
+    getCommunitiesCoverage,
+    getCommunityPrices,
+    getPublicCities,
+    getSystemStatus,
+    listEvents,
+    searchRegions,
+  } from "../lib/api";
+  import type { AlertEvent, CommunityCoverageItem, PriceSnapshot } from "../lib/api";
   import { eventLabel, eventShanghaiDate, formatEventClock, todayShanghaiDate } from "../lib/events";
+  import {
+    CITY_CHANGE_EVENT,
+    isCityCovered,
+    readStoredCity,
+    resolveCityScope,
+    type CityScope,
+  } from "../lib/city";
+  import {
+    formatPriceValue,
+    freshnessStatus,
+    isLowSample,
+    latestPerMetric,
+    metricLabel,
+  } from "../lib/market";
+  import { hasSessionHint } from "../lib/session";
 
+  const $ = <T extends HTMLElement>(sel: string) =>
+    document.querySelector<T>(sel);
+
+  // ===== A. 今日数据状态（GET /public/system/status） =====
+  const statusSection = $("[data-status]");
+  if (statusSection) {
+    const statusLoading = $("[data-status-loading]");
+    const statusError = $("[data-status-error]");
+    const show = (target: HTMLElement | null) => {
+      statusLoading?.classList.toggle("is-hidden", target !== statusLoading);
+      statusError?.classList.toggle("is-hidden", target !== statusError);
+      statusSection.classList.toggle("is-hidden", target !== statusSection);
+    };
+    const loadStatus = async () => {
+      show(statusLoading);
+      try {
+        const st = await getSystemStatus();
+        $("[data-status-cities]")!.textContent = String(st.cities_data_active ?? 0);
+        $("[data-status-obs]")!.textContent = (st.observations_total ?? 0).toLocaleString("zh-CN");
+        const last = st.last_collected_at ?? "";
+        $("[data-status-last]")!.textContent = last ? last.slice(0, 16) : "—";
+        const fresh = freshnessStatus(last, Date.now());
+        const badge = $("[data-status-freshness]")!;
+        badge.textContent =
+          fresh === "fresh" ? "数据正常" : fresh === "delayed" ? "更新延迟" : "数据过期";
+        badge.className = `badge ${fresh === "fresh" ? "badge--primary" : "badge--warning"}`;
+        show(statusSection);
+      } catch {
+        show(statusError);
+      }
+    };
+    $("[data-status-retry]")?.addEventListener("click", () => void loadStatus());
+    void loadStatus();
+  }
+
+  // ===== B. 城市范围数据（最近更新小区 / 区域提示 / 未覆盖空态） =====
+  const recentSection = $("[data-recent]");
+  if (recentSection) {
+    const recentLoading = $("[data-recent-loading]");
+    const recentList = $("[data-recent-list]");
+    const recentEmpty = $("[data-recent-empty]");
+    const recentError = $("[data-recent-error]");
+    const regionHint = $("[data-regionhint]");
+    const cityEmpty = $("[data-city-empty]");
+
+    const showCityPanel = (target: "loading" | "list" | "empty" | "error" | "no-city") => {
+      recentLoading!.classList.toggle("is-hidden", target !== "loading");
+      recentList!.classList.toggle("is-hidden", target !== "list");
+      recentEmpty!.classList.toggle("is-hidden", target !== "empty");
+      recentError!.classList.toggle("is-hidden", target !== "error");
+      recentSection!.classList.toggle("is-hidden", target === "no-city");
+      regionHint!.classList.toggle("is-hidden", target !== "list" && target !== "empty");
+      cityEmpty!.classList.toggle("is-hidden", target !== "no-city");
+    };
+
+    /** 小区简卡（客户端复刻 CommunityCard 结构；文本一律 textContent，防注入） */
+    const renderCommunityCard = (
+      item: CommunityCoverageItem,
+      latest: PriceSnapshot | null,
+    ): HTMLAnchorElement => {
+      const card = document.createElement("a");
+      card.className = "card prod-community";
+      card.href = `/community?id=${encodeURIComponent(item.community_id)}`;
+      card.innerHTML = `
+        <div class="prod-community-head">
+          <span class="prod-community-name" data-name></span>
+          <span class="badge badge--neutral" data-district></span>
+        </div>
+        <div class="prod-community-price">
+          <span class="num" data-price></span>
+          <span class="meta" data-metric></span>
+        </div>
+        <p class="meta prod-community-foot" data-foot></p>`;
+      card.querySelector("[data-name]")!.textContent = item.name;
+      card.querySelector("[data-district]")!.textContent = item.district ?? "—";
+      const priceEl = card.querySelector("[data-price]")!;
+      const metricEl = card.querySelector("[data-metric]")!;
+      const footEl = card.querySelector("[data-foot]")!;
+      if (latest && latest.median !== null) {
+        priceEl.textContent = formatPriceValue(latest.median, "元/㎡");
+        if (isLowSample(latest.sample_count)) priceEl.classList.add("prod-community-price--weak");
+        metricEl.textContent = metricLabel(latest.metric_code);
+        footEl.textContent = `数据日期 ${latest.stat_date.slice(0, 10)} · 样本 ${latest.sample_count ?? "—"} 条 · 来源 ${latest.source_id ?? "—"}`;
+      } else if (item.snapshot) {
+        priceEl.textContent = "暂无有效快照";
+        metricEl.textContent = "";
+        footEl.textContent = `最近采集 ${item.snapshot.collected_at?.slice(0, 16) ?? "—"} · 样本 ${item.snapshot.sample_count ?? "—"} 条`;
+      } else {
+        priceEl.textContent = "暂无有效快照";
+        metricEl.textContent = "";
+        footEl.textContent = "该小区尚无价格快照，不展示估算数字";
+      }
+      return card;
+    };
+
+    let lastScopeForRetry: CityScope | null = null;
+
+    const loadCityData = async (scope: CityScope | null) => {
+      lastScopeForRetry = scope;
+      if (!scope || !isCityCovered(scope.status)) {
+        if (scope) {
+          // 未覆盖城市：诚实空态 + 城市目录申请入口
+          const title = cityEmpty!.querySelector("h2");
+          const desc = cityEmpty!.querySelector("p");
+          if (title) title.textContent = `${scope.name} 暂未覆盖房价数据`;
+          if (desc) desc.textContent = "该城市尚未接入真实行情；我们不展示任何演示或估算数字。可在城市目录查看覆盖状态并提交接入申请。";
+        }
+        showCityPanel("no-city");
+        return;
+      }
+      showCityPanel("loading");
+      try {
+        const [coverage, regions] = await Promise.all([
+          getCommunitiesCoverage(scope.city_code),
+          searchRegions(scope.city_code).catch(() => null),
+        ]);
+        if (regions && regions.count > 0) {
+          $("[data-regionhint-text]")!.textContent =
+            `${scope.name}已覆盖 ${regions.count} 个区县的行政目录，区域行情按口径分列展示。`;
+        }
+        const withSnapshot = coverage.items
+          .filter((item) => item.snapshot !== null)
+          .sort((a, b) =>
+            (b.snapshot?.collected_at ?? "").localeCompare(a.snapshot?.collected_at ?? ""),
+          )
+          .slice(0, 3);
+        if (withSnapshot.length === 0) {
+          recentList!.replaceChildren();
+          showCityPanel("empty");
+          return;
+        }
+        const prices = await Promise.all(
+          withSnapshot.map((item) =>
+            getCommunityPrices(item.community_id, 20).catch(() => null),
+          ),
+        );
+        const fragment = document.createDocumentFragment();
+        withSnapshot.forEach((item, i) => {
+          const list = prices[i]?.items ?? [];
+          const latest =
+            latestPerMetric(list).find(
+              (s) => s.metric_code === "median_price" && s.median !== null,
+            ) ?? latestPerMetric(list)[0] ?? null;
+          fragment.append(renderCommunityCard(item, latest));
+        });
+        recentList!.replaceChildren(fragment);
+        showCityPanel("list");
+      } catch {
+        showCityPanel("error");
+      }
+    };
+
+    $("[data-recent-retry]")?.addEventListener("click", () => void loadCityData(lastScopeForRetry));
+
+    window.addEventListener(CITY_CHANGE_EVENT, (event) => {
+      void loadCityData((event as CustomEvent<CityScope | null>).detail ?? null);
+    });
+
+    // 初始范围：本地已选城市优先；否则接目录取第一个 active（与徽标同源逻辑）
+    const stored = readStoredCity();
+    if (stored) {
+      void loadCityData(stored);
+    } else {
+      void (async () => {
+        try {
+          const res = await getPublicCities({ limit: 50 });
+          void loadCityData(
+            resolveCityScope(
+              res.items.map((c) => ({ city_code: c.city_code, name: c.name, status: c.status })),
+            ),
+          );
+        } catch {
+          showCityPanel("error");
+        }
+      })();
+    }
+  }
+
+  // ===== C. 今日与我有关（R8：游客零 /me 请求） =====
   const root = document.querySelector<HTMLElement>("[data-today-events]");
 
   if (root) {
@@ -282,6 +567,11 @@ const suggestions = demo
     };
 
     const load = async () => {
+      // TASK-08C R8：游客（无登录提示）直接展示登录引导，不发 /me/events
+      if (!hasSessionHint()) {
+        showPanel(loginEl);
+        return;
+      }
       showPanel(loadingEl);
       try {
         // 401 不跳转：首页展示登录引导
@@ -384,5 +674,66 @@ const suggestions = demo
     margin: 0;
     font-size: var(--text-sm);
     line-height: 1.7;
+  }
+
+  /* 首页小区简卡（脚本动态生成，节点无 Astro 作用域属性） */
+  :global(.prod-community) {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    text-decoration: none;
+  }
+
+  :global(.prod-community-head) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+
+  :global(.prod-community-name) {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  :global(.prod-community-price) {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  :global(.prod-community-price .num) {
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
+    color: var(--color-brand-900);
+  }
+
+  :global(.prod-community-price--weak) {
+    color: var(--color-muted);
+    font-weight: var(--weight-medium);
+  }
+
+  :global(.prod-community-foot) {
+    margin: 0;
+  }
+
+  .region-hint-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+
+  .region-hint-card .meta {
+    flex: 1;
+    min-width: 180px;
+    margin: 0;
   }
 </style>

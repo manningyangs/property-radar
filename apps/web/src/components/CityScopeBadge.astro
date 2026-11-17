@@ -1,9 +1,10 @@
 ---
 /**
- * CityScopeBadge：当前城市徽标 + 标准城市选择器（可检索、可多选收藏、可申请覆盖）。
- * - 真实城市目录来自 config/cities/city-catalog.json（337 城，全部 status=requestable），
- *   仅作选择器元数据，绝不携带价格；未覆盖城市不得填充假数据。
- * - 演示构建下初始城市为虚构的“演示市”（已开通 · 可监控）。
+ * CityScopeBadge：当前城市徽标 + 标准城市选择器（可检索、可切换、可申请覆盖）。
+ * - 目录元数据来自 config/cities/city-catalog.json（337 城），绝不携带价格；
+ *   TASK-08C：生产模式客户端接 GET /public/cities，真实覆盖城市（如青岛）以 API
+ *   状态覆盖目录徽章；选择结果写入 localStorage pr_city 并广播 app:city-change。
+ * - 演示构建保持原静态行为（虚构“演示市”），不发任何 API 请求。
  */
 import catalog from "../../../../config/cities/city-catalog.json";
 
@@ -21,6 +22,7 @@ const initialStatus = demoEnabled ? "已开通 · 可监控" : "337 城可申请
 const initialTone = demoEnabled ? "badge--primary" : "badge--neutral";
 
 const cities = catalog.cities.map((city) => ({
+  code: city.city_code,
   name: city.name,
   province: city.province_name,
   status: city.status,
@@ -87,13 +89,14 @@ const cities = catalog.cities.map((city) => ({
           type="button"
           class="city-option"
           data-city-pick={city.name}
+          data-city-code={city.code}
           data-city-status-value={city.status}
         >
           <span class="city-option-name">
             {city.name}
             <span class="city-province">{city.province}</span>
           </span>
-          <span class="badge badge--neutral">未覆盖 · 可申请</span>
+          <span class="badge badge--neutral" data-city-option-status>未覆盖 · 可申请</span>
         </button>
       ))
     }
@@ -101,14 +104,82 @@ const cities = catalog.cities.map((city) => ({
       未找到匹配城市。目录外城市可走“申请补录城市目录”，不会创建虚构城市代码。
     </p>
   </div>
+  {
+    !demoEnabled && (
+      <p class="city-dialog-foot">
+        <a class="section-more" href="/cities">全部城市与覆盖状态 ›</a>
+      </p>
+    )
+  }
 </dialog>
 
 <script>
-  // 城市选择器：打开/关闭、关键词过滤、切换城市（更新所有徽标 + 提示）
+  // TASK-08C：城市选择器——生产模式接 /public/cities 真实状态 + pr_city 持久化 +
+  // app:city-change 广播（页面据此重载数据）；演示模式保持原静态行为、零 API。
+  import { getPublicCities } from "../lib/api";
+  import {
+    CITY_CHANGE_EVENT,
+    applyCity,
+    cityStatusBadge,
+    readStoredCity,
+    renderBadgeText,
+    resolveCityScope,
+    type CityScope,
+  } from "../lib/city";
+
+  const demoMode = import.meta.env.PUBLIC_DEMO_DATA === "1";
+
   const openPicker = () => {
     const dialog = document.querySelector<HTMLDialogElement>("dialog[data-city-dialog]");
     if (dialog && !dialog.open) dialog.showModal();
   };
+
+  /** 徽标显隐同步（同页可能多个徽标实例） */
+  const renderBadge = (city: CityScope | null) => {
+    document.querySelectorAll("[data-city-current]").forEach((el) => {
+      el.textContent = city?.name ?? "未选择城市";
+    });
+    document.querySelectorAll("[data-city-status]").forEach((el) => {
+      renderBadgeText(el as HTMLElement, city);
+    });
+  };
+
+  /** 选择器内真实城市选项：用 API 状态覆盖目录的“未覆盖 · 可申请” */
+  const overlayRealCity = (city: CityScope) => {
+    const option = [...document.querySelectorAll<HTMLElement>("[data-city-pick]")].find(
+      (el) => el.dataset.cityPick === city.name,
+    );
+    if (!option) return;
+    option.dataset.cityCode = city.city_code;
+    option.dataset.cityStatusValue = city.status;
+    const badgeEl = option.querySelector<HTMLElement>("[data-city-option-status]");
+    if (badgeEl) {
+      const { text, tone } = cityStatusBadge(city.status);
+      badgeEl.textContent = text;
+      badgeEl.className = `badge ${tone}`;
+    }
+  };
+
+  if (!demoMode) {
+    void (async () => {
+      let real: CityScope[] = [];
+      try {
+        const res = await getPublicCities({ limit: 50 });
+        real = res.items.map((c) => ({ city_code: c.city_code, name: c.name, status: c.status }));
+        real.forEach(overlayRealCity);
+      } catch {
+        // 目录加载失败：徽标退回“已存选择或 337 城可申请”，页面各自处理错误态
+      }
+      const scope = resolveCityScope(real);
+      if (scope) renderBadge(scope);
+      else renderBadge(readStoredCity());
+    })();
+
+    // 其它入口（如 /cities 页）切换城市后同步徽标
+    window.addEventListener(CITY_CHANGE_EVENT, (event) => {
+      renderBadge((event as CustomEvent<CityScope | null>).detail ?? null);
+    });
+  }
 
   document.addEventListener("click", (event) => {
     const target = event.target as HTMLElement;
@@ -123,31 +194,36 @@ const cities = catalog.cities.map((city) => ({
     }
 
     const pick = target.closest<HTMLElement>("[data-city-pick]");
-    if (pick) {
-      const name = pick.dataset.cityPick ?? "";
-      const status = pick.dataset.cityStatusValue ?? "requestable";
-      const isActive = status === "active" || status === "limited";
+    if (!pick) return;
+    const name = pick.dataset.cityPick ?? "";
+    const status = pick.dataset.cityStatusValue ?? "requestable";
+    const code = pick.dataset.cityCode ?? "";
+    const covered = status === "active" || status === "limited";
 
+    if (demoMode) {
+      // 演示构建：仅静态更新徽标（虚构“演示市”，无持久化无 API）
       document.querySelectorAll("[data-city-current]").forEach((el) => {
         el.textContent = name;
       });
       document.querySelectorAll("[data-city-status]").forEach((el) => {
         const badge = el as HTMLElement;
-        badge.textContent = isActive ? "已开通 · 可监控" : "未覆盖 · 可申请";
-        badge.className = `badge city-status ${isActive ? "badge--primary" : "badge--neutral"}`;
+        badge.textContent = covered ? "已开通 · 可监控" : "未覆盖 · 可申请";
+        badge.className = `badge city-status ${covered ? "badge--primary" : "badge--neutral"}`;
       });
-
-      (target.closest("dialog") as HTMLDialogElement | null)?.close();
-      window.dispatchEvent(
-        new CustomEvent("app:toast", {
-          detail: {
-            message: isActive
-              ? `已切换到 ${name}`
-              : `已切换到 ${name}：暂未覆盖房价数据，可提交覆盖申请（不展示假数据）`,
-          },
-        }),
-      );
+    } else {
+      applyCity({ city_code: code || name, name, status });
     }
+
+    (target.closest("dialog") as HTMLDialogElement | null)?.close();
+    window.dispatchEvent(
+      new CustomEvent("app:toast", {
+        detail: {
+          message: covered
+            ? `已切换到 ${name}`
+            : `已切换到 ${name}：暂未覆盖房价数据，可提交覆盖申请（不展示假数据）`,
+        },
+      }),
+    );
   });
 
   // 城市名检索过滤
@@ -164,6 +240,15 @@ const cities = catalog.cities.map((city) => ({
     emptyTip?.classList.toggle("is-hidden", visible > 0);
   });
 </script>
+
+<style>
+  .city-dialog-foot {
+    margin-top: var(--space-1);
+    padding-top: var(--space-1);
+    border-top: 1px solid var(--color-border);
+    text-align: right;
+  }
+</style>
 
 <style>
   .city-badge {

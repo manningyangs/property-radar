@@ -249,6 +249,12 @@ const channels = [
       return;
     }
     window.localStorage.removeItem(EMAIL_KEY);
+    // TASK-08C R8：清除登录提示，游客页面不再调用 /me/*
+    try {
+      window.localStorage.removeItem("pr_session_hint");
+    } catch {
+      /* 存储不可用忽略 */
+    }
     // TASK-01C：登出时清理私有客户端缓存（pr:* 本机存储 + SW 页面/meta 缓存）
     void (
       window as unknown as { __prPurgePrivateCache?: () => Promise<void> }

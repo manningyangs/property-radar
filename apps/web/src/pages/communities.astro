@@ -107,7 +107,7 @@ const sorts = [
         </div>
       </div>
     ) : (
-      <div class="page">
+      <div class="page" data-prod-communities>
         <form class="csearch-form" action="/communities" method="get" role="search">
           <label class="csearch-label" for="csearch-input-prod">
             <span class="sr-only">搜索小区</span>
@@ -116,7 +116,8 @@ const sorts = [
               id="csearch-input-prod"
               name="q"
               class="input"
-              placeholder="搜索小区（当前未接入数据源）"
+              placeholder="输入小区名，如：万科（真实目录检索）"
+              data-prod-q
               autocomplete="off"
             />
           </label>
@@ -124,18 +125,58 @@ const sorts = [
             搜索
           </button>
         </form>
-        <EmptyState
-          title="暂未覆盖，可提交覆盖申请"
-          description="未接入数据源时没有可搜索的小区结果。可从标准城市目录提交覆盖申请。"
-          actionText="登录后提交覆盖申请"
-          actionHref="/login"
-        />
+        <p class="meta">
+          检索真实小区目录，结果限定当前城市范围；未覆盖城市不展示任何估算数字。
+        </p>
+
+        <p class="meta is-hidden" data-prod-loading>正在检索小区…</p>
+        <p class="meta result-count is-hidden" data-prod-count></p>
+        <div class="stack-sm is-hidden" data-prod-results></div>
+        <div class="is-hidden" data-prod-empty>
+          <EmptyState
+            title="没有匹配的小区"
+            description="换个关键词试试；若目标小区尚未覆盖，可在城市目录页提交覆盖申请。"
+            actionText="城市目录与覆盖申请"
+            actionHref="/cities"
+          />
+        </div>
+        <div class="is-hidden" data-prod-error>
+          <EmptyState
+            title="小区检索失败"
+            description="无法连接数据服务；恢复之前不会展示任何行情结果。"
+          >
+            <button type="button" class="btn btn--secondary" data-prod-retry>
+              重新搜索
+            </button>
+          </EmptyState>
+        </div>
+        <div class="is-hidden" data-city-empty>
+          <EmptyState
+            title="当前城市暂未覆盖房价数据"
+            description="已选城市尚未接入小区目录；可在城市目录查看覆盖状态并提交接入申请。"
+            actionText="城市目录与覆盖申请"
+            actionHref="/cities"
+          />
+        </div>
       </div>
     )
   }
 </AppShell>
 
 <script>
+  import {
+    getPublicCities,
+    getPublicCommunities,
+    searchRegions,
+  } from "../lib/api";
+  import {
+    CITY_CHANGE_EVENT,
+    isCityCovered,
+    readStoredCity,
+    resolveCityScope,
+    type CityScope,
+  } from "../lib/city";
+
   const items = Array.from(
     document.querySelectorAll<HTMLElement>("[data-community-item]"),
   );
@@ -259,6 +300,138 @@ const sorts = [
     });
     apply();
   }
+
+  // ===== TASK-08C R4：生产小区检索（GET /public/communities?q=&region_id=） =====
+  const prodRoot = document.querySelector<HTMLElement>("[data-prod-communities]");
+  if (prodRoot) {
+    const loadingEl = prodRoot.querySelector<HTMLElement>("[data-prod-loading]");
+    const countEl = prodRoot.querySelector<HTMLElement>("[data-prod-count]");
+    const resultsEl = prodRoot.querySelector<HTMLElement>("[data-prod-results]");
+    const emptyEl = prodRoot.querySelector<HTMLElement>("[data-prod-empty]");
+    const errorEl = prodRoot.querySelector<HTMLElement>("[data-prod-error]");
+    const cityEmptyEl = prodRoot.querySelector<HTMLElement>("[data-city-empty]");
+    const qInput = prodRoot.querySelector<HTMLInputElement>("[data-prod-q]");
+    const form = prodRoot.querySelector<HTMLFormElement>(".csearch-form");
+
+    const show = (
+      target: "loading" | "list" | "empty" | "error" | "no-city",
+    ) => {
+      loadingEl?.classList.toggle("is-hidden", target !== "loading");
+      countEl?.classList.toggle("is-hidden", target !== "list" && target !== "empty");
+      resultsEl?.classList.toggle("is-hidden", target !== "list");
+      emptyEl?.classList.toggle("is-hidden", target !== "empty");
+      errorEl?.classList.toggle("is-hidden", target !== "error");
+      cityEmptyEl?.classList.toggle("is-hidden", target !== "no-city");
+    };
+
+    let scope: CityScope | null = null;
+    let regionId = new URLSearchParams(window.location.search).get("region_id") ?? "";
+
+    const load = async () => {
+      if (!scope || !isCityCovered(scope.status)) {
+        show("no-city");
+        return;
+      }
+      show("loading");
+      try {
+        const q = qInput?.value.trim() ?? "";
+        const [res, regions] = await Promise.all([
+          getPublicCommunities({
+            q: q || undefined,
+            region_id: regionId || undefined,
+            limit: 50,
+          }),
+          searchRegions(scope.city_code).catch(() => null),
+        ]);
+        const districtNames = new Map(
+          (regions?.items ?? []).map((r) => [r.region_id, r.name]),
+        );
+        // 后端无 city_code 过滤参数：客户端按当前范围过滤，绝不跨城混排
+        const items = res.items.filter((item) => item.city_code === scope?.city_code);
+        if (countEl) {
+          countEl.textContent = `共 ${items.length} 个小区${q ? ` · 关键词“${q}”` : ""}${
+            regionId && districtNames.has(regionId)
+              ? ` · ${districtNames.get(regionId)}`
+              : ""
+          }`;
+        }
+        if (items.length === 0) {
+          show("empty");
+          return;
+        }
+        const fragment = document.createDocumentFragment();
+        for (const item of items) {
+          const row = document.createElement("a");
+          row.className = "card prod-comm-row";
+          row.href = `/community?id=${encodeURIComponent(item.community_id)}`;
+          const name = document.createElement("span");
+          name.className = "prod-comm-name";
+          name.textContent = item.name;
+          const district = document.createElement("span");
+          district.className = "badge badge--neutral";
+          district.textContent =
+            districtNames.get(item.region_id) ?? item.block_name ?? "—";
+          const sub = document.createElement("span");
+          sub.className = "meta prod-comm-sub";
+          sub.textContent = `建成 ${item.built_year ?? "—"} · 目录更新 ${item.updated_at?.slice(0, 10) ?? "—"}`;
+          row.append(name, district, sub);
+          fragment.append(row);
+        }
+        resultsEl?.replaceChildren(fragment);
+        show("list");
+      } catch {
+        show("error");
+      }
+    };
+
+    const syncUrl = () => {
+      const url = new URL(window.location.href);
+      const q = qInput?.value.trim() ?? "";
+      if (q) url.searchParams.set("q", q);
+      else url.searchParams.delete("q");
+      if (regionId) url.searchParams.set("region_id", regionId);
+      else url.searchParams.delete("region_id");
+      window.history.replaceState({}, "", url);
+    };
+
+    form?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      regionId = "";
+      syncUrl();
+      void load();
+    });
+
+    prodRoot
+      .querySelector<HTMLButtonElement>("[data-prod-retry]")
+      ?.addEventListener("click", () => void load());
+
+    window.addEventListener(CITY_CHANGE_EVENT, (event) => {
+      scope = (event as CustomEvent<CityScope | null>).detail ?? null;
+      regionId = "";
+      void load();
+    });
+
+    const stored = readStoredCity();
+    const initialQ = new URLSearchParams(window.location.search).get("q");
+    if (initialQ && qInput) qInput.value = initialQ;
+    if (stored) {
+      scope = stored;
+      void load();
+    } else {
+      void (async () => {
+        try {
+          const res = await getPublicCities({ limit: 50 });
+          scope = resolveCityScope(
+            res.items.map((c) => ({ city_code: c.city_code, name: c.name, status: c.status })),
+          );
+        } catch {
+          show("error");
+          return;
+        }
+        void load();
+      })();
+    }
+  }
 </script>
 
 <style>
@@ -284,5 +457,25 @@ const sorts = [
 
   [data-community-item] {
     display: block;
+  }
+
+  /* TASK-08C：生产检索结果行（脚本动态生成，节点无作用域属性） */
+  :global(.prod-comm-row) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    color: inherit;
+    text-decoration: none;
+  }
+
+  :global(.prod-comm-name) {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-brand-900);
+  }
+
+  :global(.prod-comm-sub) {
+    width: 100%;
   }
 </style>

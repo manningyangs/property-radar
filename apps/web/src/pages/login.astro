@@ -147,6 +147,7 @@ const turnstileSitekey = String(
   // 登录两步表单：演示分支（123456 / 本地会话）保持 01B 行为；
   // 真实分支走 Turnstile → request-code → verify-code，成功后按 ?next= 跳转。
   import { ApiError, requestCode, verifyCode } from "../lib/api";
+  import { setSessionHint } from "../lib/session";
 
   const cardRoot = document.querySelector<HTMLElement>("[data-login-card]");
   const mode = cardRoot?.dataset.loginMode ?? "demo";
@@ -442,6 +443,7 @@ const turnstileSitekey = String(
       setBusy(codeForm, true);
       try {
         await verifyCode(emailValue(), code);
+        setSessionHint(); // TASK-08C R8：游客页据此决定是否调用 /me/*
         const next = new URLSearchParams(window.location.search).get("next");
         const target =
           next && next.startsWith("/") && !next.startsWith("//") ? next : "/watch";

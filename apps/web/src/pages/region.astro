@@ -256,12 +256,65 @@ const statusBadge = (status: string) =>
         />
       </div>
     ) : (
-      <div class="page">
-        <EmptyState
-          title="暂未覆盖，可提交覆盖申请"
-          description="区县详情需要已接入的数据源。当前构建不展示任何价格数字。"
-          actionText="登录后提交覆盖申请"
-          actionHref="/login"
+      <div class="page" data-prod-region>
+        <p class="meta is-hidden" data-rg-loading>正在加载区县数据…</p>
+
+        <section class="card region-detail is-hidden" data-rg-card aria-label="区县详情">
+          <div class="rd-head">
+            <div>
+              <h2 class="rd-name" data-rg-name>—</h2>
+              <p class="meta" data-rg-path></p>
+            </div>
+            <span class="badge badge--neutral" data-rg-freshness>—</span>
+          </div>
+
+          <div class="stack-sm" data-rg-metrics></div>
+          <p class="meta is-hidden" data-rg-metrics-empty>
+            该区县尚无有效价格快照；不展示任何估算数字。有合格数据后会第一时间出现在这里。
+          </p>
+
+          <p class="meta rd-source" data-rg-source></p>
+
+          <div class="btn-row">
+            <a class="btn btn--secondary" href="/communities" data-rg-communities>
+              区内小区 ›
+            </a>
+            <button
+              type="button"
+              class="btn btn--primary"
+              data-dialog-open="perm-watch"
+            >
+              加入监控（登录后云端同步）
+            </button>
+          </div>
+        </section>
+
+        <div class="is-hidden" data-rg-empty>
+          <EmptyState
+            title="未找到该区县"
+            description="链接可能已过期或区县不在当前目录中；请从区域页重新选择。"
+            actionText="返回区域列表"
+            actionHref="/regions"
+          />
+        </div>
+
+        <div class="is-hidden" data-rg-error>
+          <EmptyState
+            title="区县数据加载失败"
+            description="无法连接数据服务，恢复之前不会展示任何区域行情。"
+          >
+            <button type="button" class="btn btn--secondary" data-rg-retry>
+              重新加载
+            </button>
+          </EmptyState>
+        </div>
+
+        <ConfirmDialog
+          id="perm-watch"
+          title="云端监控需要登录"
+          message="游客可浏览全部公开数据；云端保存监控清单与跨设备同步需注册登录。"
+          confirmText="去登录"
+          cancelText="继续浏览"
         />
       </div>
     )
@@ -368,6 +421,129 @@ const statusBadge = (status: string) =>
 
   applyRegion(regionId, false);
   applyPane("second");
+
+  // ===== TASK-08C R3：生产区县详情（GET /public/regions/:id/summary） =====
+  const prodRoot = document.querySelector<HTMLElement>("[data-prod-region]");
+  if (prodRoot) {
+    const { ApiError, getRegionSummary, getMethodologySources } = await import("../lib/api");
+    const { formatPriceValue, freshnessStatus, isLowSample, latestPerMetric, metricLabel, priceTypeLabel } =
+      await import("../lib/market");
+    const { readStoredCity } = await import("../lib/city");
+
+    const loadingEl = prodRoot.querySelector<HTMLElement>("[data-rg-loading]");
+    const cardEl = prodRoot.querySelector<HTMLElement>("[data-rg-card]");
+    const emptyEl = prodRoot.querySelector<HTMLElement>("[data-rg-empty]");
+    const errorEl = prodRoot.querySelector<HTMLElement>("[data-rg-error]");
+
+    const show = (target: "loading" | "card" | "empty" | "error") => {
+      loadingEl?.classList.toggle("is-hidden", target !== "loading");
+      cardEl?.classList.toggle("is-hidden", target !== "card");
+      emptyEl?.classList.toggle("is-hidden", target !== "empty");
+      errorEl?.classList.toggle("is-hidden", target !== "error");
+    };
+
+    const QUALITY_TEXT: Record<string, string> = {
+      valid: "质量正常",
+      suspect: "质量待核",
+      stale: "质量过期",
+    };
+
+    const regionIdParam = new URLSearchParams(window.location.search).get("id") ?? "";
+
+    const load = async () => {
+      if (!regionIdParam) {
+        emptyEl
+          ?.querySelector("h2")
+          ?.replaceChildren("请从区域页选择区县");
+        show("empty");
+        return;
+      }
+      show("loading");
+      try {
+        const [{ region, snapshots }, sourcesRes] = await Promise.all([
+          getRegionSummary(regionIdParam),
+          getMethodologySources().catch(() => null),
+        ]);
+        if (prodRoot.querySelector("[data-rg-name]")) {
+          (prodRoot.querySelector("[data-rg-name]") as HTMLElement).textContent = region.name;
+        }
+        const scope = readStoredCity();
+        const cityName =
+          scope?.city_code === region.city_code ? scope.name : region.city_code;
+        prodRoot.querySelector("[data-rg-path]")!.textContent = `${cityName} › ${region.name}`;
+        prodRoot.querySelector("[data-rg-communities]")!.setAttribute(
+          "href",
+          `/communities?region_id=${encodeURIComponent(regionIdParam)}`,
+        );
+
+        const latest = latestPerMetric(snapshots);
+        const metricsHost = prodRoot.querySelector("[data-rg-metrics]")!;
+        const metricsEmpty = prodRoot.querySelector("[data-rg-metrics-empty]")!;
+        if (latest.length === 0) {
+          metricsHost.replaceChildren();
+          metricsEmpty.classList.remove("is-hidden");
+        } else {
+          metricsEmpty.classList.add("is-hidden");
+          const fragment = document.createDocumentFragment();
+          for (const s of latest) {
+            const card = document.createElement("div");
+            card.className = "card prod-metric-card";
+            card.innerHTML = `
+              <div class="prod-metric-head"><span data-m></span><span class="badge badge--neutral" data-q></span></div>
+              <div class="prod-metric-value"><span class="num" data-v></span><span class="meta" data-u></span></div>
+              <p class="meta prod-metric-sub" data-sub></p>`;
+            card.querySelector("[data-m]")!.textContent =
+              `${metricLabel(s.metric_code)} · ${priceTypeLabel(s.price_type)}`;
+            card.querySelector("[data-q]")!.textContent =
+              QUALITY_TEXT[s.quality_status] ?? s.quality_status;
+            const valueEl = card.querySelector("[data-v]")!;
+            valueEl.textContent = formatPriceValue(s.median, "元/㎡");
+            if (isLowSample(s.sample_count)) valueEl.classList.add("prod-metric-value--weak");
+            card.querySelector("[data-u]")!.textContent = isLowSample(s.sample_count)
+              ? "低样本，仅供观察"
+              : "中位价";
+            card.querySelector("[data-sub]")!.textContent =
+              `数据日期 ${s.stat_date.slice(0, 10)} · 样本 ${s.sample_count ?? "—"} 条 · 口径 ${s.metric_code}`;
+            fragment.append(card);
+          }
+          metricsHost.replaceChildren(fragment);
+        }
+
+        // 新鲜度徽章：取最新快照日期；无快照如实“暂无数据”，不冒充过期结论
+        const freshest = snapshots.reduce(
+          (acc, s) => (s.stat_date > acc ? s.stat_date : acc),
+          "",
+        );
+        const badge = prodRoot.querySelector("[data-rg-freshness]")!;
+        if (!freshest) {
+          badge.textContent = "暂无数据";
+          badge.className = "badge badge--neutral";
+        } else {
+          const fresh = freshnessStatus(freshest, Date.now());
+          badge.textContent =
+            fresh === "fresh" ? "数据正常" : fresh === "delayed" ? "更新延迟" : "数据过期";
+          badge.className = `badge ${fresh === "fresh" ? "badge--primary" : "badge--warning"}`;
+        }
+
+        const sourceNames = (sourcesRes?.items ?? [])
+          .map((item) => item.name)
+          .filter(Boolean);
+        prodRoot.querySelector("[data-rg-source]")!.textContent = sourceNames.length > 0
+          ? `数据来源：${sourceNames.join("、")}；口径与许可详见数据说明页。`
+          : "数据来源与口径详见数据说明页。";
+
+        show("card");
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) show("empty");
+        else show("error");
+      }
+    };
+
+    prodRoot
+      .querySelector<HTMLButtonElement>("[data-rg-retry]")
+      ?.addEventListener("click", () => void load());
+    void load();
+  }
 </script>
 
 <style>
@@ -450,5 +626,47 @@ const statusBadge = (status: string) =>
   .rd-peer:hover {
     border-color: var(--color-primary);
     background: var(--color-primary-soft);
+  }
+
+  .rd-source {
+    margin: 0;
+  }
+
+  /* TASK-08C：生产指标卡（脚本动态生成，节点无作用域属性） */
+  :global(.prod-metric-card) {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  :global(.prod-metric-head) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: var(--text-sm);
+    color: var(--color-muted);
+  }
+
+  :global(.prod-metric-value) {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  :global(.prod-metric-value .num) {
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
+    color: var(--color-brand-900);
+  }
+
+  :global(.prod-metric-value--weak) {
+    color: var(--color-muted);
+    font-weight: var(--weight-medium);
+  }
+
+  :global(.prod-metric-sub) {
+    margin: 0;
   }
 </style>
