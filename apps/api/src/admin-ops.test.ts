@@ -1,6 +1,6 @@
 // TASK-06D：任务和质量后台 API 验收（PRD 任务行 1368–1374 / spec R2–R5/R8）
 // 覆盖：门禁矩阵、GET /admin/jobs（筛选/搜索/排序/分页/summary + §8.6 全字段）、
-//       GET /admin/quality/issues（三类聚合 + locator 定位要素非空——验收一）、
+//       GET /admin/quality/issues（四类聚合 + locator 定位要素非空——验收一）、
 //       overview ops 块（四指标卡）、internal 新字段落库与向后兼容、
 //       重跑幂等实证（拍板 3：duplicate 不重写 / finish 不改写 / 同观测不重复行——验收二）。
 import { beforeEach, describe, expect, it } from "vitest";
@@ -548,7 +548,12 @@ describe("GET /admin/quality/issues", () => {
     expect(res.status).toBe(202);
 
     const b = await issues();
-    expect(b.counts).toEqual({ job_failed: 1, health: 1, observation: 2 });
+    expect(b.counts).toEqual({
+      job_failed: 1,
+      health: 1,
+      observation: 2,
+      snapshot: 0,
+    });
     expect(b.items).toHaveLength(4);
 
     const job = b.items.find((i) => i.issue_kind === "job_failed")!;
@@ -589,6 +594,7 @@ describe("GET /admin/quality/issues", () => {
       job_failed: 0,
       health: 0,
       observation: 2,
+      snapshot: 0,
     });
     expect(obsOnly.items.every((i) => i.issue_kind === "observation")).toBe(
       true,
@@ -603,6 +609,29 @@ describe("GET /admin/quality/issues", () => {
       TOK_ADMIN,
     );
     expect(badKind.status).toBe(400);
+  });
+
+  it("TASK-09 R3：outlier 快照进质量异常（snapshot 类，locator 含中位数/样本数）", async () => {
+    ctx.pub
+      .prepare(
+        `INSERT INTO price_snapshots (snapshot_id, object_type, object_id, price_type, metric_code, median, sample_count, stat_date, collected_at, source_id, quality_status, method_version)
+         VALUES ('snap_x9', 'community', 'cmt_x9', 'listing_ask', 'community_ask_median_unit', 32265, 10, '2026-11-16', '2026-11-16 10:00:00', 'src_official', 'outlier', '09-aggregate-v3')`,
+      )
+      .run();
+    const b = await issues("?kind=snapshot");
+    expect(b.counts.snapshot).toBe(1);
+    expect(b.items.every((i) => i.issue_kind === "snapshot")).toBe(true);
+    const first = b.items[0]!;
+    expect(first.locator).toMatchObject({
+      snapshot_id: "snap_x9",
+      object_id: "cmt_x9",
+      median: 32265,
+      sample_count: 10,
+    });
+    expect(first.note).toContain("15%");
+    // 全量聚合也包含 snapshot 类
+    const all = await issues();
+    expect(all.counts.snapshot).toBe(1);
   });
 
   it("只读：查询前后 audit_logs 行数不变", async () => {

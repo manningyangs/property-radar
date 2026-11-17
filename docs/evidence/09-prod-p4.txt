@@ -1,0 +1,7 @@
+TASK-09 T7：P4 公共缓存头生产复验（2026-11-17，Worker 6ffb07af 部署后）
+命令：Invoke-WebRequest https://property-radar-api.yang1-75.workers.dev/...
+
+HEALTH 200 {"status":"ok","service":"property-radar-api","time":"2026-11-17T05:39:35.093Z"}
+CITIES 200
+Cache-Control: public, max-age=60, stale-while-revalidate=300
+BADREQ 400 Cache-Control: （400 响应无缓存头，符合预期）

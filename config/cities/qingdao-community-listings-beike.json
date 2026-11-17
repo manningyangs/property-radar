@@ -1,0 +1,35 @@
+{
+  "meta": {
+    "purpose": "TASK-09 贝壳（qd.ke.com）挂牌列表页 URL 映射（青岛 16 个 00B 核验小区，仅科研验证管线用）",
+    "source_id": "beike",
+    "city_code": "370200",
+    "url_pattern": "https://qd.ke.com/ershoufang/c<xiaoqu_id>/ （贝壳青岛小区在售挂牌列表首页）",
+    "id_derivation": "xiaoqu_id 取自公开直出渠道：qd.ke.com/ershoufang/ 城市首页内嵌的 /xiaoqu/<id>/ 链接（锚文本=小区名，命名匹配即核验）；站点搜索页 /xiaoqu/rs<名>/ 实测对匿名访客强制登录（302→clogin），未绕过访问控制，故仅取得公开可见的 2 个 id",
+    "verification": {
+      "date": "2026-11-17",
+      "method": "低频公开页核验（间隔≥1.2s，UA=property-radar-collector/0.1）：小区搜索页/小区列表页/区页/翻页/移动端全部命中登录墙或验证码墙（真实浏览器同判，截图 c:\\Users\\Home-pc\\AppData\\Local\\Temp\\trae\\screenshots\\login_wall_ershoufang.jpg）；改用城市首页直出链接 + robots.txt 声明的 sitemap-ershou-resblock.xml（7616 个 /xiaoqu/<id> URL，无名称）等价取证",
+      "result": "16 小区中 2 个公开可核验（cmt_qd_12/cmt_qd_14）；其余 14 个匿名渠道不可得，listing_url 如实置 null（零请求跳过），不猜测不伪造 id",
+      "login_wall_note": "2026-11-17 实测：/ershoufang/c<id>/ 小区挂牌页对匿名访客同样 302→clogin 登录墙；采集器真实运行将如实报 down/失败（不绕过），贝壳放开匿名访问后本配置自动生效"
+    },
+    "boundaries": "负责人 2026-11-17 裁决（spec §0-1，科研用途）：仅公开小区挂牌首页 ≤30 套；限速 ≥1s；不绕过登录/验证码/访问控制（遇墙如实报）；不存原始 HTML；不入 cron/workflow（手工触发）",
+    "created_at": "2026-11-17"
+  },
+  "communities": [
+    { "community_id": "cmt_qd_01", "name": "新贵都", "district": "市南区", "xiaoqu_id": null, "listing_url": null },
+    { "community_id": "cmt_qd_02", "name": "中海银海一号", "district": "市南区", "xiaoqu_id": null, "listing_url": null },
+    { "community_id": "cmt_qd_03", "name": "城市花园", "district": "市北区", "xiaoqu_id": null, "listing_url": null },
+    { "community_id": "cmt_qd_04", "name": "浮山后四小区", "district": "市北区", "xiaoqu_id": null, "listing_url": null },
+    { "community_id": "cmt_qd_05", "name": "幸福花园", "district": "市北区", "xiaoqu_id": null, "listing_url": null },
+    { "community_id": "cmt_qd_06", "name": "鲁信长春花园", "district": "崂山区", "xiaoqu_id": null, "listing_url": null },
+    { "community_id": "cmt_qd_07", "name": "鲁信未央花园", "district": "崂山区", "xiaoqu_id": null, "listing_url": null },
+    { "community_id": "cmt_qd_08", "name": "百通馨苑", "district": "李沧区", "xiaoqu_id": null, "listing_url": null },
+    { "community_id": "cmt_qd_09", "name": "中海国际社区", "district": "李沧区", "xiaoqu_id": null, "listing_url": null },
+    { "community_id": "cmt_qd_10", "name": "卓越蔚蓝群岛", "district": "城阳区", "xiaoqu_id": null, "listing_url": null },
+    { "community_id": "cmt_qd_11", "name": "万科城市花园", "district": "城阳区", "xiaoqu_id": null, "listing_url": null },
+    { "community_id": "cmt_qd_12", "name": "千禧龙花园", "district": "黄岛区", "xiaoqu_id": "1511063904841", "listing_url": "https://qd.ke.com/ershoufang/c1511063904841/" },
+    { "community_id": "cmt_qd_13", "name": "福瀛天麓湖", "district": "黄岛区", "xiaoqu_id": null, "listing_url": null },
+    { "community_id": "cmt_qd_14", "name": "德馨珑湖", "district": "即墨区", "xiaoqu_id": "1517793625107522", "listing_url": "https://qd.ke.com/ershoufang/c1517793625107522/" },
+    { "community_id": "cmt_qd_15", "name": "绿城春晓苑", "district": "胶州市", "xiaoqu_id": null, "listing_url": null },
+    { "community_id": "cmt_qd_16", "name": "宏远金田花园", "district": "莱西市", "xiaoqu_id": null, "listing_url": null }
+  ]
+}

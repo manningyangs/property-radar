@@ -1,0 +1,15 @@
+TASK-09 T7：真实手工触发 run_beike --limit 3（生产 API，2026-11-17 05:39 UTC，零绕过）
+
+[失败] run_date=2026-11-17; 配置小区=16; 无链接跳过=14; 批次=0; 观测=0; 空页=0; 拒绝=0;
+       失败=2 (cmt_qd_12:http_status_error, cmt_qd_14:http_status_error)
+exit=1
+
+说明：http_status_error = 小区挂牌页 302→clogin 登录墙（SafeHttpClient 不跟随 3xx、
+不绕登录/验证码，如实失败）。run_guard 资格门禁在生产通过（0003 种子 approved_licensed 生效）。
+
+生产留痕（wrangler d1 execute radar_private --remote）：
+  job_id=qd_beike_2026-11-17  source_id=beike  city_code=370200
+  status=failed  error_code=all_communities_failed
+  started_at=2026-11-17 05:39:51  finished_at=2026-11-17 05:39:53
+
+登录墙截图：09-login-wall-ershoufang.jpg（浏览器实测同判）

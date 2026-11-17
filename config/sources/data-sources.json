@@ -3,7 +3,7 @@
     "purpose": "数据源登记册（PRD §5.2 状态机 + §5.3 审核清单的结构化登记）",
     "status_enum": ["discovered", "pending_review", "manual_only", "approved_open", "approved_licensed", "suspended", "blocked"],
     "rule": "只有 approved_open / approved_licensed 可启动自动采集；管理员启用前须补全 §5.3 审批记录（审批人、证据链接、许可字段、保留期限、复核日期）",
-    "updated_at": "2026-11-12"
+    "updated_at": "2026-11-17"
   },
   "sources": [
     {
@@ -106,7 +106,7 @@
       "license_url": "https://open.ke.com/serviceSupport/tutorialApi/",
       "limitations": "须商务合作取得书面授权（字段/频率/存储/展示/衍生用途）后方可开发 connector",
       "verified_at": "2026-11-11",
-      "notes": "已发起授权合作登记；负责人跟进商务流程"
+      "notes": "已发起授权合作登记；负责人跟进商务流程。青岛公开挂牌页采集由 beike 条目承载（TASK-09，同平台不重复登记）"
     },
     {
       "source_code": "lianjia",
@@ -123,7 +123,7 @@
       "license_url": "",
       "limitations": "只允许用户手工录入/核验与跳转原站",
       "verified_at": "2026-11-11",
-      "notes": ""
+      "notes": "链家与贝壳同平台同数据（2026-11-17 实测登录墙同构），公开挂牌页采集统一由 beike 条目承载，不重复登记避免双域虚增样本"
     },
     {
       "source_code": "anjuke",
@@ -158,6 +158,23 @@
       "limitations": "仅青岛 16 个已核验小区的公开挂牌列表首页；每小区 ≤30 套样本；请求限速 ≥1s；不存原始 HTML；不入 cron/workflow；仅验证管线用途",
       "verified_at": "2026-11-12",
       "notes": "TASK-04D 授权依据：.trae/specs/community-listing-pipeline/spec.md §0-1 负责人裁决；风险与执行边界见 docs/TASK-04D-小区级数据接入验收报告.md 授权章节"
+    },
+    {
+      "source_code": "beike",
+      "name": "贝壳找房（公开挂牌页）",
+      "operator": "贝壳找房",
+      "official_url": "https://qd.ke.com/",
+      "status": "approved_licensed",
+      "allowed_automatic": true,
+      "object_levels": ["community", "listing"],
+      "metrics": ["community_ask_median_unit", "listing_ask_unit"],
+      "price_type": "listing",
+      "frequency": "低频验证（手工触发，不入定时任务）",
+      "license_basis": "负责人 2026-11-17 裁决（科研调查用途，同 04D fang_com 先例）：qd.ke.com robots.txt 全站 Disallow + 平台服务协议禁未经授权的自动化采集的风险由该裁决承担并如实留痕；严格边界——仅公开小区挂牌首页、每小区≤30套、限速≥1s、不绕过登录/验证码/访问控制（遇墙如实报）、不存原始 HTML、不入 cron。2026-11-17 实测站点已对匿名访客强制登录（登录墙+验证码墙），采集器如实报 down，放开后自动生效",
+      "license_url": "https://qd.ke.com/robots.txt",
+      "limitations": "仅青岛 16 个 00B 核验小区中公开可核验的挂牌首页（当前 2/16，其余匿名渠道不可得，置 null 零请求跳过）；每小区 ≤30 套样本；请求限速 ≥1s；不存原始 HTML；不入 cron/workflow；仅科研验证管线用途；与 fang_com 形成双源挂牌中位数交叉核验（阈值 15%，超即快照标 outlier）",
+      "verified_at": "2026-11-17",
+      "notes": "TASK-09 授权依据：.trae/specs/cross-source-price-collection/spec.md §0-1 负责人裁决；登录墙实测证据与核验记录见 docs/TASK-09-跨源房价获取验收报告.md；贝壳=链家同平台（lianjia 条目维持 manual_only）"
     },
     {
       "source_code": "user_manual_record",

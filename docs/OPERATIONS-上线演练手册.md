@@ -140,7 +140,38 @@ POST /admin/sources/{id}/suspend   body: { "reason": "必填：投诉/撤销依�
 5. ☑ **workers.dev 数据面验证**（2026-11-16 TASK-08A）：`/api/health` 200、Pages 200、CORS 正确回显 `property-radar-web.pages.dev` 且带 credentials（证据 `08a-01`）。08B-T6 复测：游客关键页 + 后台 6 端点/4 页面全 200 真实数据（`evidence/08b-t6-prod-reachability.md`）。
 6. ☐ **Dashboard Spend Alerts**：Cloudflare 账单页设置消费提醒阈值。
 7. ☐ **数据来源跨境/合规核验**：房天下等 portal_listing 来源授权状态人工复核（07B 遗留）。
-8. ☐ **08B 修版部署**：生产 Worker 仍为 `607ba987`（08C）——P4 公共缓存头、sources.astro URL 白名单、/account 真实化随新 Worker/Pages 部署后复验（P4 响应头、生产登录链路依赖本清单第 4 项）。
+8. ☐ **08B 修版部署**：P4 公共缓存头已随 TASK-09 Worker `6ffb07af` 部署并生产复验（2026-11-17：GET 200 带 `Cache-Control: public, max-age=60, stale-while-revalidate=300`，400 不带；证据 `evidence/09-prod-p4.txt`）；sources.astro URL 白名单、/account 真实化仍待 Pages 新构建部署后复验（生产登录链路依赖本清单第 4 项）。
 9. ☐ **法务审阅**：隐私政策/服务条款文本经法务确认（07B 遗留）。
 10. ☐ **首次生产备份归档**：`backups/` 最新一份转存加密私有存储。
 11. ☐ **生产迁移台账核对**：`d1 migrations list --remote` 双库均无 pending。
+
+## 8. 贝壳低频手工采集 SOP（TASK-09，科研验证专用）
+
+**授权前提**（负责人 2026-11-17 裁决，全文见 `.trae/specs/cross-source-price-collection/spec.md` §0）：
+仅公开小区挂牌页；每小区 ≤30 套；请求间隔 ≥1s；不绕过登录/验证码/风控；不存原始 HTML；
+**只允许人工触发，严禁注册进 cron / daily-collect workflow**（`run_beike` 不在任何调度里）。
+
+**触发步骤**（PowerShell；secret 从安全暂存读取，绝不入仓库/日志）：
+
+```powershell
+$env:PYTHONPATH = "<repo>\collectors"
+$env:API_BASE  = "https://property-radar-api.yang1-75.workers.dev/api/v1"
+$env:INGEST_HMAC_SECRET = (Get-Content "<安全暂存文件>" -Raw).Trim()
+py -m property_radar_collectors.run_beike            # 全量（当前仅 2 个已核验 URL）
+py -m property_radar_collectors.run_beike --limit 3  # 抽样验证
+py -m property_radar_collectors.run_beike --fixture collectors\tests\fixtures\beike  # 离线回放（零出网）
+```
+
+**已知现状（2026-11-17 实测）**：贝壳对匿名访客强制登录——小区挂牌页 302→clogin 登录墙。
+采集器识别后**如实报失败**（job `failed` / `error_code=all_communities_failed`），零绕过。
+生产留痕示例：`ingest_jobs.qd_beike_2026-11-17 → failed / all_communities_failed`。
+
+**放开登录后的动作**：① 复核 `config/cities/qingdao-community-listings-beike.json` 中
+14 个 `listing_url=null` 小区并补核验；② 首批真实解析后回填生产
+`source_field_verifications`（当前 4 字段均 unverified）；③ 首次真实数据入库后到后台
+`/admin/quality` 观察「快照离群」是否触发（双源中位数偏差 >15% 阈值，TASK-09 R3）。
+
+**交叉核验机制说明**：beike/fang/手工录入任两源同日同小区各有 ≥5 条有效单价样本即参与
+比对；偏差超 15% 快照标 `outlier` 进后台质量异常（median 等仍留痕不隐藏）。
+阈值常量在 `apps/api/src/cleaning.ts`（`CROSS_SOURCE_MAX_DIVERGENCE`），聚合口径版本
+`09-aggregate-v3`。

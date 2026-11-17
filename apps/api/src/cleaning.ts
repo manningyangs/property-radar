@@ -23,13 +23,16 @@ import { observationIds, type ObservationInput } from "./observations";
 
 /**
  * 快照聚合方法版本（spec R2 口径要素——任何口径变更必须同步升版本并留痕 method_version）：
+ *   09-aggregate-v3 —— TASK-09：双源挂牌中位数交叉核验（有效源≥2 且源间中位数
+ *     最大相对偏差 > CROSS_SOURCE_MAX_DIVERGENCE → 快照 quality_status='outlier'，
+ *     median/mean/p25/p75 仍全量写入留痕不隐藏；负责人 2026-11-17 裁决阈值 15%）；
  *   04e-aggregate-v2 —— 04E：落库前清洗六规则、official_index 指数双口径
  *     （index_value 条件入 canonical 与落库列）、stale 过期物化随写入判定；
  *   04d-aggregate-v1 —— 04D 初版：median/mean/p25/p75 线性插值。
  * percentile 口径（R2 要素说明）：分位数用 numpy.percentile 默认 linear 插值
  * （idx=(n-1)*p），实现于 observations.ts computeStats（04E 未改算法）。
  */
-export const METHOD_VERSION = "04e-aggregate-v2";
+export const METHOD_VERSION = "09-aggregate-v3";
 
 /**
  * 观测指标 → 快照指标（spec R2：固定代码常量，禁止散落字符串）：
@@ -43,6 +46,14 @@ export const OBS_TO_SNAPSHOT_METRIC: Record<string, string> = {
 
 /** spec R1-6：小样本降级阈值——快照 sample_count ≥ 5 → valid，否则 low_sample（04D 口径不变） */
 export const MIN_VALID_SAMPLES = 5;
+
+/**
+ * TASK-09 R3：双源挂牌中位数交叉核验阈值（负责人 2026-11-17 裁决 = 15%）。
+ * 同一（对象, 价格类型, 指标, 统计日）组内，有效源（单源 valid 单价样本 ≥ MIN_VALID_SAMPLES）
+ * ≥ 2 且各源中位数最大相对偏差 (max−min)/min > 本阈值 → 快照标 'outlier'（留痕不隐藏）。
+ * 恰好等于阈值不触发（严格大于）。
+ */
+export const CROSS_SOURCE_MAX_DIVERGENCE = 0.15;
 
 /** spec R1-2：单价极端上限（10 万元/㎡；> 即拒绝，与 Python schema.py _MAX_UNIT_YUAN 同源） */
 export const MAX_UNIT_PRICE_YUAN_SQM = 100_000;

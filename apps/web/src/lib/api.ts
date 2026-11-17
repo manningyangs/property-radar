@@ -848,7 +848,7 @@ export function adminJobsList(
 
 /** 质量异常统一形态（locator 随 issue_kind 变化——验收一定位要素） */
 export interface QualityIssue {
-  issue_kind: "job_failed" | "health" | "observation";
+  issue_kind: "job_failed" | "health" | "observation" | "snapshot";
   source_id: string;
   source_name: string;
   occurred_at: string;
@@ -861,10 +861,16 @@ export interface QualityIssuesResult {
   count: number;
   limit: number;
   offset: number;
-  counts: { job_failed: number; health: number; observation: number };
+  counts: {
+    job_failed: number;
+    health: number;
+    observation: number;
+    snapshot: number;
+  };
 }
 
-/** GET /admin/quality/issues：三类异常只读聚合（拍板 4，无写操作） */
+/** GET /admin/quality/issues：四类异常只读聚合（拍板 4，无写操作；
+ *  snapshot=TASK-09 R3 双源中位数交叉核验离群快照） */
 export function adminQualityIssues(
   query: {
     kind?: string;

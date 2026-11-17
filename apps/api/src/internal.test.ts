@@ -486,7 +486,7 @@ describe("TASK-04D：批次携带观测明细落库与聚合", () => {
     });
     expect(snap["collected_at"]).toBeTruthy();
     // TASK-04E：口径版本化——快照留痕 method_version（spec R2 唯一真源 cleaning.ts）
-    expect(snap["method_version"]).toBe("04e-aggregate-v2");
+    expect(snap["method_version"]).toBe("09-aggregate-v3");
   });
 
   it("少于 5 套 → low_sample 降级但 median 仍留痕（PRD §4.4）", async () => {
@@ -601,6 +601,77 @@ describe("TASK-04D：批次携带观测明细落库与聚合", () => {
     expect(await errCode(res)).toBe("source_not_approved");
     expect(batchCount()).toBe(0);
     expect(obsRowCount()).toBe(0);
+  });
+
+  it("TASK-09 R3 双源交叉核验：有效源间中位数偏差 >15% → 快照标 outlier（median 仍写入留痕）", async () => {
+    const objectId = "cmt_x9_outlier";
+    ctx.pub
+      .prepare(
+        "INSERT INTO data_sources_public (source_id, name, source_type) VALUES ('src_official_x9', 'TEST-来源X9（虚构）', 'open_data')",
+      )
+      .run();
+    ctx.pub
+      .prepare(
+        "INSERT INTO source_license_state (source_id, status, valid_until) VALUES ('src_official_x9', 'approved_open', NULL)",
+      )
+      .run();
+    ctx.pub
+      .prepare(
+        `INSERT INTO source_city_coverage
+           (source_id, city_code, object_level, metric_codes_json, authorization_status, last_verified_at)
+         VALUES ('src_official_x9', ?, 'community', '["community_ask_median_unit"]', 'approved_open', datetime('now'))`,
+      )
+      .run(CITY);
+
+    // 源 A 中位数 30000、源 B 中位数 34530 → 相对偏差 15.1% > 15% 阈值
+    const aUnits = [28000, 29000, 30000, 31000, 32000];
+    const bUnits = [33530, 34030, 34530, 35030, 35530];
+    const a = await postBatch(
+      obsPayload(
+        aUnits.map((u) => obs({ object_id: objectId, unit_price_yuan_sqm: u })),
+        { batch_id: "b_x9_a" },
+      ),
+    );
+    expect(a.status).toBe(202);
+    const b = await postBatch(
+      obsPayload(
+        bUnits.map((u) => obs({ object_id: objectId, unit_price_yuan_sqm: u })),
+        { batch_id: "b_x9_b", source_id: "src_official_x9" },
+      ),
+    );
+    expect(b.status).toBe(202);
+
+    const snap = ctx.pub
+      .prepare(
+        "SELECT median, sample_count, quality_status, method_version FROM price_snapshots WHERE object_id = ?",
+      )
+      .get(objectId) as Record<string, unknown>;
+    expect(snap["quality_status"]).toBe("outlier");
+    expect(snap["sample_count"]).toBe(10);
+    expect(snap["median"]).not.toBeNull(); // 留痕不隐藏：统计量照常全量写入
+    expect(snap["method_version"]).toBe("09-aggregate-v3");
+
+    // 阈值内对照：另一对象双源偏差 14.9% → 不触发，维持 valid
+    const okId = "cmt_x9_ok";
+    const okB = [33470, 33970, 34470, 34970, 35470]; // median 34470 → 14.9%
+    const okA = await postBatch(
+      obsPayload(
+        aUnits.map((u) => obs({ object_id: okId, unit_price_yuan_sqm: u })),
+        { batch_id: "b_x9_ok_a" },
+      ),
+    );
+    expect(okA.status).toBe(202);
+    const okBRes = await postBatch(
+      obsPayload(
+        okB.map((u) => obs({ object_id: okId, unit_price_yuan_sqm: u })),
+        { batch_id: "b_x9_ok_b", source_id: "src_official_x9" },
+      ),
+    );
+    expect(okBRes.status).toBe(202);
+    const okSnap = ctx.pub
+      .prepare("SELECT quality_status FROM price_snapshots WHERE object_id = ?")
+      .get(okId) as Record<string, unknown>;
+    expect(okSnap["quality_status"]).toBe("valid");
   });
 });
 
@@ -914,6 +985,53 @@ describe("computeStats（纯函数直测：线性插值边界）", () => {
     expect(s.p25).toBeCloseTo(17.5, 10);
     expect(s.p75).toBeCloseTo(32.5, 10);
     expect(() => computeStats([])).toThrow();
+  });
+});
+
+describe("crossSourceDivergence（TASK-09 R3 纯函数直测：双源中位数偏差边界）", () => {
+  const rows = (source: string, units: number[]) =>
+    units.map((unit_price_yuan_sqm) => ({
+      source_id: source,
+      unit_price_yuan_sqm,
+    }));
+
+  it("有效源≥2：偏差 14.9% → 0.149；15.1% → 0.151（阈值比较由调用方执行）", async () => {
+    const { crossSourceDivergence } = await import("./observations");
+    const a = rows("s1", [28000, 29000, 30000, 31000, 32000]); // median 30000
+    const b149 = rows("s2", [33470, 33970, 34470, 34970, 35470]); // median 34470
+    const b151 = rows("s2", [33530, 34030, 34530, 35030, 35530]); // median 34530
+    expect(crossSourceDivergence([...a, ...b149])).toBeCloseTo(0.149, 10);
+    expect(crossSourceDivergence([...a, ...b151])).toBeCloseTo(0.151, 10);
+  });
+
+  it("单源（任意样本量）→ null：交叉核验不触发", async () => {
+    const { crossSourceDivergence } = await import("./observations");
+    expect(
+      crossSourceDivergence(
+        rows(
+          "s1",
+          Array.from({ length: 20 }, () => 30000),
+        ),
+      ),
+    ).toBeNull();
+  });
+
+  it("双源但一源样本 < MIN_VALID_SAMPLES(5) → null：非有效源不参与核验", async () => {
+    const { crossSourceDivergence } = await import("./observations");
+    const a = rows("s1", [28000, 29000, 30000, 31000, 32000]); // 有效源
+    const b4 = rows("s2", [33530, 34030, 35030, 35530]); // 4 样本 → 非有效源
+    expect(crossSourceDivergence([...a, ...b4])).toBeNull();
+  });
+
+  it("三源取最大相对偏差（max−min)/min", async () => {
+    const { crossSourceDivergence } = await import("./observations");
+    const a = rows("s1", [28000, 29000, 30000, 31000, 32000]); // 30000
+    const b = rows("s2", [30000, 31000, 32000, 33000, 34000]); // 32000
+    const c = rows("s3", [33000, 34000, 35000, 36000, 37000]); // 35000
+    expect(crossSourceDivergence([...a, ...b, ...c])).toBeCloseTo(
+      (35000 - 30000) / 30000,
+      10,
+    );
   });
 });
 

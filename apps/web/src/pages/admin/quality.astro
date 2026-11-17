@@ -26,11 +26,12 @@ const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
     <AdminMfaGate />
 
     <div data-main hidden>
-      <!-- 三类异常计数条 -->
+      <!-- 四类异常计数条 -->
       <div class="statusbar" role="status">
         <span class="badge badge--danger" data-c-job>▲ 任务失败 —</span>
         <span class="badge badge--warning" data-c-health>◍ 来源健康 —</span>
         <span class="badge badge--neutral" data-c-obs>■ 观测异常 —</span>
+        <span class="badge badge--danger" data-c-snap>◆ 快照离群 —</span>
         <span class="meta">只读聚合视图；标记误报 / 重处理批次等处置操作将在后续任务提供</span>
       </div>
 
@@ -44,6 +45,7 @@ const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
             <button type="button" class="chip" data-kind="job_failed">任务失败</button>
             <button type="button" class="chip" data-kind="health">来源健康</button>
             <button type="button" class="chip" data-kind="observation">观测异常</button>
+            <button type="button" class="chip" data-kind="snapshot">快照离群</button>
           </div>
           <input
             class="input"
@@ -138,9 +140,11 @@ const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
       ? "任务失败"
       : k === "health"
         ? "来源健康"
-        : "观测异常";
+        : k === "snapshot"
+          ? "快照离群"
+          : "观测异常";
   const kindBadge = (k: string): string =>
-    k === "job_failed"
+    k === "job_failed" || k === "snapshot"
       ? "badge badge--danger"
       : k === "health"
         ? "badge badge--warning"
@@ -161,6 +165,8 @@ const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
       return `job ${dash(l.job_id)} · ${dash(l.error_code)}`;
     if (issue.issue_kind === "health")
       return `${dash(l.health_status)} · report ${dash(l.report_id)}`;
+    if (issue.issue_kind === "snapshot")
+      return `median ${dash(l.median)} · 样本 ${dash(l.sample_count)}`;
     return `${dash(l.quality_status)} · batch ${dash(l.batch_id)}`;
   }
 
@@ -180,6 +186,7 @@ const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
       setText("[data-c-job]", `▲ 任务失败 ${res.counts.job_failed}`);
       setText("[data-c-health]", `◍ 来源健康 ${res.counts.health}`);
       setText("[data-c-obs]", `■ 观测异常 ${res.counts.observation}`);
+      setText("[data-c-snap]", `◆ 快照离群 ${res.counts.snapshot}`);
       setText("[data-count-label]", `共 ${total} 条，当前 ${issues.length} 条`);
       const page = Math.floor(offset / PAGE_SIZE) + 1;
       const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -242,6 +249,10 @@ const demoEnabled = import.meta.env.PUBLIC_DEMO_DATA === "1";
     price_type: "价格类型",
     metric_code: "指标",
     stat_date: "统计日期",
+    snapshot_id: "快照 ID",
+    object_type: "对象类型",
+    median: "中位数（元/㎡）",
+    sample_count: "样本数",
   };
 
   function openDrawer(issue: QualityIssue): void {

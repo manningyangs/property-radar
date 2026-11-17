@@ -7,9 +7,13 @@
 //      用线性插值（numpy 默认口径，实现于纯函数 computeStats，供测试直测）；
 //   3) 快照 sample_count >= 5 → valid，否则 low_sample（PRD §4.4 小样本降级，
 //      median 等仍计算留痕，不静默删除）；无可聚合样本时不写快照（不造数）；
-//   4) object_type 一律 community（04D 无独立 listing 实体，样本挂在小区对象下）。
+//   4) object_type 一律 community（04D 无独立 listing 实体，样本挂在小区对象下）；
+//   5) TASK-09 R3 双源交叉核验：同组有效源（单源 valid 单价样本 ≥5）≥2 且各源中位数
+//      最大相对偏差 > CROSS_SOURCE_MAX_DIVERGENCE（15%，负责人 2026-11-17 裁决）
+//      → 快照 quality_status='outlier'（仍计算留痕不隐藏），进后台质量异常。
 import { sha256Hex } from "./auth";
 import {
+  CROSS_SOURCE_MAX_DIVERGENCE,
   METHOD_VERSION,
   MIN_VALID_SAMPLES,
   OBS_TO_SNAPSHOT_METRIC,
@@ -75,6 +79,33 @@ export function computeStats(values: number[]): Stats {
     p75: percentile(sorted, 0.75),
     sample_count: sorted.length,
   };
+}
+
+/**
+ * 双源交叉核验（TASK-09 R3，纯函数供单测直测）：按 source_id 分组取各源中位数，
+ * "有效源" = 组内 valid 单价样本 ≥ MIN_VALID_SAMPLES 的来源；有效源 ≥ 2 时返回
+ * 各源中位数最大相对偏差 (max−min)/min，否则返回 null（单源/样本不足不触发核验）。
+ * 与 low_sample 天然互斥：触发核验需 ≥2×5=10 样本，快照总样本必 ≥ MIN_VALID_SAMPLES。
+ */
+export function crossSourceDivergence(
+  rows: Array<{ source_id: string; unit_price_yuan_sqm: number }>,
+): number | null {
+  const bySource = new Map<string, number[]>();
+  for (const r of rows) {
+    const list = bySource.get(r.source_id) ?? [];
+    list.push(r.unit_price_yuan_sqm);
+    bySource.set(r.source_id, list);
+  }
+  const medians: number[] = [];
+  for (const values of bySource.values()) {
+    if (values.length < MIN_VALID_SAMPLES) continue; // 非有效源不参与核验
+    medians.push(computeStats(values).median);
+  }
+  if (medians.length < 2) return null;
+  const min = Math.min(...medians);
+  const max = Math.max(...medians);
+  if (min <= 0) return null; // 防御：非正中位数无法定义相对偏差（价格口径不可能出现）
+  return (max - min) / min;
 }
 
 /** 观测字段规范化 JSON（固定键序，跨运行/跨语言稳定 → payload_hash 稳定） */
@@ -205,19 +236,26 @@ export async function writeObservations(
     const snapshotMetric =
       OBS_TO_SNAPSHOT_METRIC[o.metric_code] ?? o.metric_code;
     const rows = await env.DB_PUBLIC.prepare(
-      `SELECT unit_price_yuan_sqm FROM price_observations
+      `SELECT source_id, unit_price_yuan_sqm FROM price_observations
        WHERE object_type = ? AND object_id = ? AND price_type = ?
          AND metric_code = ? AND stat_date = ?
          AND quality_status = 'valid' AND unit_price_yuan_sqm IS NOT NULL`,
     )
       .bind(OBJECT_TYPE, o.object_id, o.price_type, o.metric_code, o.stat_date)
-      .all<{ unit_price_yuan_sqm: number }>();
+      .all<{ source_id: string; unit_price_yuan_sqm: number }>();
     // 无可聚合样本：不写快照（不造数）
     if (rows.results.length === 0) continue;
 
     const stats = computeStats(rows.results.map((r) => r.unit_price_yuan_sqm));
+    // TASK-09 R3：双源中位数交叉核验——有效源≥2 且相对偏差 > 阈值 → outlier
+    // （median/mean/p25/p75 照常全量写入留痕，不隐藏；outlier 与 low_sample 互斥）
+    const divergence = crossSourceDivergence(rows.results);
     const quality =
-      stats.sample_count >= MIN_VALID_SAMPLES ? "valid" : "low_sample";
+      divergence != null && divergence > CROSS_SOURCE_MAX_DIVERGENCE
+        ? "outlier"
+        : stats.sample_count >= MIN_VALID_SAMPLES
+          ? "valid"
+          : "low_sample";
     const snapshotKey = `${OBJECT_TYPE}|${o.object_id}|${o.price_type}|${snapshotMetric}|${o.stat_date}`;
     const snapshotId = (await sha256Hex(snapshotKey)).slice(0, 32);
     await env.DB_PUBLIC.prepare(
