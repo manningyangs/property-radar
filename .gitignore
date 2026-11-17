@@ -23,6 +23,10 @@ npm-debug.log*
 # TASK-07C：数据库备份产物（含 PII，PII 不出本机、不进 git/CI）
 backups/
 
+# 运维现场文件（含密钥/派生 token，绝不入库）
+pr08a_apps_script_hmac.txt
+pr08d_admin_login_hint.txt
+
 # Python（collectors）
 __pycache__/
 *.pyc
