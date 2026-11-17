@@ -72,6 +72,10 @@ node ...\wrangler.js deployments status          # 验证 100% 流量已切换
 
 Pages 已部署（08A，项目 `property-radar-web`，生产分支 main）。回滚：Pages → Deployments → 历史 production 部署 → "Switch to this deployment"；或手动重跑 `deploy-web.yml` 部署旧构建。
 
+- **客户端渲染说明（08C 起）**：公共行情页（首页/区域/小区/`/cities`/`/methodology`）为静态骨架 + 浏览器端 fetch `/api/v1/public/*` 渲染。回滚前端构建不影响数据正确性（数据全在 Worker/D1 侧）；但前端版本必须与 API 契约兼容——若 Worker 已回滚到旧版本，前端旧构建同样回滚即可（public 只读端点自 04D 起契约稳定，08C 仅新增 R6b 写端点，旧前端不调用）。
+- 本地手动发布（CI secrets 未配置时的通道）：`PUBLIC_API_BASE=https://property-radar-api.yang1-75.workers.dev/api/v1 pnpm --filter @property-radar/web build` → `wrangler pages deploy apps/web/dist --project-name property-radar-web`（网络命令需脱离沙箱；"fetch failed" 偶发，重试即可）。
+- 当前生产 Worker Version：`607ba987-aaac-4962-aae3-7e83a9808d0b`（含 08C R6b 覆盖申请端点）。
+
 ### 3.3 采集器回滚
 
 `daily-collect.yml` 随代码回滚（GitHub revert + 自动生效）；补跑用 workflow_dispatch 指定 run-date。
